@@ -71,17 +71,35 @@ export class AuthController {
     return { success: true, data: result };
   }
 
+  private setAuthCookies(res: Response, accessToken: string, refreshToken: string) {
+    const isProd = process.env.NODE_ENV === 'production';
+    res.cookie('appnix_access_token', accessToken, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: 'lax',
+      maxAge: 15 * 60 * 1000, // 15 mins
+      path: '/',
+    });
+    res.cookie('appnix_refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: '/',
+    });
+  }
+
   @Post('signup')
   @ApiOperation({ summary: 'Create a tenant workspace and first admin user' })
   @ApiBody({ type: SignupDto })
   @ApiResponse({ status: 201, description: 'Tenant and admin created successfully.' })
   @ApiResponse({ status: 409, description: 'Email already in use.' })
-  async signup(@Body() dto: SignupDto) {
+  async signup(@Body() dto: SignupDto, @Res({ passthrough: true }) res: Response) {
     const workspaceName = dto.workspaceName || dto.tenantName || 'My Workspace';
     const result = await this.authService.signup(workspaceName, dto.email, dto.password, dto.name, dto.recaptchaToken);
+    this.setAuthCookies(res, result.accessToken, result.refreshToken);
     return { success: true, data: result };
   }
-
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -89,8 +107,21 @@ export class AuthController {
   @ApiBody({ type: LoginDto })
   @ApiResponse({ status: 200, description: 'Signed in successfully.' })
   @ApiResponse({ status: 401, description: 'Invalid credentials.' })
-  async login(@Body() dto: LoginDto) {
+  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.login(dto.email, dto.password, dto.recaptchaToken);
+    this.setAuthCookies(res, result.accessToken, result.refreshToken);
+    return { success: true, data: result };
+  }
+
+  @Post('admin/login')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Sign in to the Admin/Reseller Portal with privilege check' })
+  @ApiBody({ type: LoginDto })
+  @ApiResponse({ status: 200, description: 'Admin signed in successfully.' })
+  @ApiResponse({ status: 403, description: 'User is not an admin or reseller.' })
+  async adminLogin(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.adminLogin(dto.email, dto.password, dto.recaptchaToken);
+    this.setAuthCookies(res, result.accessToken, result.refreshToken);
     return { success: true, data: result };
   }
 
@@ -143,9 +174,10 @@ export class AuthController {
   @ApiOperation({ summary: 'Refresh access token using refresh token' })
   @ApiResponse({ status: 200, description: 'Token refreshed successfully.' })
   @ApiResponse({ status: 401, description: 'Invalid or expired refresh token.' })
-  async refresh(@Req() req: Request) {
+  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const user = req.user as { userId: string; refreshToken: string };
     const result = await this.authService.refreshTokens(user.userId, user.refreshToken);
+    this.setAuthCookies(res, result.accessToken, result.refreshToken);
     return { success: true, data: result };
   }
 
@@ -165,12 +197,16 @@ export class AuthController {
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Invalidate the current refresh token' })
+  @ApiOperation({ summary: 'Invalidate the current refresh token and clear auth cookies' })
   @ApiResponse({ status: 200, description: 'Logged out successfully.' })
   @ApiResponse({ status: 401, description: 'Unauthorized.' })
-  async logout(@Req() req: Request) {
-    const user = req.user as { userId: string };
-    await this.authService.logout(user.userId);
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const user = req.user as { userId?: string } | undefined;
+    if (user?.userId) {
+      await this.authService.logout(user.userId);
+    }
+    res.clearCookie('appnix_access_token', { path: '/' });
+    res.clearCookie('appnix_refresh_token', { path: '/' });
     return { success: true, message: 'Logged out successfully' };
   }
 }

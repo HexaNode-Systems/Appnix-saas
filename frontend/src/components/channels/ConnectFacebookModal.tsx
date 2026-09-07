@@ -29,6 +29,7 @@ import {
   AlertTriangle,
   RotateCcw,
   CheckSquare,
+  ScanLine,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,14 +43,14 @@ import {
   WebhookHandshakeStep,
 } from "@/types/facebook-channel";
 import {
-  MOCK_FB_USER,
-  INITIAL_FACEBOOK_PAGES,
   getStoredFacebookUser,
   saveStoredFacebookUser,
   getStoredFacebookPages,
+  saveStoredFacebookPages,
   markPageAsConnected,
 } from "@/lib/facebook-channels";
 import { Channel } from "@/components/channels/channel-manager";
+import { api } from "@/lib/api/axios";
 import { cn } from "@/lib/utils";
 
 interface ConnectFacebookModalProps {
@@ -85,9 +86,20 @@ export function ConnectFacebookModal({
   // Stepper State
   const [step, setStep] = useState<ConnectFacebookStep>("AUTH");
 
+  // Auth Mode State: "oauth" | "token"
+  const [authMode, setAuthMode] = useState<"oauth" | "token">("oauth");
+  const [customConfigId, setCustomConfigId] = useState("");
+  const [showAdvancedConfig, setShowAdvancedConfig] = useState(false);
+
+  // Direct Page Token State
+  const [manualToken, setManualToken] = useState("");
+  const [manualPageId, setManualPageId] = useState("");
+  const [isVerifyingToken, setIsVerifyingToken] = useState(false);
+  const [tokenVerifyError, setTokenVerifyError] = useState<string | null>(null);
+
   // Auth State
   const [authUser, setAuthUser] = useState<FacebookUserProfile | null>(() =>
-    getStoredFacebookUser() || MOCK_FB_USER
+    getStoredFacebookUser()
   );
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -112,7 +124,7 @@ export function ConnectFacebookModal({
   const [provisioningError, setProvisioningError] = useState<string | null>(null);
   const [handshakeSteps, setHandshakeSteps] = useState<WebhookHandshakeStep[]>([
     { id: "token", label: "Generating long-lived Page Access Token via Meta Graph API", status: "pending" },
-    { id: "webhook", label: "Registering Appnix Webhook Callback Endpoint (https://api.appnix.com/webhooks/facebook)", status: "pending" },
+    { id: "webhook", label: "Registering Appnix Webhook Callback Endpoint (https://api.appnix.co.in/api/v1/webhooks/facebook)", status: "pending" },
     { id: "subscribe", label: "Subscribing to messages, messaging_postbacks & delivery receipts", status: "pending" },
     { id: "router", label: "Activating Live Chat Router & Automated Greeting Bot", status: "pending" },
   ]);
@@ -125,7 +137,20 @@ export function ConnectFacebookModal({
     return pages.find((p) => p.id === selectedPageId) || null;
   }, [pages, selectedPageId]);
 
-  if (!isOpen) return null;
+  // Filtered pages list
+  const filteredPages = useMemo(() => {
+    return pages.filter((p) => {
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        return (
+          p.name.toLowerCase().includes(q) ||
+          p.id.includes(q) ||
+          p.category.toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [pages, searchQuery]);
 
   // Handle Close Attempt (with confirmation if in progress)
   const handleAttemptClose = () => {
@@ -136,28 +161,141 @@ export function ConnectFacebookModal({
     }
   };
 
-  // 1. Authenticate with Facebook
-  const handleAuthenticate = () => {
+  // 1. Authenticate with Facebook via Meta OAuth popup / redirect
+  const handleAuthenticate = async () => {
     setIsAuthenticating(true);
     setAuthError(null);
 
-    // Simulate OAuth Dialog popup / handshake
-    setTimeout(() => {
-      setAuthUser(MOCK_FB_USER);
-      saveStoredFacebookUser(MOCK_FB_USER);
+    const redirectUri = window.location.origin + "/channels/facebook/callback";
+    const configParam = customConfigId.trim()
+      ? `&configId=${encodeURIComponent(customConfigId.trim())}`
+      : "";
+
+    try {
+      const res = await api.get(
+        `/channels/facebook/oauth/url?redirectUri=${encodeURIComponent(redirectUri)}${configParam}`
+      );
+      const oauthUrl = res.data?.data?.oauthUrl;
+
+      if (!oauthUrl) {
+        throw new Error("Could not retrieve Meta authorization URL from backend.");
+      }
+
+      // Setup window postMessage listener for popup callback
+      const onMessage = async (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return;
+
+        if (event.data?.type === "META_FACEBOOK_AUTH_CODE") {
+          window.removeEventListener("message", onMessage);
+          const code = event.data.code;
+
+          try {
+            const exchangeRes = await api.post("/channels/facebook/oauth/exchange", {
+              code,
+              redirectUri,
+            });
+            const data = exchangeRes.data?.data;
+            const user = data?.user || null;
+            const list = data?.pages || [];
+
+            setAuthUser(user);
+            setPages(list);
+            if (user) saveStoredFacebookUser(user);
+            if (list.length > 0) saveStoredFacebookPages(list);
+
+            setIsAuthenticating(false);
+            setStep("SELECT_PAGE");
+          } catch (exchangeErr: any) {
+            setIsAuthenticating(false);
+            setAuthError(
+              exchangeErr.response?.data?.message || "Failed to exchange Meta authorization code."
+            );
+          }
+        } else if (event.data?.type === "META_FACEBOOK_AUTH_ERROR") {
+          window.removeEventListener("message", onMessage);
+          setIsAuthenticating(false);
+          setAuthError(
+            event.data.error || "Meta authentication was canceled or permission was denied."
+          );
+        }
+      };
+
+      window.addEventListener("message", onMessage);
+
+      // Open OAuth in centered popup
+      const width = 650;
+      const height = 750;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2;
+      const popup = window.open(
+        oauthUrl,
+        "meta_facebook_oauth",
+        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,status=yes`
+      );
+
+      // Detect if user closed the popup window manually
+      const checkPopupClosed = setInterval(() => {
+        if (popup && popup.closed) {
+          clearInterval(checkPopupClosed);
+          window.removeEventListener("message", onMessage);
+          setIsAuthenticating(false);
+        }
+      }, 1000);
+
+      // Fallback: If popup is blocked by browser, redirect current window
+      if (!popup || popup.closed || typeof popup.closed === "undefined") {
+        clearInterval(checkPopupClosed);
+        window.location.href = oauthUrl;
+      }
+    } catch (err: any) {
       setIsAuthenticating(false);
-      setStep("SELECT_PAGE");
-    }, 1100);
+      setAuthError(
+        err.response?.data?.message || err.message || "Failed to initialize Meta authorization."
+      );
+    }
   };
 
-  // Simulate User Dismissal / Cancellation Error
-  const handleSimulateCancelOAuth = () => {
-    setIsAuthenticating(true);
-    setAuthError(null);
-    setTimeout(() => {
-      setIsAuthenticating(false);
-      setAuthError("Authentication was canceled. Please try again to grant messaging permissions.");
-    }, 700);
+  // Direct Token Verification (Meta Graph API)
+  const handleVerifyManualToken = async () => {
+    if (!manualToken.trim()) {
+      setTokenVerifyError("Please paste a valid Facebook Page Access Token.");
+      return;
+    }
+
+    setIsVerifyingToken(true);
+    setTokenVerifyError(null);
+
+    try {
+      const res = await api.post("/channels/facebook/verify-token", {
+        accessToken: manualToken.trim(),
+        pageId: manualPageId.trim() || undefined,
+      });
+
+      const data = res.data;
+      if (data?.success) {
+        const verifiedPages: FacebookPage[] = data.pages || (data.page ? [data.page] : []);
+        if (verifiedPages.length > 0) {
+          setPages(verifiedPages);
+          saveStoredFacebookPages(verifiedPages);
+
+          if (verifiedPages.length === 1) {
+            setSelectedPageId(verifiedPages[0].id);
+            setChannelName(verifiedPages[0].name);
+            setStep("CONFIGURE");
+          } else {
+            setStep("SELECT_PAGE");
+          }
+        } else {
+          setTokenVerifyError("No Facebook Pages found associated with this access token.");
+        }
+      }
+    } catch (err: any) {
+      setTokenVerifyError(
+        err.response?.data?.message || err.message || "Failed to verify Facebook access token with Meta Graph API."
+      );
+    } finally {
+      setIsVerifyingToken(false);
+    }
   };
 
   // Switch / Logout Facebook Account
@@ -165,16 +303,20 @@ export function ConnectFacebookModal({
     setAuthUser(null);
     saveStoredFacebookUser(null);
     setSelectedPageId(null);
+    setPages([]);
+    saveStoredFacebookPages([]);
     setStep("AUTH");
   };
 
   // Refresh Pages List
   const handleRefreshPages = () => {
     setIsRefreshingPages(true);
-    setTimeout(() => {
-      setPages(getStoredFacebookPages());
+    try {
+      const stored = getStoredFacebookPages();
+      setPages(stored);
+    } finally {
       setIsRefreshingPages(false);
-    }, 600);
+    }
   };
 
   // Page Selection Proceed
@@ -191,61 +333,58 @@ export function ConnectFacebookModal({
   };
 
   // Provisioning & Webhook Execution
-  const executeProvisioningHandshake = () => {
+  const executeProvisioningHandshake = async () => {
     if (!selectedPage || !channelName.trim()) return;
 
     setStep("PROVISIONING");
     setProvisioningError(null);
-    setProvisioningProgress(15);
+    setProvisioningProgress(20);
 
     // Step 1: Token
     setHandshakeSteps((prev) =>
       prev.map((s, i) => (i === 0 ? { ...s, status: "in_progress" } : { ...s, status: "pending" }))
     );
 
-    setTimeout(() => {
-      setHandshakeSteps((prev) =>
-        prev.map((s, i) =>
-          i === 0
-            ? { ...s, status: "completed" }
-            : i === 1
-            ? { ...s, status: "in_progress" }
-            : s
-        )
-      );
-      setProvisioningProgress(45);
-    }, 700);
+    try {
+      setTimeout(() => {
+        setHandshakeSteps((prev) =>
+          prev.map((s, i) =>
+            i === 0
+              ? { ...s, status: "completed" }
+              : i === 1
+              ? { ...s, status: "in_progress" }
+              : s
+          )
+        );
+        setProvisioningProgress(50);
+      }, 500);
 
-    // Step 2: Webhook Endpoint
-    setTimeout(() => {
-      setHandshakeSteps((prev) =>
-        prev.map((s, i) =>
-          i <= 1
-            ? { ...s, status: "completed" }
-            : i === 2
-            ? { ...s, status: "in_progress" }
-            : s
-        )
-      );
-      setProvisioningProgress(75);
-    }, 1400);
+      setTimeout(() => {
+        setHandshakeSteps((prev) =>
+          prev.map((s, i) =>
+            i <= 1
+              ? { ...s, status: "completed" }
+              : i === 2
+              ? { ...s, status: "in_progress" }
+              : s
+          )
+        );
+        setProvisioningProgress(75);
+      }, 1000);
 
-    // Step 3: Subscriptions
-    setTimeout(() => {
-      setHandshakeSteps((prev) =>
-        prev.map((s, i) =>
-          i <= 2
-            ? { ...s, status: "completed" }
-            : i === 3
-            ? { ...s, status: "in_progress" }
-            : s
-        )
-      );
-      setProvisioningProgress(90);
-    }, 2100);
+      // Real backend connection & webhook auto-subscription
+      await api.post("/channels/facebook/connect", {
+        pageId: selectedPage.id,
+        pageName: channelName.trim() || selectedPage.name,
+        accessToken: selectedPage.accessToken,
+        category: selectedPage.category,
+        avatarUrl: selectedPage.avatarUrl,
+        channelName: channelName.trim(),
+        colorCode,
+        botEnabled: botHandoffEnabled,
+        welcomeMessage: welcomeMessage.trim(),
+      });
 
-    // Step 4: Finalize
-    setTimeout(() => {
       setHandshakeSteps((prev) => prev.map((s) => ({ ...s, status: "completed" })));
       setProvisioningProgress(100);
 
@@ -256,12 +395,13 @@ export function ConnectFacebookModal({
         name: channelName.trim(),
         subtitle: `Page ID: ${selectedPage.id}`,
         status: "connected",
+        topRight: { label: "Page Connected", sub: "Facebook Messenger" },
         fields: [
           { label: "Page Status", value: "Connected & Published", icon: CheckCircle2 },
           {
-            label: "Follower Count",
-            value: `${(selectedPage.followerCount / 1000).toFixed(1)}k Followers`,
-            icon: Users,
+            label: "Category",
+            value: selectedPage.category || "General",
+            icon: ScanLine,
           },
           {
             label: "Messenger Bot",
@@ -276,7 +416,15 @@ export function ConnectFacebookModal({
       markPageAsConnected(selectedPage.id);
       onChannelCreated(newChannel);
       setStep("SUCCESS");
-    }, 2800);
+    } catch (err: any) {
+      const msg =
+        err.response?.data?.message ||
+        "Failed to connect Facebook Page and configure Messenger Webhooks.";
+      setProvisioningError(msg);
+      setHandshakeSteps((prev) =>
+        prev.map((s) => (s.status === "in_progress" ? { ...s, status: "failed" } : s))
+      );
+    }
   };
 
   const handleCopyPageId = (id: string, e: React.MouseEvent) => {
@@ -286,20 +434,7 @@ export function ConnectFacebookModal({
     setTimeout(() => setCopiedPageId(null), 2000);
   };
 
-  // Filtered pages list
-  const filteredPages = useMemo(() => {
-    return pages.filter((p) => {
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        return (
-          p.name.toLowerCase().includes(q) ||
-          p.id.includes(q) ||
-          p.category.toLowerCase().includes(q)
-        );
-      }
-      return true;
-    });
-  }, [pages, searchQuery]);
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto animate-in fade-in duration-200">
@@ -419,145 +554,356 @@ export function ConnectFacebookModal({
           {/* STEP 1: AUTHENTICATION & PERMISSIONS HANDSHAKE */}
           {step === "AUTH" && (
             <div className="space-y-5 animate-in fade-in duration-200">
-              {/* OAuth Cancellation Warning Banner */}
-              {authError && (
-                <div className="rounded-xl border border-rose-200 bg-rose-50 dark:bg-rose-950/40 p-3.5 flex items-start gap-2.5 text-rose-800 dark:text-rose-200 text-xs">
-                  <AlertCircle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="font-bold">Authentication Canceled or Incomplete</p>
-                    <p className="text-[11px] mt-0.5 leading-relaxed">{authError}</p>
-                  </div>
+              {/* Connection Mode Selection Tabs */}
+              {!authUser && (
+                <div className="flex items-center gap-1.5 p-1 bg-muted/60 rounded-xl border">
                   <button
-                    onClick={() => setAuthError(null)}
-                    className="text-rose-600 hover:text-rose-800"
+                    type="button"
+                    onClick={() => {
+                      setAuthMode("oauth");
+                      setAuthError(null);
+                    }}
+                    className={cn(
+                      "flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg font-semibold text-xs transition-all",
+                      authMode === "oauth"
+                        ? "bg-background text-foreground shadow-xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <Zap className="h-3.5 w-3.5 text-[#1877F2]" />
+                    <span>1-Click Meta OAuth</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode("token");
+                      setTokenVerifyError(null);
+                    }}
+                    className={cn(
+                      "flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg font-semibold text-xs transition-all",
+                      authMode === "token"
+                        ? "bg-background text-foreground shadow-xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Lock className="h-3.5 w-3.5 text-amber-500" />
+                    <span>Page Access Token (Direct)</span>
                   </button>
                 </div>
               )}
 
-              {/* Visual Overview & Security Badge */}
-              <div className="rounded-2xl border bg-gradient-to-br from-blue-50 to-indigo-50/40 dark:from-blue-950/30 dark:to-indigo-950/20 p-5 space-y-3.5">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-3">
-                    <div className="h-12 w-12 rounded-2xl bg-[#1877F2] text-white flex items-center justify-center shadow-lg">
-                      <FacebookBrandIcon className="h-7 w-7" />
+              {/* OAuth Cancellation / Scope Error Warning Banner */}
+              {authError && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 dark:bg-rose-950/40 p-3.5 space-y-2 text-rose-800 dark:text-rose-200 text-xs">
+                  <div className="flex items-start gap-2.5">
+                    <AlertCircle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-bold">Authentication Notice</p>
+                      <p className="text-[11px] mt-0.5 leading-relaxed">{authError}</p>
                     </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-foreground">
-                        Meta OAuth 2.0 Permissions Handshake
-                      </h3>
-                      <p className="text-[11px] text-muted-foreground">
-                        Connect with Meta Business to manage Messenger chats and automate customer replies.
-                      </p>
-                    </div>
-                  </div>
-                  <Badge variant="outline" className="bg-background/80 text-emerald-700 dark:text-emerald-300 border-emerald-200 text-[10px] gap-1">
-                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-                    <span>Meta Verified App</span>
-                  </Badge>
-                </div>
-
-                <div className="pt-2">
-                  <span className="text-[11px] font-semibold text-foreground block mb-2">
-                    Permissions Appnix will request:
-                  </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[11px]">
-                    <div className="bg-background/90 p-3 rounded-xl border space-y-1">
-                      <div className="flex items-center gap-1.5 text-emerald-600 font-semibold">
-                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                        <span>Messenger Direct Messages</span>
-                      </div>
-                      <p className="text-[10px] text-muted-foreground">
-                        Manage and send Facebook Page messages via live chat and automated bots.
-                      </p>
-                    </div>
-
-                    <div className="bg-background/90 p-3 rounded-xl border space-y-1">
-                      <div className="flex items-center gap-1.5 text-emerald-600 font-semibold">
-                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                        <span>Real-Time Webhooks</span>
-                      </div>
-                      <p className="text-[10px] text-muted-foreground">
-                        Receive instant webhooks for incoming customer chats and delivery status.
-                      </p>
-                    </div>
-
-                    <div className="bg-background/90 p-3 rounded-xl border space-y-1">
-                      <div className="flex items-center gap-1.5 text-emerald-600 font-semibold">
-                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                        <span>Page Admin Discovery</span>
-                      </div>
-                      <p className="text-[10px] text-muted-foreground">
-                        Read public page information, follower counts, and admin privileges.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Authenticated User Status Card (if logged in) */}
-              {authUser ? (
-                <div className="rounded-xl border bg-card p-4 flex items-center justify-between gap-3 shadow-2xs">
-                  <div className="flex items-center gap-3">
-                    <img
-                      src={authUser.avatarUrl}
-                      alt={authUser.name}
-                      className="h-10 w-10 rounded-full object-cover border ring-2 ring-primary/20"
-                    />
-                    <div>
-                      <p className="font-bold text-foreground text-xs">{authUser.name}</p>
-                      <p className="text-[11px] text-muted-foreground font-mono">{authUser.email}</p>
-                      <span className="text-[10px] text-emerald-600 flex items-center gap-1 mt-0.5">
-                        <Check className="h-3 w-3" /> Token Active & Valid
-                      </span>
-                    </div>
+                    <button
+                      onClick={() => setAuthError(null)}
+                      className="text-rose-600 hover:text-rose-800"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  {/* Quick switch suggestion to Page Access Token */}
+                  <div className="pt-2 border-t border-rose-200/60 dark:border-rose-800/50 flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-[11px] text-rose-700 dark:text-rose-300">
+                      Did Meta show &quot;Invalid Scopes&quot;? Connect directly via token instead:
+                    </span>
                     <Button
                       type="button"
-                      variant="ghost"
                       size="sm"
-                      onClick={handleSwitchAccount}
-                      className="text-xs text-muted-foreground hover:text-foreground"
+                      variant="outline"
+                      onClick={() => {
+                        setAuthError(null);
+                        setAuthMode("token");
+                      }}
+                      className="h-7 text-[11px] bg-white dark:bg-card border-rose-300 text-rose-800 hover:bg-rose-100 font-semibold"
                     >
-                      Log in as a different user
-                    </Button>
-                    <Button
-                      type="button"
-                      onClick={() => setStep("SELECT_PAGE")}
-                      className="bg-[#1877F2] hover:bg-[#1877F2]/90 text-white font-semibold gap-1.5 shadow-sm text-xs"
-                    >
-                      <span>Continue as {authUser.name.split(" ")[0]}</span>
-                      <ArrowRight className="h-3.5 w-3.5" />
+                      Switch to Direct Token
                     </Button>
                   </div>
                 </div>
-              ) : (
-                /* Primary OAuth Login Trigger */
-                <div className="space-y-3 text-center py-4">
+              )}
+
+              {/* MODE 1: OAUTH FLOW */}
+              {authMode === "oauth" && (
+                <>
+                  {/* Visual Overview & Security Badge */}
+                  <div className="rounded-2xl border bg-gradient-to-br from-blue-50 to-indigo-50/40 dark:from-blue-950/30 dark:to-indigo-950/20 p-5 space-y-3.5">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-3">
+                        <div className="h-12 w-12 rounded-2xl bg-[#1877F2] text-white flex items-center justify-center shadow-lg">
+                          <FacebookBrandIcon className="h-7 w-7" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-foreground">
+                            Meta OAuth 2.0 Permissions Handshake
+                          </h3>
+                          <p className="text-[11px] text-muted-foreground">
+                            Connect with Meta Business to manage Messenger chats and automate customer replies.
+                          </p>
+                        </div>
+                      </div>
+                      <Badge variant="outline" className="bg-background/80 text-emerald-700 dark:text-emerald-300 border-emerald-200 text-[10px] gap-1">
+                        <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+                        <span>Meta Verified App</span>
+                      </Badge>
+                    </div>
+
+                    <div className="pt-2">
+                      <span className="text-[11px] font-semibold text-foreground block mb-2">
+                        Permissions Appnix will request:
+                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[11px]">
+                        <div className="bg-background/90 p-3 rounded-xl border space-y-1">
+                          <div className="flex items-center gap-1.5 text-emerald-600 font-semibold">
+                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                            <span>Messenger Direct Messages</span>
+                          </div>
+                          <p className="text-[10px] text-muted-foreground">
+                            Manage and send Facebook Page messages via live chat and automated bots.
+                          </p>
+                        </div>
+
+                        <div className="bg-background/90 p-3 rounded-xl border space-y-1">
+                          <div className="flex items-center gap-1.5 text-emerald-600 font-semibold">
+                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                            <span>Real-Time Webhooks</span>
+                          </div>
+                          <p className="text-[10px] text-muted-foreground">
+                            Receive instant webhooks for incoming customer chats and delivery status.
+                          </p>
+                        </div>
+
+                        <div className="bg-background/90 p-3 rounded-xl border space-y-1">
+                          <div className="flex items-center gap-1.5 text-emerald-600 font-semibold">
+                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                            <span>Page Admin Discovery</span>
+                          </div>
+                          <p className="text-[10px] text-muted-foreground">
+                            Read public page information, follower counts, and admin privileges.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Authenticated User Status Card (if logged in) */}
+                  {authUser ? (
+                    <div className="rounded-xl border bg-card p-4 flex items-center justify-between gap-3 shadow-2xs">
+                      <div className="flex items-center gap-3">
+                        {authUser.avatarUrl ? (
+                          <img
+                            src={authUser.avatarUrl}
+                            alt={authUser.name}
+                            className="h-10 w-10 rounded-full object-cover border ring-2 ring-primary/20"
+                          />
+                        ) : (
+                          <div className="h-10 w-10 rounded-full bg-[#1877F2] text-white flex items-center justify-center font-bold text-xs ring-2 ring-primary/20">
+                            {authUser.name?.slice(0, 2).toUpperCase() || "FB"}
+                          </div>
+                        )}
+                        <div>
+                          <p className="font-bold text-foreground text-xs">{authUser.name}</p>
+                          <p className="text-[11px] text-muted-foreground font-mono">{authUser.email}</p>
+                          <span className="text-[10px] text-emerald-600 flex items-center gap-1 mt-0.5">
+                            <Check className="h-3 w-3" /> Token Active & Valid
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleSwitchAccount}
+                          className="text-xs text-muted-foreground hover:text-foreground"
+                        >
+                          Log in as a different user
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={() => setStep("SELECT_PAGE")}
+                          className="bg-[#1877F2] hover:bg-[#1877F2]/90 text-white font-semibold gap-1.5 shadow-sm text-xs"
+                        >
+                          <span>Continue as {authUser.name.split(" ")[0]}</span>
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Primary OAuth Login Trigger */
+                    <div className="space-y-3 text-center py-3">
+                      <Button
+                        type="button"
+                        onClick={handleAuthenticate}
+                        disabled={isAuthenticating}
+                        className="w-full sm:w-auto px-8 h-11 bg-[#1877F2] hover:bg-[#1877F2]/90 text-white font-bold text-sm shadow-md gap-2.5"
+                      >
+                        {isAuthenticating ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <span>Connecting to Meta accounts...</span>
+                          </>
+                        ) : (
+                          <>
+                            <FacebookBrandIcon className="h-5 w-5" />
+                            <span>Continue with Facebook</span>
+                          </>
+                        )}
+                      </Button>
+                      <p className="text-[11px] text-muted-foreground">
+                        An official Meta OAuth dialog will open in a popup window to authorize your pages.
+                      </p>
+
+                      {/* Advanced Configuration ID Toggle */}
+                      <div className="pt-2 text-left max-w-md mx-auto">
+                        <button
+                          type="button"
+                          onClick={() => setShowAdvancedConfig(!showAdvancedConfig)}
+                          className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 font-medium mx-auto"
+                        >
+                          <span>{showAdvancedConfig ? "Hide" : "Show"} Advanced: Meta Configuration ID (`config_id`)</span>
+                        </button>
+                        {showAdvancedConfig && (
+                          <div className="mt-2 p-3 rounded-xl border bg-muted/30 space-y-1.5 text-xs animate-in fade-in">
+                            <label className="text-[11px] font-semibold text-foreground">
+                              Facebook Login for Business Configuration ID
+                            </label>
+                            <Input
+                              placeholder="e.g. 2343296023089838"
+                              value={customConfigId}
+                              onChange={(e) => setCustomConfigId(e.target.value)}
+                              className="h-8 text-xs font-mono"
+                            />
+                            <p className="text-[10px] text-muted-foreground">
+                              If your Meta App uses Facebook Login for Business configurations, paste your Configuration ID here to authorize without permission scope errors.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* MODE 2: DIRECT PAGE ACCESS TOKEN */}
+              {authMode === "token" && (
+                <div className="space-y-4 rounded-2xl border bg-card p-5 animate-in fade-in duration-200">
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-foreground text-sm flex items-center gap-1.5">
+                          <Lock className="h-4 w-4 text-amber-500" />
+                          <span>Direct Page Access Token Connection</span>
+                        </h4>
+                        <Badge variant="outline" className="text-[9px] text-amber-600 bg-amber-50 dark:bg-amber-950/40 border-amber-200">
+                          Instant Connect
+                        </Badge>
+                      </div>
+                      <a
+                        href="https://developers.facebook.com/tools/explorer/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-primary hover:underline flex items-center gap-1 font-medium"
+                      >
+                        <span>Graph API Explorer</span>
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Bypass Meta OAuth dialog restrictions by entering your Page Access Token directly. Appnix will verify the token live with Meta Graph API and configure real Messenger Webhooks.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground text-[11px] flex items-center justify-between">
+                      <span>Facebook Page Access Token *</span>
+                      <span className="text-[10px] text-muted-foreground">Starts with EAA...</span>
+                    </label>
+                    <Textarea
+                      placeholder="Paste your Page Access Token (EAA...)"
+                      value={manualToken}
+                      onChange={(e) => setManualToken(e.target.value)}
+                      className="font-mono text-xs h-24 resize-none bg-background"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground text-[11px]">
+                      Page ID (Optional, auto-detected from token)
+                    </label>
+                    <Input
+                      placeholder="e.g. 102938475610293"
+                      value={manualPageId}
+                      onChange={(e) => setManualPageId(e.target.value)}
+                      className="h-8 text-xs font-mono bg-background"
+                    />
+                  </div>
+
+                  {tokenVerifyError && (
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 dark:bg-rose-950/40 p-3.5 flex items-start gap-2.5 text-rose-800 dark:text-rose-200 text-xs">
+                      <AlertCircle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="font-bold">Token Verification Failed</p>
+                        <p className="text-[11px] mt-0.5 leading-relaxed">{tokenVerifyError}</p>
+                      </div>
+                      <button
+                        onClick={() => setTokenVerifyError(null)}
+                        className="text-rose-600 hover:text-rose-800"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+
                   <Button
                     type="button"
-                    onClick={handleAuthenticate}
-                    disabled={isAuthenticating}
-                    className="w-full sm:w-auto px-8 h-11 bg-[#1877F2] hover:bg-[#1877F2]/90 text-white font-bold text-sm shadow-md gap-2.5"
+                    onClick={handleVerifyManualToken}
+                    disabled={isVerifyingToken || !manualToken.trim()}
+                    className="w-full bg-[#1877F2] hover:bg-[#1877F2]/90 text-white font-semibold text-xs h-10 gap-2 shadow-xs"
                   >
-                    {isAuthenticating ? (
+                    {isVerifyingToken ? (
                       <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>Connecting to Meta accounts...</span>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span>Verifying Token with Meta Graph API...</span>
                       </>
                     ) : (
                       <>
-                        <FacebookBrandIcon className="h-5 w-5" />
-                        <span>Continue with Facebook</span>
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        <span>Verify &amp; Load Facebook Page</span>
                       </>
                     )}
                   </Button>
-                  <p className="text-[11px] text-muted-foreground">
-                    An official Meta OAuth dialog will open in a popup window to authorize your pages.
-                  </p>
+
+                  {/* Fast Token Generation Helper */}
+                  <div className="rounded-xl bg-muted/40 p-3 space-y-1.5 border text-[11px]">
+                    <span className="font-semibold text-foreground block">
+                      How to get a Page Access Token in 30 seconds:
+                    </span>
+                    <ol className="list-decimal list-inside space-y-1 text-muted-foreground text-[10px]">
+                      <li>
+                        Go to{" "}
+                        <a
+                          href="https://developers.facebook.com/tools/explorer/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary underline"
+                        >
+                          Meta Graph API Explorer
+                        </a>
+                      </li>
+                      <li>In the <strong>Meta App</strong> dropdown, select your App.</li>
+                      <li>In the <strong>User or Page</strong> dropdown, select the Facebook Page you want to connect.</li>
+                      <li>Click <strong>Generate Access Token</strong>, approve permissions, and copy the token!</li>
+                    </ol>
+                  </div>
                 </div>
               )}
             </div>
@@ -569,11 +915,17 @@ export function ConnectFacebookModal({
               {/* User Account Toolbar */}
               <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border">
                 <div className="flex items-center gap-2.5">
-                  <img
-                    src={authUser?.avatarUrl || MOCK_FB_USER.avatarUrl}
-                    alt={authUser?.name}
-                    className="h-7 w-7 rounded-full object-cover border"
-                  />
+                  {authUser?.avatarUrl ? (
+                    <img
+                      src={authUser.avatarUrl}
+                      alt={authUser?.name || "Facebook User"}
+                      className="h-7 w-7 rounded-full object-cover border"
+                    />
+                  ) : (
+                    <div className="h-7 w-7 rounded-full bg-[#1877F2] text-white flex items-center justify-center font-bold text-[10px]">
+                      {authUser?.name?.slice(0, 2).toUpperCase() || "FB"}
+                    </div>
+                  )}
                   <div>
                     <p className="font-semibold text-foreground text-xs">
                       Logged in as {authUser?.name}

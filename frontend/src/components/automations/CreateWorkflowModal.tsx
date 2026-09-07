@@ -122,12 +122,7 @@ export function CreateWorkflowModal({
   isOpen,
   onClose,
   onSuccess,
-  folders = [
-    { id: "all", name: "All" },
-    { id: "nourin", name: "Nourin" },
-    { id: "sales", name: "Sales Pipeline" },
-    { id: "support", name: "Customer Support" },
-  ],
+  folders = [{ id: "all", name: "All" }],
   onFolderCreated,
 }: CreateWorkflowModalProps) {
   const router = useRouter();
@@ -143,6 +138,11 @@ export function CreateWorkflowModal({
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [folderList, setFolderList] = useState(folders);
+
+  // Sync folderList when folders prop changes
+  useState(() => {
+    setFolderList(folders);
+  });
 
   // Tags State
   const [tagInput, setTagInput] = useState("");
@@ -174,18 +174,23 @@ export function CreateWorkflowModal({
     setTags(tags.filter((t) => t !== tagToRemove));
   };
 
-  // Inline Folder Create Handler
-  const handleCreateFolderInline = () => {
-    if (!newFolderName.trim()) return;
-    const newId = `folder_${Date.now()}`;
-    const newFolderObj = { id: newId, name: newFolderName.trim() };
-    setFolderList([...folderList, newFolderObj]);
-    setSelectedFolder(newId);
-    if (onFolderCreated) {
-      onFolderCreated(newFolderName.trim());
+  // Inline Folder Create Handler (Persisted in DB)
+  const handleCreateFolderInline = async () => {
+    const trimmed = newFolderName.trim();
+    if (!trimmed) return;
+    try {
+      const res = await api.post("/automations/workflows/folders", { name: trimmed });
+      const newFolderObj = res.data?.data || { id: `folder_${Date.now()}`, name: trimmed };
+      setFolderList((prev) => [...prev, newFolderObj]);
+      setSelectedFolder(newFolderObj.id);
+      if (onFolderCreated) {
+        onFolderCreated(trimmed);
+      }
+      setNewFolderName("");
+      setIsCreatingFolder(false);
+    } catch (err: any) {
+      setErrorMessage(err.response?.data?.message || err.message || "Failed to create folder");
     }
-    setNewFolderName("");
-    setIsCreatingFolder(false);
   };
 
   // Select Template Handler
@@ -220,33 +225,22 @@ export function CreateWorkflowModal({
         templateId: startMode === "template" ? selectedTemplateId : undefined,
       };
 
-      // Call backend API
-      let newWorkflowId = `wf_${Date.now()}`;
-      try {
-        const response = await api.post("/api/automations/workflows", payload);
-        if (response.data && response.data.data?.id) {
-          newWorkflowId = response.data.data.id;
-        }
-      } catch (apiErr) {
-        console.warn("Backend save failed, continuing locally:", apiErr);
+      // Call real backend API
+      const response = await api.post("/automations/workflows", payload);
+      const created = response.data?.data;
+      if (!created || !created.id) {
+        throw new Error(response.data?.message || "Failed to create workflow");
       }
 
       if (onSuccess) {
-        onSuccess({
-          id: newWorkflowId,
-          title: payload.title,
-          folder: payload.folderName,
-          tags: payload.tags.join(", ") || "General",
-          active: true,
-          createdOn: "Just now",
-        });
+        onSuccess(created);
       }
 
       onClose();
       // Redirect to visual workflow canvas builder
-      router.push(`/automations/workflow/${newWorkflowId}/builder`);
+      router.push(`/automations/workflow/${created.id}/builder`);
     } catch (err: any) {
-      setErrorMessage(err.message || "Failed to create workflow. Please try again.");
+      setErrorMessage(err.response?.data?.message || err.message || "Failed to create workflow. Please try again.");
     } finally {
       setIsSubmitting(false);
     }

@@ -1,24 +1,29 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   X,
   CheckCircle2,
   AlertCircle,
   RefreshCw,
-  ExternalLink,
   ShieldCheck,
-  Zap,
   MessageSquare,
   Lock,
   ArrowRight,
   Check,
-  Building,
-  Smartphone,
   Sparkles,
   Link2,
   ScanLine,
   MessageCircle,
+  Building2,
+  PhoneCall,
+  Globe2,
+  HelpCircle,
+  CreditCard,
+  BarChart3,
+  Bot,
+  Zap,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +37,7 @@ interface ConnectWhatsAppModalProps {
   onChannelCreated: (newChannel: Channel) => void;
 }
 
-type ModalStep = "INIT" | "FETCHING_CONFIG" | "AWAITING_META" | "VERIFYING" | "SUCCESS" | "ERROR";
+type ModalStep = "INIT" | "AWAITING_META" | "VERIFYING" | "SUCCESS" | "ERROR";
 
 interface MetaPublicConfig {
   appId: string;
@@ -88,12 +93,34 @@ export function ConnectWhatsAppModal({
     businessId?: string;
   }>({});
 
+  const lastMetaStatus = useRef<{
+    status: "FINISH" | "CANCEL" | "ERROR";
+    reason?: string;
+  } | null>(null);
+
   const [handshakeSteps, setHandshakeSteps] = useState<VerificationProgressStep[]>([
     { id: "code", label: "Capturing Meta authorization code & session tokens", status: "pending" },
     { id: "token", label: "Exchanging long-lived system user token via Graph API", status: "pending" },
     { id: "verify", label: "Verifying WhatsApp Business Account & phone number identity", status: "pending" },
     { id: "webhook", label: "Subscribing Cloud API webhook & syncing live channel", status: "pending" },
   ]);
+
+  // Reset state whenever modal is opened
+  useEffect(() => {
+    if (!isOpen) return;
+
+    setStep("INIT");
+    setErrorMessage(null);
+    setVerifiedResult(null);
+    capturedData.current = {};
+    lastMetaStatus.current = null;
+    setHandshakeSteps([
+      { id: "code", label: "Capturing Meta authorization code & session tokens", status: "pending" },
+      { id: "token", label: "Exchanging long-lived system user token via Graph API", status: "pending" },
+      { id: "verify", label: "Verifying WhatsApp Business Account & phone number identity", status: "pending" },
+      { id: "webhook", label: "Subscribing Cloud API webhook & syncing live channel", status: "pending" },
+    ]);
+  }, [isOpen]);
 
   // Fetch Meta Public Config on mount / modal open
   useEffect(() => {
@@ -127,28 +154,59 @@ export function ConnectWhatsAppModal({
     };
   }, [isOpen]);
 
-  // Setup Meta sessionInfoListener
+  // Setup Meta sessionInfoListener for postMessage events
   useEffect(() => {
     if (!isOpen) return;
 
     const sessionInfoListener = (event: MessageEvent) => {
-      if (
-        event.origin !== "https://www.facebook.com" &&
-        event.origin !== "https://web.facebook.com"
-      ) {
-        return;
-      }
+      const origin = event.origin || "";
+      const isFacebookOrigin =
+        origin === "https://www.facebook.com" ||
+        origin === "https://web.facebook.com" ||
+        /^https:\/\/([a-zA-Z0-9-]+\.)?facebook\.com$/.test(origin);
+
+      if (!isFacebookOrigin) return;
 
       try {
         const parsed = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
-        if (parsed && (parsed.type === "WA_EMBEDDED_SIGNUP" || parsed.event === "WA_EMBEDDED_SIGNUP")) {
+        if (!parsed) return;
+
+        if (
+          parsed.type === "WA_EMBEDDED_SIGNUP" ||
+          parsed.event === "WA_EMBEDDED_SIGNUP" ||
+          parsed.event === "FINISH" ||
+          parsed.event === "CANCEL" ||
+          parsed.event === "ERROR"
+        ) {
+          const eventType = parsed.event || parsed.type;
           const payload = parsed.data || {};
-          if (payload.phone_number_id) capturedData.current.phoneNumberId = payload.phone_number_id;
-          if (payload.waba_id) capturedData.current.wabaId = payload.waba_id;
-          if (payload.business_id) capturedData.current.businessId = payload.business_id;
+
+          if (eventType === "CANCEL") {
+            lastMetaStatus.current = {
+              status: "CANCEL",
+              reason: "Embedded Signup was cancelled by user.",
+            };
+          } else if (eventType === "ERROR") {
+            lastMetaStatus.current = {
+              status: "ERROR",
+              reason: payload.error_message || "Meta Embedded Signup encountered an error.",
+            };
+          } else if (eventType === "FINISH" || payload.phone_number_id || payload.waba_id) {
+            lastMetaStatus.current = { status: "FINISH" };
+          }
+
+          if (payload.phone_number_id) {
+            capturedData.current.phoneNumberId = String(payload.phone_number_id);
+          }
+          if (payload.waba_id) {
+            capturedData.current.wabaId = String(payload.waba_id);
+          }
+          if (payload.business_id) {
+            capturedData.current.businessId = String(payload.business_id);
+          }
         }
       } catch {
-        // Ignore non-JSON messages
+        // Ignore non-JSON messages from other extensions or postMessage sources
       }
     };
 
@@ -158,12 +216,20 @@ export function ConnectWhatsAppModal({
     };
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
-  // Load Facebook JavaScript SDK
-  const loadFacebookSDK = (appId: string, graphVersion: string): Promise<any> => {
+  // Load Facebook JavaScript SDK safely
+  const loadFacebookSDK = useCallback((appId: string, graphVersion: string): Promise<any> => {
     return new Promise((resolve, reject) => {
       if (window.FB) {
+        try {
+          window.FB.init({
+            appId,
+            cookie: true,
+            xfbml: true,
+            version: graphVersion || "v21.0",
+          });
+        } catch {
+          // Already initialized
+        }
         resolve(window.FB);
         return;
       }
@@ -178,10 +244,29 @@ export function ConnectWhatsAppModal({
         resolve(window.FB);
       };
 
-      if (document.getElementById("facebook-jssdk")) {
-        if (window.FB) {
-          resolve(window.FB);
-        }
+      const existingScript = document.getElementById("facebook-jssdk") as HTMLScriptElement | null;
+      if (existingScript) {
+        const interval = setInterval(() => {
+          if (window.FB) {
+            clearInterval(interval);
+            try {
+              window.FB.init({
+                appId,
+                cookie: true,
+                xfbml: true,
+                version: graphVersion || "v21.0",
+              });
+            } catch {}
+            resolve(window.FB);
+          }
+        }, 100);
+
+        setTimeout(() => {
+          clearInterval(interval);
+          if (!window.FB) {
+            reject(new Error("Timeout loading Facebook SDK. Please disable content blockers."));
+          }
+        }, 10000);
         return;
       }
 
@@ -198,6 +283,110 @@ export function ConnectWhatsAppModal({
         );
       document.body.appendChild(script);
     });
+  }, []);
+
+  // Step 3: Handle Verify & Complete Server-to-Server Exchange
+  const handleVerifyAndComplete = async (code: string) => {
+    setStep("VERIFYING");
+
+    // Step 1: Code captured
+    setHandshakeSteps((prev) =>
+      prev.map((s) =>
+        s.id === "code"
+          ? { ...s, status: "completed" }
+          : s.id === "token"
+          ? { ...s, status: "in_progress" }
+          : s
+      )
+    );
+
+    try {
+      // Advance step 2 -> 3 animation
+      const animTimer = setTimeout(() => {
+        setHandshakeSteps((prev) =>
+          prev.map((s) =>
+            s.id === "token"
+              ? { ...s, status: "completed" }
+              : s.id === "verify"
+              ? { ...s, status: "in_progress" }
+              : s
+          )
+        );
+      }, 700);
+
+      const response = await api.post("/channels/whatsapp/embedded-signup", {
+        code,
+        wabaId: capturedData.current.wabaId,
+        phoneNumberId: capturedData.current.phoneNumberId,
+        businessId: capturedData.current.businessId,
+      });
+
+      clearTimeout(animTimer);
+      const resultData = response.data?.data;
+
+      // Advance step 3 -> 4
+      setHandshakeSteps((prev) =>
+        prev.map((s) =>
+          s.id === "token" || s.id === "verify"
+            ? { ...s, status: "completed" }
+            : s.id === "webhook"
+            ? { ...s, status: "in_progress" }
+            : s
+        )
+      );
+
+      await new Promise((r) => setTimeout(r, 600));
+
+      // All completed
+      setHandshakeSteps((prev) =>
+        prev.map((s) => ({ ...s, status: "completed" }))
+      );
+
+      setVerifiedResult(resultData);
+      setStep("SUCCESS");
+
+      // Format connected channel and update CRM state (without auto-closing the modal)
+      if (resultData) {
+        const connectedChannel: Channel = {
+          id: resultData.channelId || "whatsapp",
+          type: "whatsapp",
+          name: resultData.displayName || resultData.wabaName || "WhatsApp Cloud API",
+          subtitle: resultData.phoneNumber || (resultData.wabaId ? `WABA: ${resultData.wabaId}` : "Connected Number"),
+          status: "connected",
+          topRight: { label: "Verified & Live", sub: "Cloud API" },
+          fields: [
+            { label: "Number Status", value: "Verified & Live", icon: MessageCircle },
+            {
+              label: "Quality Rating",
+              value: resultData.qualityRating || "UNKNOWN",
+              icon: ScanLine,
+            },
+            {
+              label: "Messaging Limit",
+              value: resultData.messagingLimitTier || "TIER_50",
+              icon: MessageSquare,
+            },
+            {
+              label: "WABA ID",
+              value: resultData.wabaId || "Connected",
+              icon: Link2,
+            },
+          ],
+          actions: [Link2, FileText, CreditCard, BarChart3, Bot, Zap, MessageSquare],
+        };
+        onChannelCreated(connectedChannel);
+      }
+    } catch (err: any) {
+      setHandshakeSteps((prev) =>
+        prev.map((s) => (s.status === "in_progress" ? { ...s, status: "failed" } : s))
+      );
+      setStep("ERROR");
+      setErrorMessage(
+        err.response?.data?.message ||
+          err.message ||
+          "Verification with Meta Graph API failed. Please try again."
+      );
+    }
   };
 
   // Launch Meta Embedded Signup Popup Flow
@@ -212,6 +401,7 @@ export function ConnectWhatsAppModal({
 
     setErrorMessage(null);
     setStep("AWAITING_META");
+    lastMetaStatus.current = null;
 
     try {
       const FB = await loadFacebookSDK(metaConfig.appId, metaConfig.graphVersion);
@@ -223,9 +413,17 @@ export function ConnectWhatsAppModal({
             handleVerifyAndComplete(authCode);
           } else {
             setStep("ERROR");
-            setErrorMessage(
-              "Meta Embedded Signup was cancelled or did not return an authorization code. Please try again."
-            );
+            if (lastMetaStatus.current?.status === "CANCEL") {
+              setErrorMessage(
+                "The Meta Embedded Signup process was cancelled. Click 'Try Again' when you are ready to complete the connection."
+              );
+            } else if (lastMetaStatus.current?.status === "ERROR" && lastMetaStatus.current.reason) {
+              setErrorMessage(`Meta Signup error: ${lastMetaStatus.current.reason}`);
+            } else {
+              setErrorMessage(
+                "Meta Embedded Signup was cancelled or did not return an authorization code. Please complete all steps in the Meta dialog and try again."
+              );
+            }
           }
         },
         {
@@ -245,111 +443,12 @@ export function ConnectWhatsAppModal({
     }
   };
 
-  // Step 3: Handle Verify & Complete Server-to-Server Exchange
-  const handleVerifyAndComplete = async (code: string) => {
-    setStep("VERIFYING");
-
-    // Update Step 1: Code captured
-    setHandshakeSteps((prev) =>
-      prev.map((s) =>
-        s.id === "code"
-          ? { ...s, status: "completed" }
-          : s.id === "token"
-          ? { ...s, status: "in_progress" }
-          : s
-      )
-    );
-
-    try {
-      // Step 2 & 3: Post to backend
-      setTimeout(() => {
-        setHandshakeSteps((prev) =>
-          prev.map((s) =>
-            s.id === "token"
-              ? { ...s, status: "completed" }
-              : s.id === "verify"
-              ? { ...s, status: "in_progress" }
-              : s
-          )
-        );
-      }, 700);
-
-      const response = await api.post("/channels/whatsapp/embedded-signup", {
-        code,
-        wabaId: capturedData.current.wabaId,
-        phoneNumberId: capturedData.current.phoneNumberId,
-        businessId: capturedData.current.businessId,
-      });
-
-      const resultData = response.data?.data;
-
-      setHandshakeSteps((prev) =>
-        prev.map((s) =>
-          s.id === "verify"
-            ? { ...s, status: "completed" }
-            : s.id === "webhook"
-            ? { ...s, status: "in_progress" }
-            : s
-        )
-      );
-
-      setTimeout(() => {
-        setHandshakeSteps((prev) =>
-          prev.map((s) => ({ ...s, status: "completed" }))
-        );
-        setVerifiedResult(resultData);
-        setStep("SUCCESS");
-
-        // Format connected channel
-        if (resultData) {
-          const connectedChannel: Channel = {
-            id: resultData.channelId || "whatsapp",
-            type: "whatsapp",
-            name: resultData.displayName || resultData.wabaName || "WhatsApp Cloud API",
-            subtitle: resultData.phoneNumber || `WABA: ${resultData.wabaId}`,
-            status: "connected",
-            topRight: { label: "Verified & Live", sub: "Cloud API" },
-            fields: [
-              { label: "Number Status", value: "Verified & Live", icon: MessageCircle },
-              {
-                label: "Quality Rating",
-                value: resultData.qualityRating || "UNKNOWN",
-                icon: ScanLine,
-              },
-              {
-                label: "Messaging Limit",
-                value: resultData.messagingLimitTier || "TIER_50",
-                icon: MessageSquare,
-              },
-              {
-                label: "WABA ID",
-                value: resultData.wabaId || "Connected",
-                icon: Link2,
-              },
-            ],
-            actions: [Link2, Sparkles, MessageSquare],
-          };
-          onChannelCreated(connectedChannel);
-        }
-      }, 800);
-    } catch (err: any) {
-      setHandshakeSteps((prev) =>
-        prev.map((s) => (s.status === "in_progress" ? { ...s, status: "failed" } : s))
-      );
-      setStep("ERROR");
-      setErrorMessage(
-        err.response?.data?.message ||
-          err.message ||
-          "Verification with Meta Graph API failed. Please try again."
-      );
-    }
-  };
-
   const handleReset = () => {
     setStep("INIT");
     setErrorMessage(null);
     setVerifiedResult(null);
     capturedData.current = {};
+    lastMetaStatus.current = null;
     setHandshakeSteps([
       { id: "code", label: "Capturing Meta authorization code & session tokens", status: "pending" },
       { id: "token", label: "Exchanging long-lived system user token via Graph API", status: "pending" },
@@ -357,6 +456,8 @@ export function ConnectWhatsAppModal({
       { id: "webhook", label: "Subscribing Cloud API webhook & syncing live channel", status: "pending" },
     ]);
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
@@ -425,11 +526,11 @@ export function ConnectWhatsAppModal({
                 </div>
               ) : null}
 
-              {/* What will happen checklist */}
+              {/* Step-by-Step Flow Explanation */}
               <div className="rounded-xl border bg-muted/20 p-4 space-y-3 text-xs">
                 <p className="font-semibold text-foreground flex items-center gap-1.5">
                   <Sparkles className="h-4 w-4 text-emerald-600" />
-                  What happens in Meta Embedded Signup:
+                  Meta Embedded Signup Process:
                 </p>
                 <div className="space-y-2.5 text-muted-foreground">
                   <div className="flex items-start gap-2.5">
@@ -437,7 +538,7 @@ export function ConnectWhatsAppModal({
                       1
                     </div>
                     <span>
-                      Log in to your Facebook account linked to your Meta Business Manager.
+                      Log in to your Meta account and select your Business Portfolio (Business Manager).
                     </span>
                   </div>
                   <div className="flex items-start gap-2.5">
@@ -453,7 +554,7 @@ export function ConnectWhatsAppModal({
                       3
                     </div>
                     <span>
-                      Select or register your official WhatsApp Business phone number and verify via OTP.
+                      Select or register your business phone number and complete real-time OTP verification.
                     </span>
                   </div>
                   <div className="flex items-start gap-2.5">
@@ -461,7 +562,7 @@ export function ConnectWhatsAppModal({
                       4
                     </div>
                     <span>
-                      Grant Appnix permission to manage Cloud API messaging, templates, and automations.
+                      Confirm permissions — Appnix securely exchanges the code for encrypted tokens and sets up webhooks automatically.
                     </span>
                   </div>
                 </div>
@@ -584,7 +685,10 @@ export function ConnectWhatsAppModal({
               {verifiedResult && (
                 <div className="rounded-xl border bg-muted/20 p-4 space-y-3 text-xs">
                   <div className="flex items-center justify-between border-b pb-2.5">
-                    <span className="text-muted-foreground font-medium">Business Name</span>
+                    <span className="text-muted-foreground font-medium flex items-center gap-1.5">
+                      <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                      Business Name
+                    </span>
                     <span className="font-bold text-foreground">
                       {verifiedResult.displayName || verifiedResult.wabaName || "WhatsApp Business"}
                     </span>
@@ -592,7 +696,10 @@ export function ConnectWhatsAppModal({
 
                   {verifiedResult.phoneNumber && (
                     <div className="flex items-center justify-between border-b pb-2.5">
-                      <span className="text-muted-foreground font-medium">Phone Number</span>
+                      <span className="text-muted-foreground font-medium flex items-center gap-1.5">
+                        <PhoneCall className="h-3.5 w-3.5 text-emerald-600" />
+                        Phone Number
+                      </span>
                       <span className="font-bold font-mono text-emerald-600 dark:text-emerald-400">
                         {verifiedResult.phoneNumber}
                       </span>
@@ -601,26 +708,58 @@ export function ConnectWhatsAppModal({
 
                   {verifiedResult.wabaId && (
                     <div className="flex items-center justify-between border-b pb-2.5">
-                      <span className="text-muted-foreground font-medium">WABA ID</span>
+                      <span className="text-muted-foreground font-medium flex items-center gap-1.5">
+                        <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        WABA ID
+                      </span>
                       <span className="font-mono text-foreground">{verifiedResult.wabaId}</span>
                     </div>
                   )}
 
+                  {verifiedResult.businessId && (
+                    <div className="flex items-center justify-between border-b pb-2.5">
+                      <span className="text-muted-foreground font-medium flex items-center gap-1.5">
+                        <Globe2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        Business Portfolio ID
+                      </span>
+                      <span className="font-mono text-foreground">{verifiedResult.businessId}</span>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between border-b pb-2.5">
-                    <span className="text-muted-foreground font-medium">Quality Rating</span>
+                    <span className="text-muted-foreground font-medium flex items-center gap-1.5">
+                      <ScanLine className="h-3.5 w-3.5 text-muted-foreground" />
+                      Quality Rating
+                    </span>
                     <Badge
                       variant="outline"
-                      className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]"
+                      className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px] uppercase font-semibold"
                     >
                       {verifiedResult.qualityRating || "UNKNOWN"}
                     </Badge>
                   </div>
 
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground font-medium">Messaging Limit</span>
+                  <div className="flex items-center justify-between border-b pb-2.5">
+                    <span className="text-muted-foreground font-medium flex items-center gap-1.5">
+                      <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
+                      Messaging Limit
+                    </span>
                     <span className="font-medium text-foreground">
                       {verifiedResult.messagingLimitTier || "TIER_50"}
                     </span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground font-medium flex items-center gap-1.5">
+                      <Zap className="h-3.5 w-3.5 text-emerald-600" />
+                      Webhook Status
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px] font-semibold"
+                    >
+                      Subscribed & Live
+                    </Badge>
                   </div>
                 </div>
               )}
@@ -696,7 +835,7 @@ export function ConnectWhatsAppModal({
               <Button
                 size="sm"
                 onClick={onClose}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
               >
                 View WhatsApp Channel
               </Button>

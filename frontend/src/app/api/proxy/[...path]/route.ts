@@ -90,18 +90,33 @@ async function handleProxyRequest(
 
     const responseHeaders = new Headers();
     response.headers.forEach((value, key) => {
-      if (!["transfer-encoding", "content-encoding"].includes(key.toLowerCase())) {
+      if (!["transfer-encoding", "content-encoding", "set-cookie"].includes(key.toLowerCase())) {
         responseHeaders.set(key, value);
       }
     });
 
     const data = await response.arrayBuffer();
 
-    return new NextResponse(data, {
+    const nextResponse = new NextResponse(data, {
       status: response.status,
       statusText: response.statusText,
       headers: responseHeaders,
     });
+
+    // Forward Set-Cookie headers properly without merging them
+    if (typeof (response.headers as any).getSetCookie === "function") {
+      const setCookies = (response.headers as any).getSetCookie();
+      setCookies.forEach((cookieStr: string) => {
+        nextResponse.headers.append("set-cookie", cookieStr);
+      });
+    } else {
+      const setCookie = response.headers.get("set-cookie");
+      if (setCookie) {
+        nextResponse.headers.set("set-cookie", setCookie);
+      }
+    }
+
+    return nextResponse;
   } catch (error) {
     console.error("[Proxy Error]", error);
     return NextResponse.json(

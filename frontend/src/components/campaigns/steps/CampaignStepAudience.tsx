@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Users, AlertCircle, CheckCircle2, Calendar, Save, ShieldAlert } from "lucide-react";
+import Link from "next/link";
+import { ChevronLeft, ChevronRight, Users, AlertCircle, CheckCircle2, Calendar, Save, ShieldAlert, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -67,6 +68,14 @@ export function CampaignStepAudience({
               <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
                 No audience segments found. Please import contacts or create an audience segment in CRM first.
               </p>
+              <div className="mt-4">
+                <Button asChild variant="outline" size="sm" className="gap-1.5 text-xs">
+                  <Link href="/crm/contacts">
+                    <span>Manage CRM Contacts & Segments</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                </Button>
+              </div>
             </div>
           ) : (
             <div className="grid gap-3.5 md:grid-cols-2 lg:grid-cols-3">
@@ -123,7 +132,7 @@ export function CampaignStepAudience({
                         <div className="flex items-center gap-1.5 text-muted-foreground">
                           <Calendar className="h-3.5 w-3.5" />
                           <span>
-                            Updated {new Date(audience.lastUpdated).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                            Updated {audience.lastUpdated ? new Date(audience.lastUpdated).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Recently"}
                           </span>
                         </div>
                       </div>
@@ -206,7 +215,7 @@ export function CampaignStepAudience({
             disabled={!canProceed}
             className="gap-2 px-6 shadow-sm"
           >
-            Continue to Channel
+            Continue to Template
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>

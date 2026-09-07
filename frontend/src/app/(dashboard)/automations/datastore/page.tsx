@@ -66,151 +66,64 @@ export interface DataStoreRecord {
   updatedAt: string;
 }
 
-// ---------- Initial Datasets ----------
-const INITIAL_STORES: DataStoreItem[] = [
-  {
-    id: "ds_1",
-    name: "Cart Session Store",
-    slug: "cart_session_store",
-    description: "Temporary cart items, checkout URLs, and abandonment session states.",
-    keyType: "Phone Number",
-    ttlSeconds: 86400,
-    ttlLabel: "24 Hours",
-    recordLimit: 50000,
-    recordsCount: 14280,
-    sizeBytes: 4800000, // 4.8 MB
-    linkedWorkflowsCount: 3,
-    lastModified: "2 mins ago",
-  },
-  {
-    id: "ds_2",
-    name: "OTP Verification Cache",
-    slug: "otp_verification_cache",
-    description: "Transient 6-digit authentication OTP codes, attempt counters & expiration tokens.",
-    keyType: "Phone Number",
-    ttlSeconds: 600,
-    ttlLabel: "10 Mins",
-    recordLimit: 25000,
-    recordsCount: 8420,
-    sizeBytes: 1200000, // 1.2 MB
-    linkedWorkflowsCount: 4,
-    lastModified: "Just now",
-  },
-  {
-    id: "ds_3",
-    name: "Lead Routing & Scoring Cache",
-    slug: "lead_routing_cache",
-    description: "Round-robin sales rep assignment index, lead qualification scores, and CRM tags.",
-    keyType: "Email / Lead ID",
-    ttlSeconds: 604800,
-    ttlLabel: "7 Days",
-    recordLimit: 30000,
-    recordsCount: 9150,
-    sizeBytes: 3400000, // 3.4 MB
-    linkedWorkflowsCount: 2,
-    lastModified: "15 mins ago",
-  },
-  {
-    id: "ds_4",
-    name: "User Language & Channel Preferences",
-    slug: "user_preferences_store",
-    description: "Persistent customer language preference (Hindi, English, Marathi) & quiet hours.",
-    keyType: "User UUID",
-    ttlSeconds: null,
-    ttlLabel: "Never Expire",
-    recordLimit: 100000,
-    recordsCount: 11000,
-    sizeBytes: 5000000, // 5.0 MB
-    linkedWorkflowsCount: 5,
-    lastModified: "1 hour ago",
-  },
-];
+// ---------- Storage Persistence & Helpers ----------
+const DATASTORE_STORAGE_KEY = "appnix_datastores";
+const DATASTORE_RECORDS_KEY = "appnix_datastore_records";
 
-const INITIAL_RECORDS: Record<string, DataStoreRecord[]> = {
-  ds_1: [
-    {
-      id: "rec_101",
-      key: "+917753983175",
-      value: {
-        cartId: "shopify_cart_9921",
-        customerName: "Ankit Bansal",
-        totalPrice: 3499.0,
-        currency: "INR",
-        itemsCount: 2,
-        products: ["Premium Wireless Headset", "Noise-Cancelling Case"],
-        discountApplied: "SAVE15",
-      },
-      expiresAt: "Expires in 22 hours",
-      createdAt: "29 Aug 2026, 02:45 AM",
-      updatedAt: "29 Aug 2026, 02:45 AM",
-    },
-    {
-      id: "rec_102",
-      key: "+919054618623",
-      value: {
-        cartId: "shopify_cart_9922",
-        customerName: "Priya Nair",
-        totalPrice: 1890.0,
-        currency: "INR",
-        itemsCount: 1,
-        products: ["Organic Cotton Kurta"],
-        discountApplied: null,
-      },
-      expiresAt: "Expires in 18 hours",
-      createdAt: "29 Aug 2026, 01:20 AM",
-      updatedAt: "29 Aug 2026, 01:20 AM",
-    },
-    {
-      id: "rec_103",
-      key: "+917048690369",
-      value: {
-        cartId: "shopify_cart_9923",
-        customerName: "Nourin Sodawala",
-        totalPrice: 8500.0,
-        currency: "INR",
-        itemsCount: 3,
-        products: ["Smart Air Purifier Pro", "HEPA Replacement Filter"],
-        discountApplied: "FESTIVAL20",
-      },
-      expiresAt: "Expires in 14 hours",
-      createdAt: "29 Aug 2026, 00:15 AM",
-      updatedAt: "29 Aug 2026, 00:15 AM",
-    },
-  ],
-  ds_2: [
-    {
-      id: "rec_201",
-      key: "+919876543210",
-      value: {
-        otpCode: "492019",
-        attempts: 1,
-        verified: false,
-        carrierGateway: "Jio Telecom",
-      },
-      expiresAt: "Expires in 8 mins",
-      createdAt: "29 Aug 2026, 03:00 AM",
-      updatedAt: "29 Aug 2026, 03:00 AM",
-    },
-    {
-      id: "rec_202",
-      key: "+919911234578",
-      value: {
-        otpCode: "881204",
-        attempts: 2,
-        verified: true,
-        carrierGateway: "Airtel RCS",
-      },
-      expiresAt: "Expires in 4 mins",
-      createdAt: "29 Aug 2026, 02:56 AM",
-      updatedAt: "29 Aug 2026, 02:58 AM",
-    },
-  ],
-};
+const LEGACY_DUMMY_IDS = new Set(["ds_1", "ds_2", "ds_3", "ds_4"]);
+const LEGACY_DUMMY_SLUGS = new Set([
+  "cart_session_store",
+  "otp_verification_cache",
+  "lead_routing_cache",
+  "user_preferences_store",
+]);
+
+function getStoredDataStores(): DataStoreItem[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(DATASTORE_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      const cleaned = parsed.filter(
+        (s) => s && !LEGACY_DUMMY_IDS.has(s.id) && !LEGACY_DUMMY_SLUGS.has(s.slug)
+      );
+      if (cleaned.length !== parsed.length) {
+        localStorage.setItem(DATASTORE_STORAGE_KEY, JSON.stringify(cleaned));
+      }
+      return cleaned;
+    }
+    return [];
+  } catch (err) {
+    console.error("Failed to load datastores from storage:", err);
+    return [];
+  }
+}
+
+function getStoredRecords(): Record<string, DataStoreRecord[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(DATASTORE_RECORDS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      delete parsed.ds_1;
+      delete parsed.ds_2;
+      delete parsed.ds_3;
+      delete parsed.ds_4;
+      return parsed;
+    }
+    return {};
+  } catch (err) {
+    console.error("Failed to load datastore records from storage:", err);
+    return {};
+  }
+}
 
 export default function DataStorePage() {
   // State
-  const [stores, setStores] = useState<DataStoreItem[]>(INITIAL_STORES);
-  const [recordsMap, setRecordsMap] = useState<Record<string, DataStoreRecord[]>>(INITIAL_RECORDS);
+  const [stores, setStores] = useState<DataStoreItem[]>(() => getStoredDataStores());
+  const [recordsMap, setRecordsMap] = useState<Record<string, DataStoreRecord[]>>(() => getStoredRecords());
   const [selectedStore, setSelectedStore] = useState<DataStoreItem | null>(null);
 
   // Search & Filters
@@ -313,8 +226,14 @@ export default function DataStorePage() {
       lastModified: "Just now",
     };
 
-    setStores([newStoreObj, ...stores]);
-    setRecordsMap({ ...recordsMap, [newStoreObj.id]: [] });
+    const updatedStores = [newStoreObj, ...stores];
+    const updatedRecords = { ...recordsMap, [newStoreObj.id]: [] };
+    setStores(updatedStores);
+    setRecordsMap(updatedRecords);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(DATASTORE_STORAGE_KEY, JSON.stringify(updatedStores));
+      localStorage.setItem(DATASTORE_RECORDS_KEY, JSON.stringify(updatedRecords));
+    }
 
     // Reset and close
     setNewStoreName("");
@@ -326,7 +245,15 @@ export default function DataStorePage() {
   // Delete Data Store
   const handleDeleteStore = (storeId: string) => {
     if (confirm("Are you sure you want to delete this Data Store and all its stored records?")) {
-      setStores(stores.filter((s) => s.id !== storeId));
+      const updatedStores = stores.filter((s) => s.id !== storeId);
+      const updatedRecords = { ...recordsMap };
+      delete updatedRecords[storeId];
+      setStores(updatedStores);
+      setRecordsMap(updatedRecords);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(DATASTORE_STORAGE_KEY, JSON.stringify(updatedStores));
+        localStorage.setItem(DATASTORE_RECORDS_KEY, JSON.stringify(updatedRecords));
+      }
       if (selectedStore?.id === storeId) {
         setSelectedStore(null);
       }
@@ -336,12 +263,16 @@ export default function DataStorePage() {
   // Clear Store Records
   const handleClearStore = (storeId: string) => {
     if (confirm("Are you sure you want to clear all records in this Data Store?")) {
-      setRecordsMap({ ...recordsMap, [storeId]: [] });
-      setStores(
-        stores.map((s) =>
-          s.id === storeId ? { ...s, recordsCount: 0, sizeBytes: 0, lastModified: "Just now" } : s
-        )
+      const updatedRecords = { ...recordsMap, [storeId]: [] };
+      const updatedStores = stores.map((s) =>
+        s.id === storeId ? { ...s, recordsCount: 0, sizeBytes: 0, lastModified: "Just now" } : s
       );
+      setRecordsMap(updatedRecords);
+      setStores(updatedStores);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(DATASTORE_STORAGE_KEY, JSON.stringify(updatedStores));
+        localStorage.setItem(DATASTORE_RECORDS_KEY, JSON.stringify(updatedRecords));
+      }
     }
   };
 
@@ -375,6 +306,8 @@ export default function DataStorePage() {
 
     const storeId = selectedStore.id;
     const storeRecords = recordsMap[storeId] || [];
+    let updatedStores: DataStoreItem[];
+    let updatedRecords: Record<string, DataStoreRecord[]>;
 
     if (editingRecord) {
       // Update
@@ -388,7 +321,8 @@ export default function DataStorePage() {
             }
           : r
       );
-      setRecordsMap({ ...recordsMap, [storeId]: updatedList });
+      updatedRecords = { ...recordsMap, [storeId]: updatedList };
+      updatedStores = stores;
     } else {
       // Insert
       const newRec: DataStoreRecord = {
@@ -399,12 +333,17 @@ export default function DataStorePage() {
         createdAt: "Just now",
         updatedAt: "Just now",
       };
-      setRecordsMap({ ...recordsMap, [storeId]: [newRec, ...storeRecords] });
-      setStores(
-        stores.map((s) =>
-          s.id === storeId ? { ...s, recordsCount: s.recordsCount + 1, sizeBytes: s.sizeBytes + 350, lastModified: "Just now" } : s
-        )
+      updatedRecords = { ...recordsMap, [storeId]: [newRec, ...storeRecords] };
+      updatedStores = stores.map((s) =>
+        s.id === storeId ? { ...s, recordsCount: s.recordsCount + 1, sizeBytes: s.sizeBytes + 350, lastModified: "Just now" } : s
       );
+    }
+
+    setRecordsMap(updatedRecords);
+    setStores(updatedStores);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(DATASTORE_STORAGE_KEY, JSON.stringify(updatedStores));
+      localStorage.setItem(DATASTORE_RECORDS_KEY, JSON.stringify(updatedRecords));
     }
 
     setIsAddRecordModalOpen(false);
@@ -415,12 +354,16 @@ export default function DataStorePage() {
     if (!selectedStore) return;
     const storeId = selectedStore.id;
     const updated = (recordsMap[storeId] || []).filter((r) => r.id !== recordId);
-    setRecordsMap({ ...recordsMap, [storeId]: updated });
-    setStores(
-      stores.map((s) =>
-        s.id === storeId ? { ...s, recordsCount: Math.max(0, s.recordsCount - 1), sizeBytes: Math.max(0, s.sizeBytes - 350) } : s
-      )
+    const updatedRecords = { ...recordsMap, [storeId]: updated };
+    const updatedStores = stores.map((s) =>
+      s.id === storeId ? { ...s, recordsCount: Math.max(0, s.recordsCount - 1), sizeBytes: Math.max(0, s.sizeBytes - 350) } : s
     );
+    setRecordsMap(updatedRecords);
+    setStores(updatedStores);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(DATASTORE_STORAGE_KEY, JSON.stringify(updatedStores));
+      localStorage.setItem(DATASTORE_RECORDS_KEY, JSON.stringify(updatedRecords));
+    }
   };
 
   // Export Records to CSV
@@ -612,7 +555,10 @@ export default function DataStorePage() {
             </p>
             <div className="mt-2 pt-2 border-t space-y-1">
               <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                <div className="h-full bg-purple-600 rounded-full" style={{ width: "14.4%" }} />
+                <div
+                  className="h-full bg-purple-600 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.min(100, Math.max(0, (Number(totalMB) / 100) * 100))}%` }}
+                />
               </div>
             </div>
           </div>
@@ -698,10 +644,32 @@ export default function DataStorePage() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {filteredStores.length === 0 ? (
+                {stores.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-16 text-center text-muted-foreground text-xs">
+                      <div className="flex flex-col items-center justify-center space-y-3">
+                        <div className="h-12 w-12 rounded-2xl bg-muted/30 border flex items-center justify-center text-muted-foreground/60">
+                          <Database className="h-6 w-6" />
+                        </div>
+                        <p className="font-bold text-foreground text-sm">No Data Stores Created Yet</p>
+                        <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                          Create key-value data stores or internal tables to persist session data, customer tags, and counters across automated workflows.
+                        </p>
+                        <Button
+                          size="sm"
+                          onClick={() => setIsCreateStoreModalOpen(true)}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 font-semibold gap-1.5 shadow-sm mt-1"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>Create First Data Store</span>
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : filteredStores.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-12 text-center text-muted-foreground text-xs">
-                      No Data Stores match your search query. Click &quot;+ Create Data Store&quot; to add one.
+                      No Data Stores match &quot;{searchStoreQuery}&quot;. Try resetting your search.
                     </td>
                   </tr>
                 ) : (
@@ -997,7 +965,7 @@ export default function DataStorePage() {
                 </Label>
                 <Input
                   id="ds-name"
-                  placeholder="e.g. OTP Verification Cache"
+                  placeholder="e.g. Session Store"
                   value={newStoreName}
                   onChange={(e) => handleNameChange(e.target.value)}
                   className="h-9 text-xs bg-background"
@@ -1012,7 +980,7 @@ export default function DataStorePage() {
                 </Label>
                 <Input
                   id="ds-slug"
-                  placeholder="e.g. otp_verification_cache"
+                  placeholder="e.g. session_store"
                   value={newStoreSlug}
                   onChange={(e) => setNewStoreSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
                   className="h-9 font-mono text-xs bg-background"
@@ -1027,7 +995,7 @@ export default function DataStorePage() {
                 </Label>
                 <Input
                   id="ds-desc"
-                  placeholder="e.g. Transient authentication codes and rate limit counters"
+                  placeholder="e.g. Transient session state and workflow cache"
                   value={newStoreDesc}
                   onChange={(e) => setNewStoreDesc(e.target.value)}
                   className="h-9 text-xs bg-background"
@@ -1134,7 +1102,7 @@ export default function DataStorePage() {
                 </Label>
                 <Input
                   id="rec-key"
-                  placeholder={selectedStore.keyType === "Phone Number" ? "+919876543210" : "usr_100928"}
+                  placeholder={selectedStore.keyType === "Phone Number" ? "+15550100" : "usr_1001"}
                   value={recordKeyInput}
                   onChange={(e) => setRecordKeyInput(e.target.value)}
                   className="h-9 font-mono text-xs bg-background"

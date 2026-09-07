@@ -204,19 +204,12 @@ export const BOT_STEPS = [
 
 export type BotWizardStep = typeof BOT_STEPS[number]["id"];
 
-export const MOCK_FOLDERS: Folder[] = [
-  { id: "all", name: "All Bots", botCount: 12, createdAt: "2026-01-01T00:00:00Z" },
-  { id: "support", name: "Support", botCount: 5, createdAt: "2026-01-15T00:00:00Z" },
-  { id: "sales", name: "Sales", botCount: 3, createdAt: "2026-02-01T00:00:00Z" },
-  { id: "marketing", name: "Marketing", botCount: 4, createdAt: "2026-02-15T00:00:00Z" },
-];
-
 export function useBotWizard(botId?: string) {
   const [bot, setBot] = useState<Bot | null>(null);
   const [currentStep, setCurrentStep] = useState<BotWizardStep>("info");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [folders, setFolders] = useState<Folder[]>(MOCK_FOLDERS);
+  const [folders, setFolders] = useState<Folder[]>([]);
   const [workflow, setWorkflow] = useState<BotWorkflow>(initialWorkflow);
   const [trigger, setTrigger] = useState<BotTrigger>(initialTrigger);
   const [settings, setSettings] = useState<BotSettings>(initialSettings);
@@ -271,6 +264,55 @@ export function useBotWizard(botId?: string) {
   useEffect(() => {
     loadBot();
   }, [loadBot]);
+
+  useEffect(() => {
+    let isMounted = true;
+    api
+      .get("/crm/super-fields")
+      .then((res) => {
+        const list = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? res.data : [];
+        const activeFields = list.filter((f: any) => f.status === "ACTIVE");
+        if (activeFields.length > 0 && isMounted) {
+          setSettings((prev) => {
+            const existingIds = new Set(prev.variables.map((v) => v.id));
+            const newVars: BotVariable[] = activeFields
+              .filter((f: any) => !existingIds.has(`sf-${f.key}`))
+              .map((f: any) => ({
+                id: `sf-${f.key}`,
+                name: `contact.superFields.${f.key}`,
+                type: "contact_attribute" as const,
+                scope: "global" as const,
+                description: `${f.label} (Custom Super Field)`,
+              }));
+            if (newVars.length === 0) return prev;
+            return {
+              ...prev,
+              variables: [...prev.variables, ...newVars],
+            };
+          });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    api
+      .get(apiEndpoints.bots.folders)
+      .then((res) => {
+        const list = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? res.data : [];
+        if (isMounted) {
+          setFolders(list);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const updateBotData = useCallback((data: Partial<CreateBotData & UpdateBotData>) => {
     setBot((prev) => {
@@ -341,7 +383,19 @@ export function useBotWizard(botId?: string) {
       };
 
       if (bot.id && !bot.id.startsWith("bot-")) {
-        await api.put(apiEndpoints.bots.update(bot.id), payload);
+        const res = await api.put(apiEndpoints.bots.update(bot.id), payload);
+        if (res.data?.data) {
+          setBot((prev) => (prev ? { ...prev, ...res.data.data } : res.data.data));
+        }
+      } else {
+        const res = await api.post(apiEndpoints.bots.create, payload);
+        const created = res.data?.data || res.data;
+        if (created?.id) {
+          setBot(created);
+          if (typeof window !== "undefined" && window.location.pathname.includes("/new")) {
+            window.history.replaceState(null, "", `/chatbots/builder/${created.id}`);
+          }
+        }
       }
       setError(null);
     } catch {
@@ -371,8 +425,26 @@ export function useBotWizard(botId?: string) {
     if (!bot) return;
     setIsPublishing(true);
     try {
-      if (bot.id && !bot.id.startsWith("bot-")) {
-        await api.post(apiEndpoints.bots.publish(bot.id), { version: (bot.currentVersion || 1) + 1 });
+      let activeBotId = bot.id;
+      if (!activeBotId || activeBotId.startsWith("bot-")) {
+        const createPayload = {
+          name: bot.name,
+          description: bot.description,
+          folderId: bot.folderId,
+          tags: bot.tags,
+          channels: bot.channels,
+          status: "ACTIVE",
+          workflow,
+          settings,
+        };
+        const createRes = await api.post(apiEndpoints.bots.create, createPayload);
+        const created = createRes.data?.data || createRes.data;
+        if (created?.id) {
+          activeBotId = created.id;
+          setBot(created);
+        }
+      } else {
+        await api.post(apiEndpoints.bots.publish(activeBotId), { version: (bot.currentVersion || 1) + 1 });
       }
 
       setBot((prev) =>
@@ -390,7 +462,7 @@ export function useBotWizard(botId?: string) {
     } finally {
       setIsPublishing(false);
     }
-  }, [bot, workflow]);
+  }, [bot, workflow, settings]);
 
   const testBot = useCallback(
     async (testInput?: { message?: string; variables?: Record<string, unknown> }) => {

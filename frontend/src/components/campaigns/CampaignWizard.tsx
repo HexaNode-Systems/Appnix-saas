@@ -159,6 +159,20 @@ export function CampaignWizard({
 
   const renderStepContent = () => {
     switch (currentStep) {
+      case "channel":
+        return (
+          <CampaignStepChannel
+            campaign={campaign}
+            channels={channels}
+            selectChannel={selectChannel}
+            canProceed={canProceed}
+            onNext={nextStep}
+            onPrev={() => router.push("/crm/bulk-campaign")}
+            loadTemplates={loadTemplates}
+            onSaveDraft={handleSaveDraft}
+            isSaving={isSaving}
+          />
+        );
       case "details":
         return (
           <CampaignStepDetails
@@ -166,7 +180,7 @@ export function CampaignWizard({
             updateCampaignData={updateCampaignData}
             canProceed={canProceed}
             onNext={nextStep}
-            onPrev={() => router.push("/crm/bulk-campaign")}
+            onPrev={prevStep}
             onSaveDraft={handleSaveDraft}
             isSaving={isSaving}
           />
@@ -180,20 +194,6 @@ export function CampaignWizard({
             canProceed={canProceed}
             onNext={nextStep}
             onPrev={prevStep}
-            onSaveDraft={handleSaveDraft}
-            isSaving={isSaving}
-          />
-        );
-      case "channel":
-        return (
-          <CampaignStepChannel
-            campaign={campaign}
-            channels={channels}
-            selectChannel={selectChannel}
-            canProceed={canProceed}
-            onNext={nextStep}
-            onPrev={prevStep}
-            loadTemplates={loadTemplates}
             onSaveDraft={handleSaveDraft}
             isSaving={isSaving}
           />

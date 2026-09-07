@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -22,11 +23,37 @@ import { CurrentUser, AuthUser } from '../auth/decorators/current-user.decorator
 export class BotsController {
   constructor(private readonly botsService: BotsService) {}
 
+  @Get('folders')
+  @ApiOperation({ summary: 'Get all folders with bot counts' })
+  async getFolders(@CurrentUser() user: AuthUser) {
+    const tenantId = user?.tenantId || 'tenant_default';
+    return this.botsService.getFolders(tenantId);
+  }
+
+  @Post('folders')
+  @ApiOperation({ summary: 'Create a new folder' })
+  async createFolder(@CurrentUser() user: AuthUser, @Body('name') name: string) {
+    const tenantId = user?.tenantId || 'tenant_default';
+    return this.botsService.createFolder(tenantId, name);
+  }
+
+  @Delete('folders/:id')
+  @ApiOperation({ summary: 'Delete a folder' })
+  async deleteFolder(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const tenantId = user?.tenantId || 'tenant_default';
+    return this.botsService.deleteFolder(tenantId, id);
+  }
+
   @Get()
   @ApiOperation({ summary: 'Get all bots for tenant' })
-  async findAll(@CurrentUser() user: AuthUser) {
+  async findAll(
+    @CurrentUser() user: AuthUser,
+    @Query('folderId') folderId?: string,
+    @Query('channel') channel?: string,
+    @Query('search') search?: string,
+  ) {
     const tenantId = user?.tenantId || 'tenant_default';
-    return this.botsService.findAll(tenantId);
+    return this.botsService.findAll(tenantId, { folderId, channel, search });
   }
 
   @Get(':id')
@@ -70,7 +97,7 @@ export class BotsController {
   async publishBot(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
-    @Body('version') version: number,
+    @Body('version') version?: number,
   ) {
     const tenantId = user?.tenantId || 'tenant_default';
     return this.botsService.publishBot(tenantId, id, version);

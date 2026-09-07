@@ -128,3 +128,74 @@ export class UpdateRcsTemplateDto {
   @IsOptional()
   variableMappings?: any;
 }
+
+export class ConnectFacebookPageDto {
+  @ApiProperty({ description: 'Facebook Page ID', example: '1092837465928' })
+  @IsString()
+  @IsNotEmpty()
+  pageId: string;
+
+  @ApiPropertyOptional({ description: 'Facebook Page Name', example: 'Appnix Technologies' })
+  @IsOptional()
+  @IsString()
+  pageName?: string;
+
+  @ApiProperty({ description: 'Page Access Token from Meta Graph API' })
+  @IsString()
+  @IsNotEmpty()
+  accessToken: string;
+
+  @ApiPropertyOptional({ description: 'Page category', example: 'Software Company' })
+  @IsOptional()
+  @IsString()
+  category?: string;
+
+  @ApiPropertyOptional({ description: 'Page avatar image URL' })
+  @IsOptional()
+  @IsString()
+  avatarUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Custom display name for channel' })
+  @IsOptional()
+  @IsString()
+  channelName?: string;
+
+  @ApiPropertyOptional({ description: 'Color swatch hex code' })
+  @IsOptional()
+  @IsString()
+  colorCode?: string;
+
+  @ApiPropertyOptional({ description: 'Enable automated welcome/greeting bot' })
+  @IsOptional()
+  @IsBoolean()
+  botEnabled?: boolean;
+
+  @ApiPropertyOptional({ description: 'Automated greeting message text' })
+  @IsOptional()
+  @IsString()
+  welcomeMessage?: string;
+}
+
+export class FacebookOAuthExchangeDto {
+  @ApiProperty({ description: 'Authorization code received from Meta OAuth callback' })
+  @IsString()
+  @IsNotEmpty()
+  code: string;
+
+  @ApiPropertyOptional({ description: 'Redirect URI used in authorization request' })
+  @IsOptional()
+  @IsString()
+  redirectUri?: string;
+}
+
+export class VerifyFacebookTokenDto {
+  @ApiProperty({ description: 'Meta Facebook Page Access Token or User Access Token' })
+  @IsString()
+  @IsNotEmpty()
+  accessToken: string;
+
+  @ApiPropertyOptional({ description: 'Optional Facebook Page ID to verify' })
+  @IsOptional()
+  @IsString()
+  pageId?: string;
+}

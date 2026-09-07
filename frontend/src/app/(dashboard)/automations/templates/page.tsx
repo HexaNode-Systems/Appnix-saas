@@ -68,191 +68,56 @@ export interface TemplateItem {
   }[];
 }
 
-const TEMPLATES_DATA: TemplateItem[] = [
-  {
-    id: "tmpl_1",
-    title: "Shopify Abandoned Cart Auto-Recovery",
-    slug: "shopify_abandoned_cart_recovery",
-    description: "Recovers dropped checkouts via dynamic WhatsApp template with 1-click checkout URL and exclusive discount coupon.",
-    category: "E-Commerce",
-    channels: ["WhatsApp", "RCS"],
-    apps: ["Shopify", "Webhook", "WhatsApp"],
-    badge: "Official",
-    isPremium: false,
-    installCount: 1840,
-    stepsCount: 3,
-    setupMinutes: 2,
-    requiredConnections: ["Shopify Webhook", "WhatsApp Cloud API"],
-    pipelineSteps: [
-      { number: 1, type: "trigger", title: "Shopify: Checkout Abandoned Webhook", description: "Fires when user abandons cart with email/phone" },
-      { number: 2, type: "condition", title: "Filter: Cart Total > ₹1,000 & 1 Hr Delay", description: "Ensures high-value carts and prevents spam" },
-      { number: 3, type: "action", title: "WhatsApp: Send Dynamic Recovery Promo", description: "Dispatches personalized coupon code and link" },
-    ],
-  },
-  {
-    id: "tmpl_2",
-    title: "AI Lead Qualification & CRM Handover",
-    slug: "ai_lead_qualification_crm_handover",
-    description: "Engages incoming queries using AI intent classification, collects budget/timeline, and routes VIP leads to sales agents.",
-    category: "Lead Generation",
-    channels: ["WhatsApp", "Instagram", "Facebook"],
-    apps: ["AI Agent", "Google Sheets", "CRM"],
-    badge: "Official",
-    isPremium: true,
-    installCount: 2420,
-    stepsCount: 4,
-    setupMinutes: 3,
-    requiredConnections: ["AI Agent Desk", "Google Sheets API", "WhatsApp Cloud API"],
-    pipelineSteps: [
-      { number: 1, type: "trigger", title: "Inbound Message: Keyword or Ad Query", description: "Triggers on user initial chat message" },
-      { number: 2, type: "action", title: "AI Classifier: Determine Lead Intent & Budget", description: "Scores customer readiness and interest" },
-      { number: 3, type: "condition", title: "Condition: Score >= 80 (VIP Lead)", description: "High-value lead branch filter" },
-      { number: 4, type: "crm", title: "Appnix CRM: Assign Sales Rep & Handover", description: "Notifies team and transfers live chat" },
-    ],
-  },
-  {
-    id: "tmpl_3",
-    title: "Order Confirmation & Real-Time Tracking",
-    slug: "order_confirmation_tracking",
-    description: "Sends instant order receipt on WhatsApp with interactive quick reply buttons for live delivery tracking and support.",
-    category: "E-Commerce",
-    channels: ["WhatsApp", "RCS"],
-    apps: ["Shopify", "Webhook"],
-    badge: "Official",
-    isPremium: false,
-    installCount: 1250,
-    stepsCount: 3,
-    setupMinutes: 2,
-    requiredConnections: ["Shopify Store", "WhatsApp Cloud API"],
-    pipelineSteps: [
-      { number: 1, type: "trigger", title: "Webhook: Order Placed (Shopify/WooCommerce)", description: "Captures checkout payload with order ID" },
-      { number: 2, type: "action", title: "WhatsApp: Send Order Receipt with Track URL", description: "Dispatches interactive delivery status card" },
-      { number: 3, type: "crm", title: "Appnix CRM: Save Order ID to Customer Profile", description: "Updates contact history and total spend" },
-    ],
-  },
-  {
-    id: "tmpl_4",
-    title: "24/7 Support Auto-Reply & Knowledge Bot",
-    slug: "support_auto_responder_faq",
-    description: "Answers recurring customer FAQs (Hours, Return Policy, Shipping) and escalates complex queries to live human agents.",
-    category: "Customer Support",
-    channels: ["WhatsApp", "Instagram", "Facebook", "RCS"],
-    apps: ["AI Agent", "Webhook"],
-    badge: "Official",
-    isPremium: false,
-    installCount: 3120,
-    stepsCount: 3,
-    setupMinutes: 2,
-    requiredConnections: ["WhatsApp Cloud API", "FAQ Knowledge Base"],
-    pipelineSteps: [
-      { number: 1, type: "trigger", title: "Incoming Message Outside Business Hours", description: "Listens for customer inquiries" },
-      { number: 2, type: "action", title: "AI Search: Match FAQ & Return Instant Solution", description: "Searches verified knowledgebase articles" },
-      { number: 3, type: "action", title: "If Unresolved: Create High-Priority Ticket", description: "Creates desk ticket and pings on-call agent" },
-    ],
-  },
-  {
-    id: "tmpl_5",
-    title: "Post-Purchase Review & NPS Collector",
-    slug: "review_nps_collector",
-    description: "Waits 2 days after order delivery, sends WhatsApp interactive 5-star rating card, and logs feedback to Google Sheets.",
-    category: "Marketing & Broadcasts",
-    channels: ["WhatsApp"],
-    apps: ["Google Sheets", "Webhook"],
-    badge: "Community",
-    isPremium: false,
-    installCount: 940,
-    stepsCount: 4,
-    setupMinutes: 3,
-    requiredConnections: ["WhatsApp Cloud API", "Google Sheets"],
-    pipelineSteps: [
-      { number: 1, type: "trigger", title: "Webhook: Order Delivered Event", description: "Logistics carrier webhook trigger" },
-      { number: 2, type: "condition", title: "Delay: 48 Hours", description: "Allows customer to unbox and experience product" },
-      { number: 3, type: "action", title: "WhatsApp: Interactive 5-Star Rating Card", description: "Collects NPS feedback with 1-tap rating" },
-      { number: 4, type: "action", title: "Google Sheets: Append Customer NPS Rating", description: "Stores survey responses in central sheet" },
-    ],
-  },
-  {
-    id: "tmpl_6",
-    title: "Instant OTP & Transient Verification Gateway",
-    slug: "instant_otp_verification",
-    description: "Generates high-speed 6-digit authentication OTP with 10-minute TTL in Appnix Data Store and dispatches via RCS / WhatsApp.",
-    category: "Utility / OTP",
-    channels: ["WhatsApp", "RCS"],
-    apps: ["Webhook", "Data Store"],
-    badge: "Official",
-    isPremium: false,
-    installCount: 1610,
-    stepsCount: 3,
-    setupMinutes: 2,
-    requiredConnections: ["WhatsApp Cloud API", "Appnix Data Store"],
-    pipelineSteps: [
-      { number: 1, type: "trigger", title: "API Webhook: Request OTP", description: "Web/mobile app calls OTP dispatch endpoint" },
-      { number: 2, type: "action", title: "Data Store: Cache 6-Digit Code (TTL: 10m)", description: "Stores transient token with rate limiter" },
-      { number: 3, type: "action", title: "WhatsApp / RCS: Dispatch Auth Template", description: "Sends secure OTP code with 1-tap copy button" },
-    ],
-  },
-  {
-    id: "tmpl_7",
-    title: "VIP Customer Birthday & Anniversary Wishes",
-    slug: "birthday_anniversary_wishes",
-    description: "Automated daily cron check that scans CRM contacts for birthdays and sends personalized WhatsApp video greeting & gift voucher.",
-    category: "Marketing & Broadcasts",
-    channels: ["WhatsApp", "RCS"],
-    apps: ["CRM", "Webhook"],
-    badge: "Community",
-    isPremium: false,
-    installCount: 780,
-    stepsCount: 3,
-    setupMinutes: 2,
-    requiredConnections: ["Appnix CRM Contacts", "WhatsApp Cloud API"],
-    pipelineSteps: [
-      { number: 1, type: "trigger", title: "Scheduled Cron: Daily at 09:00 AM", description: "Runs daily morning contact query" },
-      { number: 2, type: "condition", title: "Filter: Contact DOB matches Today", description: "Filters active celebration contacts" },
-      { number: 3, type: "action", title: "WhatsApp: Send Greeting Card + Gift Coupon", description: "Delivers celebratory multimedia message" },
-    ],
-  },
-  {
-    id: "tmpl_8",
-    title: "Webinar / Event Reminder Sequence",
-    slug: "event_reminder_sequence",
-    description: "Sends multi-step WhatsApp reminders: 24 hours before, 1 hour before, and 10 minutes before live webinar with direct join link.",
-    category: "Marketing & Broadcasts",
-    channels: ["WhatsApp", "RCS", "Facebook"],
-    apps: ["Webhook", "Google Sheets"],
-    badge: "Official",
-    isPremium: false,
-    installCount: 1190,
-    stepsCount: 4,
-    setupMinutes: 3,
-    requiredConnections: ["WhatsApp Cloud API", "Event Registration Webhook"],
-    pipelineSteps: [
-      { number: 1, type: "trigger", title: "Webhook: User Registered for Event", description: "Captures attendee name and phone number" },
-      { number: 2, type: "action", title: "WhatsApp: Send 24-Hour Calendar Reminder", description: "Provides date & calendar invite link" },
-      { number: 3, type: "action", title: "WhatsApp: 1-Hour Urgent Countdown", description: "Reminds attendee to prepare questions" },
-      { number: 4, type: "action", title: "WhatsApp: 10-Min Final Call with Join URL", description: "Delivers direct webinar launch URL" },
-    ],
-  },
-  {
-    id: "tmpl_9",
-    title: "Instagram Story Reply & Keyword DM Automation",
-    slug: "instagram_story_reply_dm",
-    description: "Auto-replies to Instagram Story mentions and specific DM keywords (e.g. 'PRICE', 'LINK') with instant catalog link.",
-    category: "Lead Generation",
-    channels: ["Instagram", "Facebook"],
-    apps: ["Instagram", "AI Agent"],
-    badge: "Official",
-    isPremium: true,
-    installCount: 1980,
-    stepsCount: 3,
-    setupMinutes: 2,
-    requiredConnections: ["Instagram Graph API", "Appnix Catalog"],
-    pipelineSteps: [
-      { number: 1, type: "trigger", title: "Instagram: Story Mention / DM Keyword", description: "Triggers when user comments on story" },
-      { number: 2, type: "condition", title: "Filter: Keyword match ('PRICE', 'BUY')", description: "Evaluates matching trigger phrase" },
-      { number: 3, type: "action", title: "Instagram DM: Send Interactive Product Card", description: "Dispatches photo carousel with buy button" },
-    ],
-  },
-];
+// ---------- Storage Persistence & Helpers ----------
+const WORKFLOW_TEMPLATES_STORAGE_KEY = "appnix_workflow_templates";
+
+const LEGACY_DUMMY_IDS = new Set([
+  "tmpl_1",
+  "tmpl_2",
+  "tmpl_3",
+  "tmpl_4",
+  "tmpl_5",
+  "tmpl_6",
+  "tmpl_7",
+  "tmpl_8",
+  "tmpl_9",
+]);
+
+const LEGACY_DUMMY_SLUGS = new Set([
+  "shopify_abandoned_cart_recovery",
+  "ai_lead_qualification_crm_handover",
+  "order_confirmation_tracking",
+  "support_auto_responder_faq",
+  "review_nps_collector",
+  "instant_otp_verification",
+  "birthday_anniversary_wishes",
+  "event_reminder_sequence",
+  "instagram_story_reply_dm",
+]);
+
+function getStoredWorkflowTemplates(): TemplateItem[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(WORKFLOW_TEMPLATES_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      const cleaned = parsed.filter(
+        (t) => t && !LEGACY_DUMMY_IDS.has(t.id) && !LEGACY_DUMMY_SLUGS.has(t.slug)
+      );
+      if (cleaned.length !== parsed.length) {
+        localStorage.setItem(WORKFLOW_TEMPLATES_STORAGE_KEY, JSON.stringify(cleaned));
+      }
+      return cleaned;
+    }
+    return [];
+  } catch (err) {
+    console.error("Failed to load workflow templates from storage:", err);
+    return [];
+  }
+}
+
+const TEMPLATES_DATA: TemplateItem[] = [];
 
 const CATEGORIES = [
   "All",
@@ -269,7 +134,7 @@ export default function WorkflowTemplatesPage() {
   const router = useRouter();
 
   // State
-  const [templates, setTemplates] = useState<TemplateItem[]>(TEMPLATES_DATA);
+  const [templates, setTemplates] = useState<TemplateItem[]>(() => getStoredWorkflowTemplates());
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedChannel, setSelectedChannel] = useState("All Channels");
   const [searchQuery, setSearchQuery] = useState("");
@@ -353,7 +218,7 @@ export default function WorkflowTemplatesPage() {
       apps: ["Webhook", "WhatsApp"],
       badge: "Community",
       isPremium: false,
-      installCount: 1,
+      installCount: 0,
       stepsCount: 3,
       setupMinutes: 2,
       requiredConnections: ["WhatsApp Cloud API"],
@@ -364,7 +229,11 @@ export default function WorkflowTemplatesPage() {
       ],
     };
 
-    setTemplates([newTmpl, ...templates]);
+    const updated = [newTmpl, ...templates];
+    setTemplates(updated);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(WORKFLOW_TEMPLATES_STORAGE_KEY, JSON.stringify(updated));
+    }
     setCustomTitle("");
     setCustomDesc("");
     setIsCustomModalOpen(false);
@@ -516,12 +385,37 @@ export default function WorkflowTemplatesPage() {
 
       {/* 3. Template Cards Grid (3 Columns) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {filteredTemplates.length === 0 ? (
+        {templates.length === 0 ? (
+          <div className="col-span-full rounded-2xl border bg-card p-12 text-center text-muted-foreground space-y-3 shadow-xs">
+            <div className="h-12 w-12 rounded-2xl bg-muted/30 border flex items-center justify-center text-muted-foreground/60 mx-auto">
+              <Sparkles className="h-6 w-6" />
+            </div>
+            <h3 className="font-bold text-foreground text-base">No Workflow Templates Found</h3>
+            <p className="text-xs max-w-md mx-auto text-muted-foreground leading-relaxed">
+              No automation templates have been created yet. You can create your own custom workflow template blueprint or build a workflow from scratch.
+            </p>
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <Link href="/automations/workflow">
+                <Button variant="outline" size="sm" className="text-xs h-8.5 font-medium">
+                  Go to My Workflows
+                </Button>
+              </Link>
+              <Button
+                size="sm"
+                onClick={() => setIsCustomModalOpen(true)}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8.5 font-semibold gap-1.5 shadow-sm"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Create Custom Template</span>
+              </Button>
+            </div>
+          </div>
+        ) : filteredTemplates.length === 0 ? (
           <div className="col-span-full py-16 text-center text-muted-foreground space-y-2">
             <Layers className="h-10 w-10 mx-auto text-muted-foreground/50" />
             <p className="text-sm font-semibold text-foreground">No Templates Found</p>
             <p className="text-xs text-muted-foreground">
-              Try adjusting your search query or channel filter to discover more templates.
+              No templates match your selected filters. Try adjusting your search query or channel filter.
             </p>
           </div>
         ) : (
@@ -584,7 +478,7 @@ export default function WorkflowTemplatesPage() {
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
                     <span>{template.stepsCount} Steps</span>
                   </span>
-                  <span>Used by {template.installCount.toLocaleString("en-IN")} teams</span>
+                  <span>{template.installCount > 0 ? `Used by ${template.installCount.toLocaleString("en-IN")} teams` : "Ready to use"}</span>
                 </div>
               </div>
 

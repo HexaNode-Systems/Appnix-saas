@@ -1,58 +1,75 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, MessageSquare, Camera, ScanLine, Smartphone, CheckCircle2, WifiOff, Wifi, Save, ArrowLeftRight } from "lucide-react";
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import {
+  ChevronLeft,
+  ChevronRight,
+  MessageSquare,
+  Camera,
+  ScanLine,
+  Smartphone,
+  CheckCircle2,
+  AlertCircle,
+  Save,
+  Radio,
+  ExternalLink,
+  ShieldCheck,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { ChannelItem } from "@/hooks/useCampaignWizard";
 
+type ChannelType = "WHATSAPP" | "INSTAGRAM" | "FACEBOOK" | "RCS";
+
 const channelMeta: Record<
-  "WHATSAPP" | "INSTAGRAM" | "RCS" | "FACEBOOK",
+  ChannelType,
   {
     label: string;
     icon: React.ElementType;
     iconStyle: string;
     description: string;
-    badgeActive: string;
+    connectUrl: string;
   }
 > = {
   WHATSAPP: {
-    label: "WhatsApp Business",
+    label: "WhatsApp",
     icon: MessageSquare,
     iconStyle: "bg-emerald-500 text-white",
-    description: "Send rich interactive messages, buttons, and media via WhatsApp Cloud API",
-    badgeActive: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-200",
+    description: "Send rich interactive broadcasts, buttons, and media via WhatsApp Cloud API",
+    connectUrl: "/channels/whatsapp",
   },
   INSTAGRAM: {
-    label: "Instagram Direct",
+    label: "Instagram",
     icon: Camera,
     iconStyle: "bg-gradient-to-br from-amber-400 via-pink-500 to-purple-600 text-white",
-    description: "Engage leads and followers via Instagram Messaging API",
-    badgeActive: "bg-pink-100 text-pink-800 dark:bg-pink-950 dark:text-pink-300 border-pink-200",
-  },
-  RCS: {
-    label: "Google RCS Business",
-    icon: Smartphone,
-    iconStyle: "bg-indigo-600 text-white",
-    description: "Next-gen SMS with verified sender badges, carousels, and action chips",
-    badgeActive: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 border-indigo-200",
+    description: "Reach leads and followers via Instagram Messaging API",
+    connectUrl: "/channels/instagram",
   },
   FACEBOOK: {
-    label: "Facebook Messenger",
+    label: "Facebook",
     icon: ScanLine,
     iconStyle: "bg-blue-600 text-white",
-    description: "Reach your Facebook page audience with targeted campaign broadcasts",
-    badgeActive: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border-blue-200",
+    description: "Engage your connected Facebook Page audience with broadcast messages",
+    connectUrl: "/channels/facebook",
+  },
+  RCS: {
+    label: "RCS",
+    icon: Smartphone,
+    iconStyle: "bg-indigo-600 text-white",
+    description: "Google Verified RCS messaging with rich cards and quick-reply action chips",
+    connectUrl: "/channels/rcs",
   },
 };
 
 interface CampaignStepChannelProps {
   campaign: {
-    channel: "WHATSAPP" | "INSTAGRAM" | "RCS" | "FACEBOOK";
+    channel: ChannelType;
   };
   channels: ChannelItem[];
-  selectChannel: (channel: "WHATSAPP" | "INSTAGRAM" | "RCS" | "FACEBOOK") => void;
+  selectChannel: (channel: ChannelType) => void;
   canProceed: boolean;
   onNext: () => void;
   onPrev: () => void;
@@ -71,127 +88,250 @@ export function CampaignStepChannel({
   onSaveDraft,
   isSaving,
 }: CampaignStepChannelProps) {
-  const channelList: Array<"WHATSAPP" | "INSTAGRAM" | "RCS" | "FACEBOOK"> = [
-    "WHATSAPP",
-    "INSTAGRAM",
-    "RCS",
-    "FACEBOOK",
-  ];
+  const [selectedChannelType, setSelectedChannelType] = useState<ChannelType>(
+    campaign.channel || "WHATSAPP"
+  );
 
-  const selectedChannelConfig = channels.find((c) => c.channel === campaign.channel);
+  const channelTypes: ChannelType[] = ["WHATSAPP", "INSTAGRAM", "FACEBOOK", "RCS"];
+
+  // Filter ONLY the real integrated and connected channels for the selected type
+  const connectedChannelsForType = channels.filter(
+    (c) => c.channel === selectedChannelType && c.isConnected
+  );
+
+  const hasConnectedChannel = connectedChannelsForType.length > 0;
+  const isCurrentChannelSelected =
+    campaign.channel === selectedChannelType && hasConnectedChannel;
+
+  useEffect(() => {
+    const currentIsConnected = channels.some(
+      (c) => c.channel === selectedChannelType && c.isConnected
+    );
+    if (!currentIsConnected) {
+      const firstConnected = channels.find((c) => c.isConnected);
+      if (firstConnected) {
+        setSelectedChannelType(firstConnected.channel);
+        selectChannel(firstConnected.channel);
+      }
+    }
+  }, [channels, selectedChannelType, selectChannel]);
+
+  const handleSelectChannelType = (type: ChannelType) => {
+    setSelectedChannelType(type);
+    const connectedOfThisType = channels.filter(
+      (c) => c.channel === type && c.isConnected
+    );
+    if (connectedOfThisType.length > 0) {
+      selectChannel(type);
+    }
+  };
+
+  const handleSelectSpecificChannel = (type: ChannelType) => {
+    selectChannel(type);
+  };
+
+  const activeMeta = channelMeta[selectedChannelType];
+  const ActiveIcon = activeMeta.icon;
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6 max-w-4xl mx-auto">
       <Card>
         <CardHeader className="border-b pb-4">
           <div className="flex items-center justify-between">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-lg bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center">
-                  <ArrowLeftRight className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+                  <ActiveIcon className="h-4 w-4" />
                 </div>
-                <CardTitle className="text-xl font-bold">Select Communication Channel</CardTitle>
+                <CardTitle className="text-xl font-bold">Select Campaign Channel</CardTitle>
               </div>
               <CardDescription>
-                Choose an active, connected communication channel to dispatch your campaign
+                First select a channel type, then choose your connected business channel.
               </CardDescription>
             </div>
-            {selectedChannelConfig?.isConnected && (
-              <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 gap-1.5 px-3 py-1">
+            {isCurrentChannelSelected && (
+              <Badge
+                variant="outline"
+                className="bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 gap-1.5 px-3 py-1 text-xs"
+              >
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
                 Channel Connected
               </Badge>
             )}
           </div>
         </CardHeader>
+
         <CardContent className="space-y-6 pt-6">
-          <div className="grid gap-4 sm:grid-cols-2">
-            {channelList.map((chKey) => {
-              const meta = channelMeta[chKey];
-              const Icon = meta.icon;
-              const serverConfig = channels.find((c) => c.channel === chKey);
-              const isConnected = serverConfig?.isConnected ?? false;
-              const isSelected = campaign.channel === chKey && isConnected;
+          {/* STEP 1A: Channel Type Selection */}
+          <div className="space-y-3">
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
+              1. Choose Channel Type
+            </label>
+            <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
+              {channelTypes.map((chKey) => {
+                const meta = channelMeta[chKey];
+                const Icon = meta.icon;
+                const isSelected = selectedChannelType === chKey;
+                const connectedCount = channels.filter(
+                  (c) => c.channel === chKey && c.isConnected
+                ).length;
 
-              return (
-                <button
-                  key={chKey}
-                  type="button"
-                  onClick={() => isConnected && selectChannel(chKey)}
-                  disabled={!isConnected}
-                  className={cn(
-                    "group relative flex items-start gap-4 p-5 rounded-xl border text-left transition-all duration-200",
-                    isSelected
-                      ? "border-primary bg-primary/5 ring-2 ring-primary shadow-sm"
-                      : isConnected
-                      ? "border-border hover:border-primary/40 hover:bg-muted/30 cursor-pointer"
-                      : "border-border/60 bg-muted/20 opacity-60 cursor-not-allowed"
-                  )}
-                >
-                  <div className={cn("h-12 w-12 rounded-xl flex items-center justify-center shrink-0 shadow-xs", meta.iconStyle)}>
-                    <Icon className="h-6 w-6" />
-                  </div>
-
-                  <div className="flex-1 min-w-0 pr-6">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h4 className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors">
-                        {meta.label}
-                      </h4>
-                    </div>
-
-                    <p className="text-xs text-muted-foreground line-clamp-2 mb-3">
-                      {meta.description}
-                    </p>
-
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        variant={isConnected ? "outline" : "secondary"}
-                        className={cn(
-                          "text-[11px] px-2 py-0.5 font-medium gap-1",
-                          isConnected ? meta.badgeActive : "bg-muted text-muted-foreground border-border"
-                        )}
-                      >
-                        {isConnected ? (
-                          <>
-                            <Wifi className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
-                            Connected
-                          </>
-                        ) : (
-                          <>
-                            <WifiOff className="h-3 w-3" />
-                            Not Connected
-                          </>
-                        )}
-                      </Badge>
-                      {serverConfig?.accountName && isConnected && (
-                        <span className="text-[11px] text-muted-foreground truncate">
-                          {serverConfig.accountName}
-                        </span>
+                return (
+                  <button
+                    key={chKey}
+                    type="button"
+                    onClick={() => handleSelectChannelType(chKey)}
+                    className={cn(
+                      "flex flex-col items-center justify-center p-4 rounded-xl border text-center transition-all duration-200 cursor-pointer",
+                      isSelected
+                        ? "border-primary bg-primary/5 ring-2 ring-primary shadow-xs"
+                        : "border-border hover:border-primary/40 hover:bg-muted/40"
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "h-10 w-10 rounded-xl flex items-center justify-center mb-2.5 shadow-2xs",
+                        meta.iconStyle
                       )}
+                    >
+                      <Icon className="h-5 w-5" />
                     </div>
-                  </div>
-
-                  {isSelected && (
-                    <div className="absolute top-4 right-4 h-5 w-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-xs">
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                    </div>
-                  )}
-                </button>
-              );
-            })}
+                    <span className="font-semibold text-sm text-foreground">
+                      {meta.label}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground mt-0.5">
+                      {connectedCount > 0
+                        ? `${connectedCount} Connected`
+                        : "Not Connected"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <div className="p-3.5 bg-muted/40 rounded-lg border text-xs text-muted-foreground flex items-center justify-between">
-            <span>Need to connect another channel? Configure API keys in <strong>Channels Settings</strong>.</span>
+          {/* STEP 1B: Connected Channel Selection / Empty State */}
+          <div className="space-y-3 pt-4 border-t">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
+                2. Select Integrated {activeMeta.label} Channel
+              </label>
+              {hasConnectedChannel && (
+                <span className="text-xs text-muted-foreground">
+                  Credentials securely managed by Appnix backend
+                </span>
+              )}
+            </div>
+
+            {hasConnectedChannel ? (
+              <div className="space-y-3">
+                <div className="grid gap-3">
+                  {connectedChannelsForType.map((channelItem) => {
+                    const isSelected = campaign.channel === selectedChannelType;
+
+                    return (
+                      <div
+                        key={channelItem.id}
+                        onClick={() => handleSelectSpecificChannel(selectedChannelType)}
+                        className={cn(
+                          "relative flex items-center justify-between p-4 rounded-xl border transition-all duration-200 cursor-pointer",
+                          isSelected
+                            ? "border-primary bg-primary/5 ring-2 ring-primary shadow-2xs"
+                            : "border-border hover:border-primary/40 hover:bg-muted/30"
+                        )}
+                      >
+                        <div className="flex items-center gap-3.5">
+                          <div
+                            className={cn(
+                              "h-10 w-10 rounded-lg flex items-center justify-center shrink-0 shadow-2xs",
+                              activeMeta.iconStyle
+                            )}
+                          >
+                            <ActiveIcon className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-semibold text-sm text-foreground">
+                                {channelItem.accountName || `${activeMeta.label} Account`}
+                              </h4>
+                              <Badge
+                                variant="outline"
+                                className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 text-[10px] gap-1 py-0.5 px-2 font-medium"
+                              >
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                Connected & Ready
+                              </Badge>
+                            </div>
+                            {channelItem.phoneNumber && (
+                              <p className="text-xs font-mono text-muted-foreground mt-0.5">
+                                {channelItem.phoneNumber}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={cn(
+                              "h-5 w-5 rounded-full border flex items-center justify-center",
+                              isSelected
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-muted-foreground/40"
+                            )}
+                          >
+                            {isSelected && <CheckCircle2 className="h-3.5 w-3.5" />}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Security and No-Technical-IDs Reassurance */}
+                <div className="rounded-lg bg-muted/40 border p-3 flex items-start gap-2.5 text-xs text-muted-foreground">
+                  <ShieldCheck className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                  <p>
+                    All API IDs, WABA IDs, Page IDs, and tokens are resolved securely by the backend from your integrated channel record. No technical configuration is required.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              /* Empty State: No Channel Connected */
+              <div className="rounded-xl border border-dashed border-border p-8 text-center bg-muted/10 space-y-4">
+                <div className="h-12 w-12 rounded-2xl bg-muted flex items-center justify-center mx-auto text-muted-foreground/60">
+                  <ActiveIcon className="h-6 w-6" />
+                </div>
+
+                <div className="space-y-1 max-w-md mx-auto">
+                  <h4 className="text-sm font-semibold text-foreground">
+                    No connected {activeMeta.label} channel
+                  </h4>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    You have not connected an official {activeMeta.label} account for your organization yet. Connect your channel to launch campaigns.
+                  </p>
+                </div>
+
+                <div className="pt-1">
+                  <Button asChild size="sm" className="gap-1.5 text-xs">
+                    <Link href={activeMeta.connectUrl}>
+                      <span>Connect {activeMeta.label} Channel</span>
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
 
+      {/* Stepper Footer */}
       <div className="flex items-center justify-between pt-2">
-        <Button variant="outline" onClick={onPrev} className="gap-2">
+        <Button variant="outline" onClick={onPrev} className="gap-2 text-xs">
           <ChevronLeft className="h-4 w-4" />
-          Back
+          Cancel & Exit
         </Button>
+
         <div className="flex items-center gap-3">
           {onSaveDraft && (
             <Button
@@ -199,18 +339,19 @@ export function CampaignStepChannel({
               variant="outline"
               onClick={onSaveDraft}
               disabled={isSaving}
-              className="gap-2"
+              className="gap-2 text-xs"
             >
               <Save className="h-4 w-4" />
-              {isSaving ? "Saving..." : "Save as Draft"}
+              {isSaving ? "Saving..." : "Save Draft"}
             </Button>
           )}
+
           <Button
             onClick={onNext}
-            disabled={!canProceed}
-            className="gap-2 px-6 shadow-sm"
+            disabled={!hasConnectedChannel || !canProceed}
+            className="gap-2 px-6 shadow-sm text-xs bg-primary"
           >
-            Continue to Template
+            <span>Continue to Campaign Details</span>
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
@@ -218,6 +359,3 @@ export function CampaignStepChannel({
     </div>
   );
 }
-
-
-

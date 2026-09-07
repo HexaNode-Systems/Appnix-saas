@@ -1,6 +1,7 @@
 import {
   Injectable,
   UnauthorizedException,
+  ForbiddenException,
   ConflictException,
   BadRequestException,
   NotFoundException,
@@ -9,6 +10,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
+import { Role } from '@prisma/client';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
 import { RecaptchaService } from './recaptcha.service';
@@ -19,6 +21,9 @@ export interface JwtPayload {
   email: string;
   tenantId: string;
   role: string;
+  orgPath?: string;
+  tier?: string;
+  permissions?: string[];
 }
 
 export interface UserResponse {
@@ -32,6 +37,8 @@ export interface UserResponse {
   permissions: string[];
   emailVerified: boolean;
   twoFactorEnabled: boolean;
+  orgPath?: string;
+  tier?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -51,6 +58,7 @@ export class AuthService {
   formatUser(user: any, tenantName?: string): UserResponse {
     const roleMap: Record<string, 'owner' | 'admin' | 'member' | 'viewer'> = {
       SUPER_ADMIN: 'owner',
+      RESELLER_ADMIN: 'admin',
       TENANT_ADMIN: 'admin',
       MEMBER: 'member',
     };
@@ -66,6 +74,8 @@ export class AuthService {
       permissions: ['*'],
       emailVerified: true,
       twoFactorEnabled: false,
+      orgPath: user.tenant?.path || (user.role === 'SUPER_ADMIN' ? 'root' : undefined),
+      tier: user.tenant?.tier || (user.role === 'SUPER_ADMIN' ? 'PLATFORM_ROOT' : undefined),
       createdAt: user.createdAt ? new Date(user.createdAt).toISOString() : new Date().toISOString(),
       updatedAt: user.updatedAt ? new Date(user.updatedAt).toISOString() : new Date().toISOString(),
     };
@@ -119,7 +129,9 @@ export class AuthService {
       } as any;
     }
 
-    const tokens = await this.generateTokens(user.id, user.email, user.tenantId, user.role);
+    const orgPath = user.role === 'SUPER_ADMIN' ? 'root' : ((user as any).tenant?.path || 'root');
+    const tier = user.role === 'SUPER_ADMIN' ? 'PLATFORM_ROOT' : ((user as any).tenant?.tier || 'END_CLIENT');
+    const tokens = await this.generateTokens(user.id, user.email, user.tenantId, user.role, orgPath, tier);
     const formattedUser = this.formatUser(user, (user as any).tenant?.name || tenantName);
 
     if (isNewUser) {
@@ -202,7 +214,9 @@ export class AuthService {
       name,
     );
 
-    const tokens = await this.generateTokens(user.id, user.email, user.tenantId, user.role);
+    const orgPath = tenant.path || 'root';
+    const tier = tenant.tier || 'END_CLIENT';
+    const tokens = await this.generateTokens(user.id, user.email, user.tenantId, user.role, orgPath, tier);
     const formattedUser = this.formatUser(user, tenant.name);
 
     // Non-blocking welcome email delivery
@@ -227,7 +241,10 @@ export class AuthService {
     const passwordMatches = await bcrypt.compare(password, user.passwordHash);
     if (!passwordMatches) throw new UnauthorizedException('Invalid credentials');
 
-    const tokens = await this.generateTokens(user.id, user.email, user.tenantId, user.role);
+    const orgPath = user.role === 'SUPER_ADMIN' ? 'root' : (user.tenant?.path || 'root');
+    const tier = user.role === 'SUPER_ADMIN' ? 'PLATFORM_ROOT' : (user.tenant?.tier || 'END_CLIENT');
+
+    const tokens = await this.generateTokens(user.id, user.email, user.tenantId, user.role, orgPath, tier);
     const formattedUser = this.formatUser(user);
 
     return {
@@ -236,8 +253,51 @@ export class AuthService {
     };
   }
 
-  async generateTokens(userId: string, email: string, tenantId: string, role: string) {
-    const payload: JwtPayload = { sub: userId, email, tenantId, role };
+  async adminLogin(email: string, password: string, recaptchaToken?: string) {
+    if (recaptchaToken) {
+      await this.recaptchaService.verifyToken(recaptchaToken, 'admin_login');
+    }
+
+    const user = await this.usersService.findByEmail(email);
+    if (!user) throw new UnauthorizedException('Invalid credentials');
+
+    const passwordMatches = await bcrypt.compare(password, user.passwordHash);
+    if (!passwordMatches) throw new UnauthorizedException('Invalid credentials');
+
+    if (user.role !== Role.SUPER_ADMIN && user.role !== Role.RESELLER_ADMIN) {
+      throw new ForbiddenException('Access denied: account does not have Admin or Reseller privileges');
+    }
+
+    const orgPath = user.role === 'SUPER_ADMIN' ? 'root' : (user.tenant?.path || 'root');
+    const tier = user.role === 'SUPER_ADMIN' ? 'PLATFORM_ROOT' : (user.tenant?.tier || 'PRIMARY_RESELLER');
+
+    const tokens = await this.generateTokens(user.id, user.email, user.tenantId, user.role, orgPath, tier);
+    const formattedUser = this.formatUser(user);
+
+    return {
+      ...tokens,
+      user: formattedUser,
+    };
+  }
+
+  async generateTokens(
+    userId: string,
+    email: string,
+    tenantId: string,
+    role: string,
+    orgPath?: string,
+    tier?: string,
+    permissions?: string[],
+  ) {
+    const payload: JwtPayload = {
+      sub: userId,
+      email,
+      tenantId,
+      role,
+      orgPath: orgPath || 'root',
+      tier: tier || 'END_CLIENT',
+      permissions: permissions || ['*'],
+    };
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
@@ -265,7 +325,10 @@ export class AuthService {
     const matches = await bcrypt.compare(refreshToken, user.hashedRefreshToken);
     if (!matches) throw new UnauthorizedException('Access denied');
 
-    const tokens = await this.generateTokens(user.id, user.email, user.tenantId, user.role);
+    const orgPath = user.role === 'SUPER_ADMIN' ? 'root' : (user.tenant?.path || 'root');
+    const tier = user.role === 'SUPER_ADMIN' ? 'PLATFORM_ROOT' : (user.tenant?.tier || 'END_CLIENT');
+
+    const tokens = await this.generateTokens(user.id, user.email, user.tenantId, user.role, orgPath, tier);
     const formattedUser = this.formatUser(user);
 
     return {

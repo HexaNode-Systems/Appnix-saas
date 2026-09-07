@@ -73,6 +73,7 @@ const TYPE_ICONS: Record<SuperFieldDataType, React.ElementType> = {
   ADDRESS: MapPin,
   DATE: Calendar,
   DATETIME: Clock,
+  BOOLEAN: CheckSquare,
   PERIODIC_TIME: Hourglass,
 };
 
@@ -400,18 +401,36 @@ export function SuperFieldsDirectory() {
                   <tr>
                     <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground text-xs">
                       <Sliders className="h-8 w-8 mx-auto mb-2 text-muted-foreground/40" />
-                      <p className="font-bold text-foreground">No Super Fields Match Your Criteria</p>
-                      <p className="text-[11px] mt-0.5">
-                        Try adjusting your search query or data type filter options.
+                      <p className="font-bold text-foreground">
+                        {fields.length === 0 ? "No Super Fields Configured Yet" : "No Matching Super Fields Found"}
                       </p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleResetFilters}
-                        className="mt-3 h-7 text-xs"
-                      >
-                        Reset All Filters
-                      </Button>
+                      <p className="text-[11px] mt-0.5 max-w-sm mx-auto">
+                        {fields.length === 0
+                          ? "Create your first dynamic custom field to store business-specific attributes across CRM contacts, live chat profiles, and campaign audiences."
+                          : "Try adjusting your search query or data type filter options."}
+                      </p>
+                      {fields.length === 0 ? (
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setSelectedFieldForEdit(null);
+                            setIsDrawerOpen(true);
+                          }}
+                          className="mt-3 h-8 text-xs font-semibold gap-1.5 bg-primary"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>+ Add Your First Super Field</span>
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleResetFilters}
+                          className="mt-3 h-7 text-xs"
+                        >
+                          Reset All Filters
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ) : (
@@ -586,6 +605,40 @@ export function SuperFieldsDirectory() {
               </tbody>
             </table>
           </div>
+        </div>
+      ) : filteredFields.length === 0 ? (
+        <div className="rounded-2xl border bg-card p-12 text-center text-muted-foreground text-xs shadow-xs">
+          <Sliders className="h-8 w-8 mx-auto mb-2 text-muted-foreground/40" />
+          <p className="font-bold text-foreground">
+            {fields.length === 0 ? "No Super Fields Configured Yet" : "No Matching Super Fields Found"}
+          </p>
+          <p className="text-[11px] mt-0.5 max-w-sm mx-auto">
+            {fields.length === 0
+              ? "Create your first dynamic custom field to store business-specific attributes across CRM contacts, live chat profiles, and campaign audiences."
+              : "Try adjusting your search query or data type filter options."}
+          </p>
+          {fields.length === 0 ? (
+            <Button
+              size="sm"
+              onClick={() => {
+                setSelectedFieldForEdit(null);
+                setIsDrawerOpen(true);
+              }}
+              className="mt-3 h-8 text-xs font-semibold gap-1.5 bg-primary"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>+ Add Your First Super Field</span>
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleResetFilters}
+              className="mt-3 h-7 text-xs"
+            >
+              Reset All Filters
+            </Button>
+          )}
         </div>
       ) : (
         /* Cards Grid View */

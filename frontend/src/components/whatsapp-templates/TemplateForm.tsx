@@ -1194,7 +1194,7 @@ export function TemplateForm({
                                     e.target.value
                                   )
                                 }
-                                placeholder="e.g. Jitendra"
+                                placeholder="e.g. John"
                                 className="h-7 text-xs"
                               />
                             </td>

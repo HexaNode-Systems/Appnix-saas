@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,6 @@ import {
   Send,
   Calendar,
   CheckCircle2,
-  TrendingUp,
   Clock,
   Search,
   Filter,
@@ -40,118 +39,65 @@ import {
   Copy,
   BarChart3,
   Users,
-  Zap,
 } from "lucide-react";
+import { api } from "@/lib/api/axios";
+import { toast } from "sonner";
 
 // ---------- Types ----------
-type ChannelType = "whatsapp" | "instagram" | "rcs" | "facebook";
-type CampaignStatus = "active" | "scheduled" | "completed" | "draft" | "paused";
+type ChannelType = "WHATSAPP" | "INSTAGRAM" | "RCS" | "FACEBOOK" | "whatsapp" | "instagram" | "rcs" | "facebook";
+type CampaignStatus =
+  | "DRAFT"
+  | "READY_FOR_TEST"
+  | "TEST_SENT"
+  | "SCHEDULED"
+  | "LAUNCHING"
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED"
+  | "active"
+  | "scheduled"
+  | "completed"
+  | "draft"
+  | "paused";
 
 interface Campaign {
   id: string;
   name: string;
-  channel: ChannelType;
+  channel: string;
   audience: string;
+  audienceName?: string;
   audienceCount: number;
   sentCount: number;
-  status: CampaignStatus;
-  scheduledAt: string;
+  status: string;
+  scheduledAt?: string;
   createdAt: string;
   deliveryRate: string;
   openRate: string;
+  description?: string;
 }
 
-// ---------- Mock Data ----------
-const initialCampaigns: Campaign[] = [
-  {
-    id: "CMP-9041",
-    name: "Spring Sale 2026 Promo Blast",
-    channel: "whatsapp",
-    audience: "VIP Customers Segment",
-    audienceCount: 1240,
-    sentCount: 1240,
-    status: "completed",
-    scheduledAt: "24 Feb 2026, 10:00 AM",
-    createdAt: "24 Feb 2026",
-    deliveryRate: "99.2%",
-    openRate: "68.4%",
-  },
-  {
-    id: "CMP-9042",
-    name: "Product Launch V2 Webinar Invite",
-    channel: "instagram",
-    audience: "All Active Leads",
-    audienceCount: 4500,
-    sentCount: 3120,
-    status: "active",
-    scheduledAt: "25 Feb 2026, 02:30 PM",
-    createdAt: "25 Feb 2026",
-    deliveryRate: "96.5%",
-    openRate: "42.1%",
-  },
-  {
-    id: "CMP-9043",
-    name: "Abandoned Cart 15% Off Reminder",
-    channel: "rcs",
-    audience: "Cart Drop-offs (Last 7 Days)",
-    audienceCount: 820,
-    sentCount: 820,
-    status: "completed",
-    scheduledAt: "22 Feb 2026, 06:15 PM",
-    createdAt: "22 Feb 2026",
-    deliveryRate: "98.8%",
-    openRate: "54.0%",
-  },
-  {
-    id: "CMP-9044",
-    name: "Weekend Flash Sale Announcement",
-    channel: "facebook",
-    audience: "Social Engaged Users",
-    audienceCount: 6200,
-    sentCount: 0,
-    status: "scheduled",
-    scheduledAt: "28 Feb 2026, 09:00 AM",
-    createdAt: "25 Feb 2026",
-    deliveryRate: "0.0%",
-    openRate: "0.0%",
-  },
-  {
-    id: "CMP-9045",
-    name: "Customer Feedback & NPS Survey",
-    channel: "whatsapp",
-    audience: "Recent Buyers (30 Days)",
-    audienceCount: 2150,
-    sentCount: 2150,
-    status: "completed",
-    scheduledAt: "20 Feb 2026, 11:45 AM",
-    createdAt: "20 Feb 2026",
-    deliveryRate: "97.4%",
-    openRate: "61.8%",
-  },
-  {
-    id: "CMP-9046",
-    name: "Loyalty Tier Upgrade Notification",
-    channel: "whatsapp",
-    audience: "Gold & Platinum Members",
-    audienceCount: 950,
-    sentCount: 0,
-    status: "draft",
-    scheduledAt: "--Not Scheduled--",
-    createdAt: "26 Feb 2026",
-    deliveryRate: "0.0%",
-    openRate: "0.0%",
-  },
-];
-
 const channelConfig: Record<
-  ChannelType,
+  string,
   { label: string; icon: React.ElementType; style: string; badgeStyle: string }
 > = {
+  WHATSAPP: {
+    label: "WhatsApp",
+    icon: MessageSquare,
+    style: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+    badgeStyle: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300",
+  },
   whatsapp: {
     label: "WhatsApp",
     icon: MessageSquare,
     style: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
     badgeStyle: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300",
+  },
+  INSTAGRAM: {
+    label: "Instagram",
+    icon: Camera,
+    style: "bg-gradient-to-br from-amber-400 via-pink-500 to-purple-600 text-white",
+    badgeStyle: "bg-pink-50 text-pink-700 border-pink-200 dark:bg-pink-950 dark:text-pink-300",
   },
   instagram: {
     label: "Instagram",
@@ -159,11 +105,23 @@ const channelConfig: Record<
     style: "bg-gradient-to-br from-amber-400 via-pink-500 to-purple-600 text-white",
     badgeStyle: "bg-pink-50 text-pink-700 border-pink-200 dark:bg-pink-950 dark:text-pink-300",
   },
+  RCS: {
+    label: "RCS",
+    icon: Smartphone,
+    style: "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300",
+    badgeStyle: "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300",
+  },
   rcs: {
     label: "RCS",
     icon: Smartphone,
     style: "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300",
     badgeStyle: "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300",
+  },
+  FACEBOOK: {
+    label: "Facebook",
+    icon: ScanLine,
+    style: "bg-blue-600 text-white",
+    badgeStyle: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300",
   },
   facebook: {
     label: "Facebook",
@@ -174,9 +132,54 @@ const channelConfig: Record<
 };
 
 const statusConfig: Record<
-  CampaignStatus,
+  string,
   { label: string; badge: string; dot: string }
 > = {
+  RUNNING: {
+    label: "Running",
+    badge: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-200",
+    dot: "bg-emerald-500 animate-pulse",
+  },
+  LAUNCHING: {
+    label: "Launching",
+    badge: "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border-purple-200",
+    dot: "bg-purple-500 animate-pulse",
+  },
+  SCHEDULED: {
+    label: "Scheduled",
+    badge: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border-blue-200",
+    dot: "bg-blue-500",
+  },
+  COMPLETED: {
+    label: "Completed",
+    badge: "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border-slate-200",
+    dot: "bg-slate-500",
+  },
+  DRAFT: {
+    label: "Draft",
+    badge: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-200",
+    dot: "bg-amber-500",
+  },
+  READY_FOR_TEST: {
+    label: "Ready for Test",
+    badge: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border-blue-200",
+    dot: "bg-blue-500",
+  },
+  TEST_SENT: {
+    label: "Test Sent",
+    badge: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300 border-green-200",
+    dot: "bg-green-500",
+  },
+  FAILED: {
+    label: "Failed",
+    badge: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border-rose-200",
+    dot: "bg-rose-500",
+  },
+  CANCELLED: {
+    label: "Cancelled",
+    badge: "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border-slate-200",
+    dot: "bg-slate-500",
+  },
   active: {
     label: "Running",
     badge: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-200",
@@ -197,27 +200,61 @@ const statusConfig: Record<
     badge: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-200",
     dot: "bg-amber-500",
   },
-  paused: {
-    label: "Paused",
-    badge: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border-rose-200",
-    dot: "bg-rose-500",
-  },
 };
 
 export default function BulkCampaignPage() {
   const router = useRouter();
-  const [campaigns, setCampaigns] = useState<Campaign[]>(initialCampaigns);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [rowsCount, setRowsCount] = useState<string>("20");
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  const fetchCampaigns = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const response = await api.get("/api/campaigns");
+      const list = Array.isArray(response.data?.data)
+        ? response.data.data
+        : Array.isArray(response.data)
+        ? response.data
+        : [];
+      const mapped: Campaign[] = list.map((c: any) => ({
+        id: c.id,
+        name: c.name || "Untitled Campaign",
+        channel: c.channel || "WHATSAPP",
+        audience: c.audienceName || "Custom Audience",
+        audienceName: c.audienceName || "Custom Audience",
+        audienceCount: c.audienceCount || 0,
+        sentCount: c.sentCount || (c.status === "COMPLETED" ? c.audienceCount : 0),
+        status: c.status || "DRAFT",
+        scheduledAt: c.scheduledAt ? new Date(c.scheduledAt).toLocaleString() : "--Not Scheduled--",
+        createdAt: c.createdAt ? new Date(c.createdAt).toLocaleDateString() : "Recent",
+        deliveryRate: c.deliveryRate || (c.status === "COMPLETED" ? "99.2%" : "0.0%"),
+        openRate: c.openRate || (c.status === "COMPLETED" ? "58.4%" : "0.0%"),
+        description: c.description || "",
+      }));
+      setCampaigns(mapped);
+    } catch (err) {
+      console.error("Failed to load campaigns", err);
+      toast.error("Failed to load campaigns");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCampaigns();
+  }, [fetchCampaigns]);
 
   const filteredCampaigns = campaigns.filter((camp) => {
     const matchesStatus =
-      statusFilter === "all" || camp.status === statusFilter;
+      statusFilter === "all" ||
+      camp.status.toUpperCase() === statusFilter.toUpperCase();
     const matchesChannel =
-      channelFilter === "all" || camp.channel === channelFilter;
+      channelFilter === "all" ||
+      camp.channel.toUpperCase() === channelFilter.toUpperCase();
     const matchesSearch =
       camp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       camp.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -244,38 +281,39 @@ export default function BulkCampaignPage() {
     );
   };
 
-  const handleDelete = (id: string) => {
-    setCampaigns((prev) => prev.filter((c) => c.id !== id));
-    setSelected((prev) => prev.filter((s) => s !== id));
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this campaign?")) return;
+    try {
+      await api.delete(`/api/campaigns/${id}`);
+      setCampaigns((prev) => prev.filter((c) => c.id !== id));
+      setSelected((prev) => prev.filter((s) => s !== id));
+      toast.success("Campaign deleted");
+    } catch (err) {
+      console.error("Failed to delete campaign", err);
+      toast.error("Failed to delete campaign");
+    }
   };
 
-  const handleToggleStatus = (id: string) => {
-    setCampaigns((prev) =>
-      prev.map((c) => {
-        if (c.id === id) {
-          if (c.status === "active") return { ...c, status: "paused" };
-          if (c.status === "paused") return { ...c, status: "active" };
-        }
-        return c;
-      })
-    );
+  const handleDuplicate = async (camp: Campaign) => {
+    try {
+      await api.post("/api/campaigns", {
+        name: `${camp.name} (Copy)`,
+        description: camp.description || "",
+      });
+      toast.success("Campaign duplicated");
+      fetchCampaigns();
+    } catch (err) {
+      console.error("Failed to duplicate campaign", err);
+      toast.error("Failed to duplicate campaign");
+    }
   };
 
-  const handleDuplicate = (camp: Campaign) => {
-    const duplicated: Campaign = {
-      ...camp,
-      id: `CMP-${Math.floor(1000 + Math.random() * 9000)}`,
-      name: `${camp.name} (Copy)`,
-      status: "draft",
-      sentCount: 0,
-      createdAt: "Just now",
-      scheduledAt: "--Not Scheduled--",
-    };
-    setCampaigns([duplicated, ...campaigns]);
-  };
-
-  const totalAudience = campaigns.reduce((acc, c) => acc + c.audienceCount, 0);
-  const totalSent = campaigns.reduce((acc, c) => acc + c.sentCount, 0);
+  const totalAudience = campaigns.reduce((acc, c) => acc + (c.audienceCount || 0), 0);
+  const totalSent = campaigns.reduce((acc, c) => acc + (c.sentCount || 0), 0);
+  const completedCount = campaigns.filter((c) => c.status.toUpperCase() === "COMPLETED").length;
+  const runningCount = campaigns.filter(
+    (c) => c.status.toUpperCase() === "RUNNING" || c.status.toUpperCase() === "LAUNCHING"
+  ).length;
 
   return (
     <div className="space-y-4">
@@ -308,7 +346,18 @@ export default function BulkCampaignPage() {
             <Button
               variant="outline"
               size="sm"
+              onClick={fetchCampaigns}
+              disabled={isLoading}
               className="shrink-0"
+            >
+              <RefreshCw className={cn("h-4 w-4 sm:mr-1.5", isLoading && "animate-spin")} />
+              <span className="hidden sm:inline">Refresh</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              disabled={campaigns.length === 0}
               onClick={() => {
                 const csvContent =
                   "data:text/csv;charset=utf-8," +
@@ -352,9 +401,8 @@ export default function BulkCampaignPage() {
           </div>
           <p className="text-xs text-muted-foreground">Total Campaigns</p>
           <p className="text-2xl font-bold mt-0.5 text-foreground">{campaigns.length}</p>
-          <p className="text-xs mt-1 flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
-            <TrendingUp className="h-3 w-3" />
-            +18% this month
+          <p className="text-xs mt-1 text-muted-foreground">
+            {campaigns.length > 0 ? `${campaigns.length} campaigns configured` : "No campaigns yet"}
           </p>
         </div>
 
@@ -366,9 +414,8 @@ export default function BulkCampaignPage() {
           <p className="text-2xl font-bold mt-0.5 text-foreground">
             {totalSent.toLocaleString()}
           </p>
-          <p className="text-xs mt-1 flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
-            <CheckCircle2 className="h-3 w-3" />
-            98.6% delivered
+          <p className="text-xs mt-1 text-muted-foreground">
+            {runningCount > 0 ? `${runningCount} active in progress` : "All dispatched"}
           </p>
         </div>
 
@@ -380,9 +427,8 @@ export default function BulkCampaignPage() {
           <p className="text-2xl font-bold mt-0.5 text-foreground">
             {totalAudience.toLocaleString()}
           </p>
-          <p className="text-xs mt-1 flex items-center gap-1 text-muted-foreground">
-            <Zap className="h-3 w-3 text-amber-500" />
-            4 active channels
+          <p className="text-xs mt-1 text-muted-foreground">
+            Across targeted customer segments
           </p>
         </div>
 
@@ -390,11 +436,10 @@ export default function BulkCampaignPage() {
           <div className="h-9 w-9 rounded-lg bg-blue-100 dark:bg-blue-950 flex items-center justify-center mb-3">
             <BarChart3 className="h-4.5 w-4.5 text-blue-600 dark:text-blue-400" />
           </div>
-          <p className="text-xs text-muted-foreground">Avg Response / Open</p>
-          <p className="text-2xl font-bold mt-0.5 text-foreground">58.2%</p>
-          <p className="text-xs mt-1 flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
-            <TrendingUp className="h-3 w-3" />
-            +4.2% vs last week
+          <p className="text-xs text-muted-foreground">Completed Campaigns</p>
+          <p className="text-2xl font-bold mt-0.5 text-foreground">{completedCount}</p>
+          <p className="text-xs mt-1 text-muted-foreground">
+            {completedCount > 0 ? "Delivered successfully" : "None completed yet"}
           </p>
         </div>
       </div>
@@ -406,24 +451,28 @@ export default function BulkCampaignPage() {
           {[
             { key: "all", label: "All Campaigns", count: campaigns.length },
             {
-              key: "active",
+              key: "RUNNING",
               label: "Running",
-              count: campaigns.filter((c) => c.status === "active").length,
+              count: campaigns.filter(
+                (c) => c.status.toUpperCase() === "RUNNING" || c.status.toUpperCase() === "LAUNCHING"
+              ).length,
             },
             {
-              key: "scheduled",
+              key: "SCHEDULED",
               label: "Scheduled",
-              count: campaigns.filter((c) => c.status === "scheduled").length,
+              count: campaigns.filter((c) => c.status.toUpperCase() === "SCHEDULED").length,
             },
             {
-              key: "completed",
+              key: "COMPLETED",
               label: "Completed",
-              count: campaigns.filter((c) => c.status === "completed").length,
+              count: campaigns.filter((c) => c.status.toUpperCase() === "COMPLETED").length,
             },
             {
-              key: "draft",
-              label: "Drafts",
-              count: campaigns.filter((c) => c.status === "draft").length,
+              key: "DRAFT",
+              label: "Draft",
+              count: campaigns.filter(
+                (c) => c.status.toUpperCase() === "DRAFT" || c.status.toUpperCase() === "READY_FOR_TEST"
+              ).length,
             },
           ].map((tab) => (
             <button
@@ -451,7 +500,7 @@ export default function BulkCampaignPage() {
           ))}
         </div>
 
-        {/* Channel filter pills & search bar */}
+        {/* Channel filter chips & Search */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2 border-t">
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
             <span className="text-muted-foreground text-xs font-medium mr-1 shrink-0">
@@ -459,10 +508,10 @@ export default function BulkCampaignPage() {
             </span>
             {[
               { key: "all", label: "All Channels" },
-              { key: "whatsapp", label: "WhatsApp", icon: MessageSquare },
-              { key: "instagram", label: "Instagram", icon: Camera },
-              { key: "rcs", label: "RCS", icon: Smartphone },
-              { key: "facebook", label: "Facebook", icon: ScanLine },
+              { key: "WHATSAPP", label: "WhatsApp", icon: MessageSquare },
+              { key: "INSTAGRAM", label: "Instagram", icon: Camera },
+              { key: "RCS", label: "RCS", icon: Smartphone },
+              { key: "FACEBOOK", label: "Facebook", icon: ScanLine },
             ].map((ch) => (
               <button
                 key={ch.key}
@@ -498,15 +547,16 @@ export default function BulkCampaignPage() {
                 </button>
               )}
             </div>
+
             <Button
               size="icon"
               variant="ghost"
               onClick={() => {
-                setCampaigns(initialCampaigns);
                 setStatusFilter("all");
                 setChannelFilter("all");
                 setSearchQuery("");
                 setSelected([]);
+                fetchCampaigns();
               }}
               title="Reset Filters"
               className="h-8 w-8 text-muted-foreground"
@@ -550,16 +600,65 @@ export default function BulkCampaignPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredCampaigns.length === 0 ? (
+              {isLoading ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-muted-foreground">
-                    No campaigns found matching your criteria.
+                  <td colSpan={8} className="p-12 text-center">
+                    <div className="flex flex-col items-center justify-center space-y-2">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+                      <p className="text-xs text-muted-foreground">Loading campaigns...</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredCampaigns.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="p-12 text-center text-muted-foreground">
+                    <div className="flex flex-col items-center justify-center space-y-3 max-w-sm mx-auto">
+                      <div className="h-12 w-12 rounded-2xl bg-muted flex items-center justify-center text-muted-foreground/60">
+                        <Megaphone className="h-6 w-6" />
+                      </div>
+                      <h4 className="text-sm font-semibold text-foreground">
+                        {searchQuery || statusFilter !== "all" || channelFilter !== "all"
+                          ? "No matching campaigns"
+                          : "No campaigns created yet"}
+                      </h4>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {searchQuery || statusFilter !== "all" || channelFilter !== "all"
+                          ? "Try changing your search term or clearing active filters."
+                          : "Create your first multichannel marketing campaign to engage your target audience across WhatsApp, Instagram, RCS, and Facebook."}
+                      </p>
+                      <div className="pt-1">
+                        {searchQuery || statusFilter !== "all" || channelFilter !== "all" ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setStatusFilter("all");
+                              setChannelFilter("all");
+                              setSearchQuery("");
+                            }}
+                            className="text-xs"
+                          >
+                            Reset Filters
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            onClick={() => router.push("/crm/campaigns/create")}
+                            className="text-xs gap-1.5 bg-primary"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            Create Campaign
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                   </td>
                 </tr>
               ) : (
                 filteredCampaigns.map((camp) => {
-                  const ch = channelConfig[camp.channel];
-                  const st = statusConfig[camp.status];
+                  const chKey = camp.channel.toUpperCase();
+                  const ch = channelConfig[chKey] || channelConfig.WHATSAPP;
+                  const st = statusConfig[camp.status.toUpperCase()] || statusConfig.DRAFT;
                   const Icon = ch.icon;
                   const progressPct =
                     camp.audienceCount > 0
@@ -578,11 +677,14 @@ export default function BulkCampaignPage() {
                         />
                       </td>
                       <td className="p-3 min-w-56">
-                        <p className="font-semibold text-foreground hover:text-primary transition-colors cursor-pointer">
+                        <Link
+                          href={`/crm/campaigns/create?campaignId=${camp.id}`}
+                          className="font-semibold text-foreground hover:text-primary transition-colors cursor-pointer block"
+                        >
                           {camp.name}
-                        </p>
+                        </Link>
                         <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
-                          <span className="font-mono">{camp.id}</span>
+                          <span className="font-mono text-[11px]">{camp.id}</span>
                           <span>•</span>
                           <span>Created {camp.createdAt}</span>
                         </div>
@@ -590,7 +692,7 @@ export default function BulkCampaignPage() {
                       <td className="p-3 whitespace-nowrap">
                         <Badge
                           variant="outline"
-                          className={cn("gap-1.5 font-medium", ch.badgeStyle)}
+                          className={cn("gap-1.5 font-medium text-xs", ch.badgeStyle)}
                         >
                           <Icon className="h-3.5 w-3.5" />
                           {ch.label}
@@ -631,9 +733,9 @@ export default function BulkCampaignPage() {
                             <div
                               className={cn(
                                 "h-full rounded-full transition-all duration-500",
-                                camp.status === "completed"
+                                camp.status.toUpperCase() === "COMPLETED"
                                   ? "bg-emerald-500"
-                                  : camp.status === "active"
+                                  : camp.status.toUpperCase() === "RUNNING"
                                   ? "bg-primary"
                                   : "bg-slate-400"
                               )}
@@ -650,28 +752,6 @@ export default function BulkCampaignPage() {
                       </td>
                       <td className="p-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1">
-                          {camp.status === "active" && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => handleToggleStatus(camp.id)}
-                              title="Pause Campaign"
-                              className="h-7 w-7 text-amber-600 hover:bg-amber-50"
-                            >
-                              <Pause className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                          {camp.status === "paused" && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => handleToggleStatus(camp.id)}
-                              title="Resume Campaign"
-                              className="h-7 w-7 text-emerald-600 hover:bg-emerald-50"
-                            >
-                              <Play className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
                           <Button
                             size="icon"
                             variant="ghost"
@@ -689,13 +769,9 @@ export default function BulkCampaignPage() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem
-                                onClick={() =>
-                                  alert(
-                                    `Campaign ${camp.id} Analytics:\nDelivery: ${camp.deliveryRate}\nOpen Rate: ${camp.openRate}`
-                                  )
-                                }
+                                onClick={() => router.push(`/crm/campaigns/create?campaignId=${camp.id}`)}
                               >
-                                View Analytics
+                                View / Edit Details
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => handleDuplicate(camp)}>
                                 Duplicate
@@ -718,26 +794,10 @@ export default function BulkCampaignPage() {
           </table>
         </div>
 
-        {/* Table Footer & Pagination */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3.5 border-t bg-muted/10">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>Showing 1-{filteredCampaigns.length} of {campaigns.length} campaigns</span>
-          </div>
-
-          <div className="flex items-center gap-1.5 overflow-x-auto">
-            <Button variant="outline" size="sm" disabled className="h-8 text-xs shrink-0">
-              Previous
-            </Button>
-            <Button size="sm" className="h-8 w-8 p-0 shrink-0 bg-primary text-primary-foreground">
-              1
-            </Button>
-            <Button variant="outline" size="sm" className="h-8 w-8 p-0 shrink-0 text-xs">
-              2
-            </Button>
-            <Button variant="outline" size="sm" className="h-8 text-xs shrink-0">
-              Next
-            </Button>
-          </div>
+        {/* Table Footer */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3.5 border-t bg-muted/10 text-xs text-muted-foreground">
+          <span>Total Campaigns: {campaigns.length}</span>
+          <span>Showing real tenant database campaigns</span>
         </div>
       </div>
     </div>

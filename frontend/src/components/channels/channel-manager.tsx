@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,7 @@ import { api } from "@/lib/api/axios";
 import {
   Plus,
   ArrowLeft,
+  ArrowRight,
   BarChart3,
   Wallet,
   Zap,
@@ -43,6 +44,7 @@ import {
 } from "lucide-react";
 import { ConnectFacebookModal } from "@/components/channels/ConnectFacebookModal";
 import { ConnectWhatsAppModal } from "@/components/channels/ConnectWhatsAppModal";
+import { ConnectInstagramModal } from "@/components/channels/ConnectInstagramModal";
 
 
 
@@ -84,53 +86,6 @@ export interface Channel {
   actions: React.ElementType[];
 }
 
-// ---------- Mock Initial Data ----------
-export const defaultChannels: Channel[] = [
-  {
-    id: "2",
-    type: "instagram",
-    name: "prayerofhopes",
-    subtitle: "@prayerofhopes",
-    status: "connected",
-    fields: [
-      { label: "Account Status", value: "Connected", icon: ScanLine },
-      { label: "Media Post Count", value: "148 Posts", icon: ImageIcon },
-      { label: "Follower Count", value: "24.5k Followers", icon: Users },
-      { label: "Story Auto-Reply", value: "Enabled", icon: Bot },
-    ],
-    actions: [Link2, BarChart3, Bot, Camera],
-  },
-  {
-    id: "3",
-    type: "facebook",
-    name: "Appnix Official Page",
-    subtitle: "Page ID: 1092837465928",
-    status: "connected",
-    fields: [
-      { label: "Page Status", value: "Connected & Published", icon: ScanLine },
-      { label: "Follower Count", value: "18.2k Followers", icon: Users },
-      { label: "Messenger Bot", value: "Active (99.4%)", icon: Bot },
-      { label: "Channel Type", value: "Facebook Messenger", icon: MessageSquare },
-    ],
-    actions: [Link2, FileText, BarChart3, Bot],
-  },
-  {
-    id: "4",
-    type: "rcs",
-    name: "Appnix RCS Verified Agent",
-    subtitle: "Agent: appnix-rcs-prod",
-    status: "connected",
-    topRight: { label: "Enterprise Tier", sub: "Carrier Verified" },
-    fields: [
-      { label: "Carrier Status", value: "Approved (Jio/Airtel/VI)", icon: CheckCircle2 },
-      { label: "Verification", value: "Google Verified", icon: ScanLine },
-      { label: "Rich Cards", value: "Supported", icon: Smartphone },
-      { label: "Throughput", value: "250 msg/sec", icon: Zap },
-    ],
-    actions: [Link2, FileText, BarChart3, Bot, Zap, Smartphone],
-  },
-];
-
 export const channelIconStyles: Record<ChannelType, string> = {
   whatsapp: "bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300",
   instagram:
@@ -169,20 +124,189 @@ export const channelTitles: Record<ChannelType | "all", { title: string; subtitl
   },
 };
 
+// Map real API / database channel data to UI Channel object
+function mapApiChannelToUi(item: any): Channel {
+  const type = ((item.type || item.channel || "").toLowerCase()) as ChannelType;
+  const fields: ChannelField[] = [];
+
+  if (type === "whatsapp") {
+    if (item.phoneNumber) {
+      fields.push({ label: "Phone Number", value: item.phoneNumber, icon: MessageCircle });
+    }
+    if (item.qualityRating) {
+      fields.push({ label: "Quality Rating", value: item.qualityRating, icon: ScanLine });
+    }
+    if (item.messagingLimitTier || item.tierLimit) {
+      fields.push({
+        label: "Messaging Limit",
+        value: item.messagingLimitTier || item.tierLimit,
+        icon: MessageSquare,
+      });
+    }
+    if (item.wabaId) {
+      fields.push({ label: "WABA ID", value: item.wabaId, icon: Link2 });
+    }
+    if (item.phoneNumberId) {
+      fields.push({ label: "Phone ID", value: item.phoneNumberId, icon: Smartphone });
+    }
+    if (item.codeVerificationStatus) {
+      fields.push({ label: "Number Status", value: item.codeVerificationStatus, icon: CheckCircle2 });
+    }
+    if (item.webhookSubscribed !== undefined) {
+      fields.push({
+        label: "Webhook Sync",
+        value: item.webhookSubscribed ? "Active & Live" : "Pending",
+        icon: Zap,
+      });
+    }
+
+    return {
+      id: item.id || "whatsapp",
+      type: "whatsapp",
+      name: item.name || item.displayName || item.wabaName || "WhatsApp Cloud API",
+      subtitle: item.phoneNumber || (item.wabaId ? `WABA: ${item.wabaId}` : "Connected Number"),
+      status: "connected",
+      topRight: { label: "Verified & Live", sub: "Cloud API" },
+      fields,
+      actions: [Link2, FileText, CreditCard, BarChart3, Bot, Zap, MessageSquare],
+    };
+  }
+
+  if (type === "facebook") {
+    if (item.pageId) {
+      fields.push({ label: "Page ID", value: item.pageId, icon: Link2 });
+    }
+    if (item.category) {
+      fields.push({ label: "Category", value: item.category, icon: ScanLine });
+    }
+    if (item.botEnabled !== undefined) {
+      fields.push({
+        label: "Messenger Bot",
+        value: item.botEnabled ? "Active (Auto-Reply)" : "Manual Live Chat",
+        icon: Bot,
+      });
+    }
+    if (item.connectedAt) {
+      fields.push({
+        label: "Connected Date",
+        value: new Date(item.connectedAt).toLocaleDateString(),
+        icon: CheckCircle2,
+      });
+    }
+    fields.push({ label: "Messenger Sync", value: "Direct Sync Enabled", icon: MessageSquare });
+
+    return {
+      id: item.id || `fb_${item.pageId || "page"}`,
+      type: "facebook",
+      name: item.name || item.pageName || "Facebook Page",
+      subtitle: item.pageId ? `Page ID: ${item.pageId}` : (item.subtitle || "Connected Page"),
+      status: "connected",
+      topRight: { label: "Page Connected", sub: "Facebook Messenger" },
+      fields,
+      actions: [Link2, FileText, BarChart3, Bot],
+    };
+  }
+
+  if (type === "instagram") {
+    if (item.accountHandle) {
+      fields.push({
+        label: "Account Handle",
+        value: item.accountHandle.startsWith("@") ? item.accountHandle : `@${item.accountHandle}`,
+        icon: Camera,
+      });
+    }
+    if (item.pageId) {
+      fields.push({ label: "Connected Page ID", value: item.pageId, icon: Link2 });
+    }
+    if (item.autoReplyEnabled !== undefined) {
+      fields.push({
+        label: "Story Auto-Reply",
+        value: item.autoReplyEnabled ? "Enabled" : "Disabled",
+        icon: Bot,
+      });
+    }
+    if (item.connectedAt) {
+      fields.push({
+        label: "Connected Date",
+        value: new Date(item.connectedAt).toLocaleDateString(),
+        icon: CheckCircle2,
+      });
+    }
+    fields.push({ label: "Direct Sync", value: "Active", icon: ScanLine });
+
+    return {
+      id: item.id || "instagram",
+      type: "instagram",
+      name: item.name || item.accountName || "Instagram Professional",
+      subtitle: item.accountHandle
+        ? (item.accountHandle.startsWith("@") ? item.accountHandle : `@${item.accountHandle}`)
+        : (item.subtitle || "Instagram Channel"),
+      status: "connected",
+      topRight: { label: "Professional Account", sub: "Direct Messages" },
+      fields,
+      actions: [Link2, BarChart3, Bot, Camera],
+    };
+  }
+
+  if (type === "rcs") {
+    if (item.agentId) {
+      fields.push({ label: "Agent ID", value: item.agentId, icon: Smartphone });
+    }
+    if (item.carriers && (Array.isArray(item.carriers) ? item.carriers.length > 0 : Boolean(item.carriers))) {
+      fields.push({
+        label: "Carriers",
+        value: Array.isArray(item.carriers) ? item.carriers.join(", ") : String(item.carriers),
+        icon: CheckCircle2,
+      });
+    }
+    if (item.throughput) {
+      fields.push({ label: "Throughput", value: item.throughput, icon: Zap });
+    }
+    if (item.connectedAt) {
+      fields.push({
+        label: "Connected Date",
+        value: new Date(item.connectedAt).toLocaleDateString(),
+        icon: ScanLine,
+      });
+    }
+    fields.push({ label: "Rich Cards", value: "Supported", icon: FileText });
+
+    return {
+      id: item.id || "rcs",
+      type: "rcs",
+      name: item.name || item.agentName || "Google RCS Agent",
+      subtitle: item.agentId ? `Agent: ${item.agentId}` : (item.subtitle || "RCS Channel"),
+      status: "connected",
+      topRight: { label: "Carrier Verified", sub: "Google RCS" },
+      fields,
+      actions: [Link2, FileText, BarChart3, Bot, Zap, Smartphone],
+    };
+  }
+
+  return {
+    id: item.id || String(Date.now()),
+    type: type || "whatsapp",
+    name: item.name || "Connected Channel",
+    subtitle: item.subtitle || "",
+    status: "connected",
+    fields,
+    actions: [Link2, FileText, BarChart3, Bot],
+  };
+}
+
 interface ChannelManagerProps {
   filterType?: ChannelType | "all";
 }
 
 export function ChannelManager({ filterType = "all" }: ChannelManagerProps) {
   const [view, setView] = useState<"grid" | "list">("grid");
-  const [channels, setChannels] = useState<Channel[]>(() =>
-    defaultChannels.filter((c) => c.type !== "whatsapp")
-  );
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [isLoadingChannels, setIsLoadingChannels] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isFacebookModalOpen, setIsFacebookModalOpen] = useState(false);
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
-  const [isLoadingWhatsApp, setIsLoadingWhatsApp] = useState(true);
+  const [isInstagramModalOpen, setIsInstagramModalOpen] = useState(false);
   const [newChannelType, setNewChannelType] = useState<ChannelType>(
     filterType === "all" ? "whatsapp" : filterType
   );
@@ -191,67 +315,31 @@ export function ChannelManager({ filterType = "all" }: ChannelManagerProps) {
 
   const pageInfo = channelTitles[filterType];
 
-  // Fetch real WhatsApp channel status from backend
-  useEffect(() => {
-    let isMounted = true;
-    setIsLoadingWhatsApp(true);
-
-    api
-      .get("/channels/whatsapp/status")
-      .then((res) => {
-        if (!isMounted) return;
-        const data = res.data?.data;
-        if (data && data.isConnected) {
-          const waChannel: Channel = {
-            id: data.channelId || "whatsapp",
-            type: "whatsapp",
-            name: data.displayName || data.wabaName || "WhatsApp Cloud API",
-            subtitle: data.phoneNumber || (data.wabaId ? `WABA: ${data.wabaId}` : "Connected Number"),
-            status: "connected",
-            topRight: { label: "Verified & Live", sub: "Cloud API" },
-            fields: [
-              { label: "Number Status", value: "Verified & Live", icon: MessageCircle },
-              {
-                label: "Quality Rating",
-                value: data.qualityRating || "UNKNOWN",
-                icon: ScanLine,
-              },
-              {
-                label: "Messaging Limit",
-                value: data.messagingLimitTier || "TIER_50",
-                icon: MessageSquare,
-              },
-              {
-                label: "WABA ID",
-                value: data.wabaId || "Connected",
-                icon: Link2,
-              },
-            ],
-            actions: [Link2, FileText, CreditCard, BarChart3, Bot, Zap, MessageSquare],
-          };
-
-          setChannels((prev) => {
-            const others = prev.filter((c) => c.type !== "whatsapp");
-            return [waChannel, ...others];
-          });
-        } else {
-          // If not connected, ensure no mock WhatsApp channel exists
-          setChannels((prev) => prev.filter((c) => c.type !== "whatsapp"));
-        }
-      })
-      .catch(() => {
-        if (isMounted) {
-          setChannels((prev) => prev.filter((c) => c.type !== "whatsapp"));
-        }
-      })
-      .finally(() => {
-        if (isMounted) setIsLoadingWhatsApp(false);
-      });
-
-    return () => {
-      isMounted = false;
-    };
+  // Fetch real channels from database via backend API
+  const fetchChannels = useCallback(async () => {
+    try {
+      setIsLoadingChannels(true);
+      const res = await api.get("/channels");
+      const list = res.data?.data;
+      if (Array.isArray(list)) {
+        const mapped = list
+          .filter((c: any) => c.status === "connected" || c.isConnected === true)
+          .map(mapApiChannelToUi);
+        setChannels(mapped);
+      } else {
+        setChannels([]);
+      }
+    } catch (err) {
+      console.error("Failed to fetch channels from server:", err);
+      setChannels([]);
+    } finally {
+      setIsLoadingChannels(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchChannels();
+  }, [fetchChannels]);
 
   const displayedChannels = channels.filter((channel) => {
     const matchesType = filterType === "all" || channel.type === filterType;
@@ -263,59 +351,67 @@ export function ChannelManager({ filterType = "all" }: ChannelManagerProps) {
 
   const handleDisconnect = async (id: string, type: ChannelType) => {
     try {
-      if (type === "whatsapp") {
-        await api.post("/channels/disconnect/WHATSAPP");
-      }
-    } catch {
-      // Ignore
+      await api.post(`/channels/disconnect/${type.toUpperCase()}`);
+    } catch (err) {
+      console.error("Disconnect error:", err);
+    } finally {
+      fetchChannels();
     }
-
-    setChannels((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? {
-              ...c,
-              status: c.status === "connected" ? "disconnected" : "connected",
-            }
-          : c
-      )
-    );
   };
 
   const handleRemove = async (id: string, type: ChannelType) => {
     try {
-      if (type === "whatsapp") {
-        await api.post("/channels/disconnect/WHATSAPP");
-      }
-    } catch {
-      // Ignore
+      await api.post(`/channels/disconnect/${type.toUpperCase()}`);
+    } catch (err) {
+      console.error("Remove channel error:", err);
+    } finally {
+      fetchChannels();
     }
-
-    setChannels((prev) => prev.filter((c) => c.id !== id));
   };
 
-  const handleAddChannel = (e: React.FormEvent) => {
+  const handleAddChannel = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (newChannelType === "whatsapp") {
+      setIsAddModalOpen(false);
+      setIsWhatsAppModalOpen(true);
+      return;
+    }
+    if (newChannelType === "facebook") {
+      setIsAddModalOpen(false);
+      setIsFacebookModalOpen(true);
+      return;
+    }
+    if (newChannelType === "instagram") {
+      setIsAddModalOpen(false);
+      setIsInstagramModalOpen(true);
+      return;
+    }
+
     if (!newChannelName.trim()) return;
 
-    const channelToAdd: Channel = {
-      id: String(Date.now()),
-      type: newChannelType,
-      name: newChannelName.trim(),
-      subtitle: newChannelSubtitle.trim() || `${newChannelType} connection`,
-      status: "connected",
-      fields: [
-        { label: "Connection Status", value: "Connected & Active", icon: CheckCircle2 },
-        { label: "Webhook Sync", value: "Live", icon: ScanLine },
-        { label: "Channel Type", value: newChannelType.toUpperCase(), icon: channelIcons[newChannelType] },
-      ],
-      actions: [Link2, FileText, BarChart3, Bot],
-    };
+    try {
+      const channelEnum = newChannelType.toUpperCase();
+      const configPayload: any = {
+        name: newChannelName.trim(),
+        subtitle: newChannelSubtitle.trim(),
+      };
+      if (newChannelType === "rcs") {
+        configPayload.agentName = newChannelName.trim();
+        configPayload.agentId = newChannelSubtitle.trim();
+      }
 
-    setChannels([channelToAdd, ...channels]);
-    setNewChannelName("");
-    setNewChannelSubtitle("");
-    setIsAddModalOpen(false);
+      await api.post("/channels/connect", {
+        channel: channelEnum,
+        config: configPayload,
+      });
+
+      setNewChannelName("");
+      setNewChannelSubtitle("");
+      setIsAddModalOpen(false);
+      fetchChannels();
+    } catch (err) {
+      console.error("Failed to connect channel:", err);
+    }
   };
 
   return (
@@ -358,6 +454,8 @@ export function ChannelManager({ filterType = "all" }: ChannelManagerProps) {
                   setIsWhatsAppModalOpen(true);
                 } else if (filterType === "facebook") {
                   setIsFacebookModalOpen(true);
+                } else if (filterType === "instagram") {
+                  setIsInstagramModalOpen(true);
                 } else {
                   setNewChannelType(filterType === "all" ? "whatsapp" : filterType);
                   setIsAddModalOpen(true);
@@ -390,12 +488,7 @@ export function ChannelManager({ filterType = "all" }: ChannelManagerProps) {
                 <span className="hidden sm:inline">Conversation Statistics</span>
               </Button>
             </Link>
-            <Link href="/channels/balance">
-              <Button variant="outline" className="shrink-0">
-                <Wallet className="h-4 w-4 sm:mr-1" />
-                <span className="hidden sm:inline">Total Balance</span>
-              </Button>
-            </Link>
+           
            
           </div>
         </div>
@@ -455,11 +548,22 @@ export function ChannelManager({ filterType = "all" }: ChannelManagerProps) {
       </div>
 
       {/* Channel Cards Grid / List */}
-      {displayedChannels.length === 0 ? (
+      {isLoadingChannels ? (
+        <div className="rounded-xl border bg-card p-12 text-center text-muted-foreground space-y-3 shadow-xs">
+          <RefreshCw className="h-6 w-6 animate-spin mx-auto text-emerald-600" />
+          <p className="text-xs text-muted-foreground">Loading connected channels...</p>
+        </div>
+      ) : displayedChannels.length === 0 ? (
         <div className="rounded-xl border bg-card p-12 text-center text-muted-foreground space-y-4 shadow-xs">
           <div className="mx-auto w-16 h-16 rounded-2xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center border border-emerald-500/20">
             {filterType === "whatsapp" ? (
               <WhatsAppIcon className="h-8 w-8" />
+            ) : filterType === "facebook" ? (
+              <FacebookIcon className="h-8 w-8" />
+            ) : filterType === "instagram" ? (
+              <Camera className="h-8 w-8" />
+            ) : filterType === "rcs" ? (
+              <Smartphone className="h-8 w-8" />
             ) : (
               <ScanLine className="h-8 w-8" />
             )}
@@ -470,14 +574,22 @@ export function ChannelManager({ filterType = "all" }: ChannelManagerProps) {
                 ? "No Channels Found"
                 : filterType === "whatsapp"
                 ? "No WhatsApp channels connected yet"
-                : "No Channels Connected Yet"}
+                : filterType === "facebook"
+                ? "No Facebook channels connected yet"
+                : filterType === "instagram"
+                ? "No Instagram channels connected yet"
+                : filterType === "rcs"
+                ? "No RCS channels connected yet"
+                : "No channels connected yet"}
             </h3>
             <p className="text-xs max-w-md mx-auto text-muted-foreground leading-relaxed">
               {searchQuery
                 ? "No channels matched your search query. Try clearing your search."
                 : filterType === "whatsapp"
                 ? "Connect your official WhatsApp Business Account via Meta Embedded Signup to start broadcasting campaigns and automating conversations with the WhatsApp Cloud API."
-                : `You have not connected any ${filterType === "all" ? "" : filterType} channels yet.`}
+                : filterType === "all"
+                ? "You haven't connected any communication channels yet. Click below to connect your WhatsApp, Facebook, Instagram, or RCS accounts."
+                : `You have not connected any ${pageInfo.title.toLowerCase()} yet. Click below to connect your first account.`}
             </p>
           </div>
           <Button
@@ -499,10 +611,15 @@ export function ChannelManager({ filterType = "all" }: ChannelManagerProps) {
                 <Plus className="h-4 w-4 mr-1.5" />
                 <span>Connect via Meta Embedded Signup</span>
               </>
+            ) : filterType === "facebook" ? (
+              <>
+                <Plus className="h-4 w-4 mr-1.5" />
+                <span>Connect Facebook Page</span>
+              </>
             ) : (
               <>
                 <Plus className="h-4 w-4 mr-1.5" />
-                <span>Connect Channel</span>
+                <span>Add New Channel</span>
               </>
             )}
           </Button>
@@ -733,109 +850,224 @@ export function ChannelManager({ filterType = "all" }: ChannelManagerProps) {
               </button>
             </div>
 
-            <form onSubmit={handleAddChannel} className="space-y-4 pt-4">
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                  Select Channel Type
-                </label>
-                <div className="grid grid-cols-4 gap-2">
-                  {(["whatsapp", "instagram", "facebook", "rcs"] as ChannelType[]).map(
-                    (type) => {
-                      const Icon = channelIcons[type];
-                      const isSelected = newChannelType === type;
-                      return (
-                        <button
-                          key={type}
-                          type="button"
-                          onClick={() => {
-                            if (type === "whatsapp") {
-                              setIsAddModalOpen(false);
-                              setIsWhatsAppModalOpen(true);
-                            } else if (type === "facebook") {
-                              setIsAddModalOpen(false);
-                              setIsFacebookModalOpen(true);
-                            } else {
-                              setNewChannelType(type);
-                            }
-                          }}
-                          className={cn(
-                            "flex flex-col items-center justify-center p-2.5 rounded-lg border text-center transition-all",
-                            isSelected
-                              ? "border-primary bg-primary/10 ring-1 ring-primary"
-                              : "border-border hover:bg-muted/50"
-                          )}
-                        >
-                          <div
+            {newChannelType === "whatsapp" ? (
+              <div className="space-y-4 pt-4">
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                    Select Channel Type
+                  </label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {(["whatsapp", "instagram", "facebook", "rcs"] as ChannelType[]).map(
+                      (type) => {
+                        const Icon = channelIcons[type];
+                        const isSelected = newChannelType === type;
+                        return (
+                          <button
+                            key={type}
+                            type="button"
+                            onClick={() => {
+                              if (type === "whatsapp") {
+                                setIsAddModalOpen(false);
+                                setIsWhatsAppModalOpen(true);
+                              } else if (type === "facebook") {
+                                setIsAddModalOpen(false);
+                                setIsFacebookModalOpen(true);
+                              } else {
+                                setNewChannelType(type);
+                              }
+                            }}
                             className={cn(
-                              "h-7 w-7 rounded-md flex items-center justify-center mb-1",
-                              channelIconStyles[type]
+                              "flex flex-col items-center justify-center p-2.5 rounded-lg border text-center transition-all",
+                              isSelected
+                                ? "border-primary bg-primary/10 ring-1 ring-primary"
+                                : "border-border hover:bg-muted/50"
                             )}
                           >
-                            <Icon className="h-3.5 w-3.5" />
-                          </div>
-                          <span className="text-[11px] font-semibold capitalize text-foreground">
-                            {type}
-                          </span>
-                        </button>
-                      );
-                    }
-                  )}
+                            <div
+                              className={cn(
+                                "h-7 w-7 rounded-md flex items-center justify-center mb-1",
+                                channelIconStyles[type]
+                              )}
+                            >
+                              <Icon className="h-3.5 w-3.5" />
+                            </div>
+                            <span className="text-[11px] font-semibold capitalize text-foreground">
+                              {type}
+                            </span>
+                          </button>
+                        );
+                      }
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="h-8 w-8 rounded-lg bg-emerald-500/10 text-emerald-600 flex items-center justify-center border border-emerald-500/20">
+                        <WhatsAppIcon className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-foreground">Official WhatsApp Cloud API</h4>
+                        <p className="text-[11px] text-muted-foreground">Direct Meta Graph API Integration</p>
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px] font-semibold">
+                      Meta Official
+                    </Badge>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Connect your official WhatsApp Business Account (WABA) and phone number directly through Meta&apos;s verified Embedded Signup flow. No manual tokens, dummy data, or external webhooks required.
+                  </p>
+
+                  <div className="rounded-lg bg-background/60 border p-3 space-y-1.5 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2 text-foreground font-medium text-[11px]">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                      <span>Automatic Phone Number & OTP Verification</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-foreground font-medium text-[11px]">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                      <span>Encrypted System User Tokens & Webhook Subscription</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-foreground font-medium text-[11px]">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                      <span>Real-time Sync with Appnix CRM & Bot Workflows</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsAddModalOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      setIsAddModalOpen(false);
+                      setIsWhatsAppModalOpen(true);
+                    }}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm flex items-center gap-1.5"
+                  >
+                    <span>Continue with Facebook / Meta</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
               </div>
+            ) : (
+              <form onSubmit={handleAddChannel} className="space-y-4 pt-4">
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                    Select Channel Type
+                  </label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {(["whatsapp", "instagram", "facebook", "rcs"] as ChannelType[]).map(
+                      (type) => {
+                        const Icon = channelIcons[type];
+                        const isSelected = newChannelType === type;
+                        return (
+                          <button
+                            key={type}
+                            type="button"
+                            onClick={() => {
+                              if (type === "whatsapp") {
+                                setIsAddModalOpen(false);
+                                setIsWhatsAppModalOpen(true);
+                              } else if (type === "facebook") {
+                                setIsAddModalOpen(false);
+                                setIsFacebookModalOpen(true);
+                              } else if (type === "instagram") {
+                                setIsAddModalOpen(false);
+                                setIsInstagramModalOpen(true);
+                              } else {
+                                setNewChannelType(type);
+                              }
+                            }}
+                            className={cn(
+                              "flex flex-col items-center justify-center p-2.5 rounded-lg border text-center transition-all",
+                              isSelected
+                                ? "border-primary bg-primary/10 ring-1 ring-primary"
+                                : "border-border hover:bg-muted/50"
+                            )}
+                          >
+                            <div
+                              className={cn(
+                                "h-7 w-7 rounded-md flex items-center justify-center mb-1",
+                                channelIconStyles[type]
+                              )}
+                            >
+                              <Icon className="h-3.5 w-3.5" />
+                            </div>
+                            <span className="text-[11px] font-semibold capitalize text-foreground">
+                              {type}
+                            </span>
+                          </button>
+                        );
+                      }
+                    )}
+                  </div>
+                </div>
 
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">
-                  Channel / Account Name *
-                </label>
-                <Input
-                  required
-                  placeholder="e.g. Sales Support Number / @brand_instagram"
-                  value={newChannelName}
-                  onChange={(e) => setNewChannelName(e.target.value)}
-                  className="h-9 text-xs"
-                />
-              </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">
+                    Channel / Account Name *
+                  </label>
+                  <Input
+                    required
+                    placeholder="e.g. Sales Support Number / @brand_instagram"
+                    value={newChannelName}
+                    onChange={(e) => setNewChannelName(e.target.value)}
+                    className="h-9 text-xs"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">
-                  Identifier (Phone / Handle / ID)
-                </label>
-                <Input
-                  placeholder="e.g. +91 98765 43210 or @myhandle"
-                  value={newChannelSubtitle}
-                  onChange={(e) => setNewChannelSubtitle(e.target.value)}
-                  className="h-9 text-xs"
-                />
-              </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">
+                    Identifier (Phone / Handle / ID)
+                  </label>
+                  <Input
+                    placeholder="e.g. +91 98765 43210 or @myhandle"
+                    value={newChannelSubtitle}
+                    onChange={(e) => setNewChannelSubtitle(e.target.value)}
+                    className="h-9 text-xs"
+                  />
+                </div>
 
-              <div className="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground space-y-1">
-                <p className="font-semibold text-foreground flex items-center gap-1">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                  Instant Webhook & Cloud API Sync
-                </p>
-                <p>
-                  Connecting this channel will enable live chats, bulk campaigns, and automated bot workflows.
-                </p>
-              </div>
+                <div className="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground space-y-1">
+                  <p className="font-semibold text-foreground flex items-center gap-1">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    Instant Webhook & Cloud API Sync
+                  </p>
+                  <p>
+                    Connecting this channel will enable live chats, bulk campaigns, and automated bot workflows.
+                  </p>
+                </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsAddModalOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  size="sm"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                >
-                  Connect Channel
-                </Button>
-              </div>
-            </form>
+                <div className="flex items-center justify-end gap-2 pt-3 border-t">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsAddModalOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  >
+                    Connect Channel
+                  </Button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
@@ -843,9 +1075,12 @@ export function ChannelManager({ filterType = "all" }: ChannelManagerProps) {
       {/* Connect Facebook Page Modal */}
       <ConnectFacebookModal
         isOpen={isFacebookModalOpen}
-        onClose={() => setIsFacebookModalOpen(false)}
+        onClose={() => {
+          setIsFacebookModalOpen(false);
+          fetchChannels();
+        }}
         onChannelCreated={(newCh) => {
-          setChannels((prev) => [newCh, ...prev]);
+          setChannels((prev) => [newCh, ...prev.filter((c) => c.id !== newCh.id)]);
         }}
         existingChannels={channels}
       />
@@ -853,11 +1088,29 @@ export function ChannelManager({ filterType = "all" }: ChannelManagerProps) {
       {/* Connect WhatsApp Cloud API Modal (Meta Embedded Signup) */}
       <ConnectWhatsAppModal
         isOpen={isWhatsAppModalOpen}
-        onClose={() => setIsWhatsAppModalOpen(false)}
+        onClose={() => {
+          setIsWhatsAppModalOpen(false);
+          fetchChannels();
+        }}
         onChannelCreated={(newCh) => {
           setChannels((prev) => [newCh, ...prev.filter((c) => c.type !== "whatsapp")]);
-          setIsWhatsAppModalOpen(false);
         }}
+      />
+
+      {/* Connect Instagram Professional Account Modal */}
+      <ConnectInstagramModal
+        isOpen={isInstagramModalOpen}
+        onClose={() => {
+          setIsInstagramModalOpen(false);
+          fetchChannels();
+        }}
+        onConnected={() => {
+          fetchChannels();
+        }}
+        onChannelCreated={(newCh) => {
+          setChannels((prev) => [newCh, ...prev.filter((c) => c.id !== newCh.id)]);
+        }}
+        existingChannels={channels}
       />
     </div>
   );

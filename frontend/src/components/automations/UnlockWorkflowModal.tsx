@@ -82,7 +82,7 @@ export function UnlockWorkflowModal({
 
     try {
       // Call backend API
-      const response = await api.post("/api/automations/workflows/unlock", {
+      const response = await api.post("/automations/workflows/unlock", {
         licenseKey: licenseKey.trim(),
       });
 
@@ -95,30 +95,11 @@ export function UnlockWorkflowModal({
         setErrorMessage(response.data?.message || "Invalid or unverified license key.");
       }
     } catch (err: any) {
-      // Fallback client validation if backend endpoint is unreachable
-      const cleanKey = licenseKey.trim().toUpperCase();
-      if (cleanKey.includes("EXPD")) {
-        setErrorMessage("This workflow license key has expired on 31 Dec 2025.");
-      } else if (cleanKey.includes("CLAIM")) {
-        setErrorMessage("This license key has already been claimed by another workspace.");
-      } else if (cleanKey.length >= 10) {
-        const mockUnlocked = {
-          id: `wf_unlocked_${Date.now()}`,
-          title: cleanKey.includes("CART")
-            ? "Shopify High-Conversion WhatsApp Recovery Pro"
-            : "Enterprise AI Lead Qualifier & CRM Handover Bot",
-          folder: "All",
-          tags: "Premium, Unlocked",
-          active: true,
-          createdOn: "Just now",
-        };
-        setSuccessData(mockUnlocked);
-        if (onWorkflowUnlocked) {
-          onWorkflowUnlocked(mockUnlocked);
-        }
-      } else {
-        setErrorMessage("Invalid key format. Expected format: WFLW-XXXX-XXXX-XXXX");
-      }
+      setErrorMessage(
+        err.response?.data?.message ||
+        err.message ||
+        "License verification failed. Please ensure the key is valid and try again."
+      );
     } finally {
       setIsLoading(false);
     }

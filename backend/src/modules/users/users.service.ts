@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { Role } from '@prisma/client';
+import { Role, TenantTier } from '@prisma/client';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class UsersService {
@@ -60,14 +61,42 @@ export class UsersService {
     email: string,
     passwordHash: string,
     name?: string,
+    options?: {
+      parentId?: string;
+      tier?: TenantTier;
+    },
   ) {
     const slug = this.generateSlug(tenantName);
+    const tenantId = randomUUID();
+    const cleanId = tenantId.replace(/-/g, '_');
 
     // transaction: if user creation fails, the tenant creation rolls back too
     return this.prisma.$transaction(
       async (tx) => {
+        let path = `root.t_${cleanId}`;
+        let depth = 1;
+        const parentId = options?.parentId || null;
+        let tier = options?.tier || TenantTier.PRIMARY_RESELLER;
+
+        if (parentId) {
+          const parent = await tx.tenant.findUnique({ where: { id: parentId } });
+          if (parent) {
+            path = `${parent.path}.t_${cleanId}`;
+            depth = parent.depth + 1;
+            tier = options?.tier || TenantTier.END_CLIENT;
+          }
+        }
+
         const tenant = await tx.tenant.create({
-          data: { name: tenantName, slug },
+          data: {
+            id: tenantId,
+            name: tenantName,
+            slug,
+            path,
+            depth,
+            parentId,
+            tier,
+          },
         });
 
         const user = await tx.user.create({
@@ -75,7 +104,7 @@ export class UsersService {
             email,
             passwordHash,
             name,
-            role: Role.TENANT_ADMIN,
+            role: tier === TenantTier.PRIMARY_RESELLER || tier === TenantTier.SUB_RESELLER ? Role.RESELLER_ADMIN : Role.TENANT_ADMIN,
             tenantId: tenant.id,
           },
         });
@@ -95,11 +124,21 @@ export class UsersService {
     googleId?: string;
   }) {
     const slug = this.generateSlug(data.tenantName);
+    const tenantId = randomUUID();
+    const cleanId = tenantId.replace(/-/g, '_');
+    const path = `root.t_${cleanId}`;
 
     return this.prisma.$transaction(
       async (tx) => {
         const tenant = await tx.tenant.create({
-          data: { name: data.tenantName, slug },
+          data: {
+            id: tenantId,
+            name: data.tenantName,
+            slug,
+            path,
+            depth: 1,
+            tier: TenantTier.PRIMARY_RESELLER,
+          },
         });
 
         const user = await tx.user.create({

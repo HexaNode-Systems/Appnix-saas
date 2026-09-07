@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
 import {
   X,
   User,
@@ -22,10 +23,15 @@ import {
   Flag,
   FileText,
   AlertCircle,
+  ArrowRight,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { api } from "@/lib/api/axios";
+import { SuperField } from "@/types/super-field";
 import {
   CustomerSentimentRemark,
   LiveChatConversation,
@@ -52,6 +58,40 @@ export function LiveChatRightInspectionPanel({
 }: LiveChatRightInspectionPanelProps) {
   const [activeTab, setActiveTab] = useState<"crm" | "notes" | "remarks" | "scheduled">("crm");
   const [newNoteContent, setNewNoteContent] = useState("");
+
+  // Dynamic Super Fields state
+  const [superFields, setSuperFields] = useState<SuperField[]>([]);
+  const [isLoadingFields, setIsLoadingFields] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadFields = async () => {
+      setIsLoadingFields(true);
+      try {
+        const res = await api.get("/crm/super-fields");
+        const list = Array.isArray(res.data?.data)
+          ? res.data.data
+          : Array.isArray(res.data)
+          ? res.data
+          : [];
+        if (isMounted) setSuperFields(list);
+      } catch (err) {
+        console.error("Failed to load super fields in live chat sidebar", err);
+      } finally {
+        if (isMounted) setIsLoadingFields(false);
+      }
+    };
+    loadFields();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const activeSidebarFields = useMemo(() => {
+    return superFields.filter(
+      (f) => f.status === "ACTIVE" && (f.placement?.chatInboxSidebar ?? true)
+    );
+  }, [superFields]);
 
   // Remarks state
   const [sentiment, setSentiment] = useState<CustomerSentimentRemark["sentiment"]>(
@@ -160,63 +200,147 @@ export function LiveChatRightInspectionPanel({
               </div>
             </div>
 
-            {/* Super Fields (CRM V2 Typed Attributes) */}
+            {/* Super Fields (CRM Dynamic Attributes) */}
             <div className="rounded-xl border p-3.5 space-y-3 bg-card shadow-2xs">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1">
                   <Sliders className="h-3 w-3 text-primary" />
-                  CRM V2 Super Fields
+                  CRM Dynamic Super Fields
                 </span>
                 <Badge variant="outline" className="text-[9px] font-mono">
-                  Typed
+                  {isLoadingFields ? "Loading..." : `${activeSidebarFields.length} Active`}
                 </Badge>
               </div>
 
-              <div className="space-y-2 text-xs">
-                <div>
-                  <label className="text-[10px] font-medium text-muted-foreground block mb-0.5">
-                    City Preset:
-                  </label>
-                  <Input
-                    value={conversation.superFields?.city || ""}
-                    onChange={(e) => onUpdateSuperField("city", e.target.value)}
-                    className="h-7 text-xs bg-background"
-                  />
+              {isLoadingFields ? (
+                <div className="py-4 text-center text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin mx-auto mb-1 text-primary" />
+                  <span className="text-[10px]">Loading fields...</span>
                 </div>
+              ) : activeSidebarFields.length === 0 ? (
+                <div className="p-3 text-center rounded-lg border border-dashed text-muted-foreground bg-muted/10 space-y-1.5">
+                  <p className="text-xs font-semibold text-foreground">No Super Fields</p>
+                  <p className="text-[10px] leading-relaxed">
+                    Custom attributes will appear here once defined in the Super Fields directory.
+                  </p>
+                  <Link
+                    href="/crm/super-fields"
+                    className="inline-flex items-center gap-1 text-[11px] text-primary font-semibold hover:underline pt-0.5"
+                  >
+                    <span>Configure Fields</span>
+                    <ArrowRight className="h-3 w-3" />
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-2.5 text-xs">
+                  {activeSidebarFields.map((field) => (
+                    <div key={field.id} className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <label
+                          htmlFor={`sf-input-${field.key}`}
+                          className="text-[10px] font-medium text-muted-foreground block truncate"
+                        >
+                          {field.label}
+                          {field.validation?.isRequired && (
+                            <span className="text-rose-500 font-bold ml-0.5">*</span>
+                          )}
+                        </label>
+                        {field.helperText && (
+                          <span className="text-[9px] text-muted-foreground/70 truncate max-w-[120px]">
+                            {field.helperText}
+                          </span>
+                        )}
+                      </div>
 
-                <div>
-                  <label className="text-[10px] font-medium text-muted-foreground block mb-0.5">
-                    Monthly Marketing Budget:
-                  </label>
-                  <Input
-                    value={conversation.superFields?.marketingBudget || ""}
-                    onChange={(e) => onUpdateSuperField("marketingBudget", e.target.value)}
-                    className="h-7 text-xs bg-background"
-                  />
+                      {field.dataType === "DROPDOWN" ? (
+                        <select
+                          id={`sf-input-${field.key}`}
+                          value={conversation.superFields?.[field.key] ?? ""}
+                          onChange={(e) => onUpdateSuperField(field.key, e.target.value)}
+                          className="w-full h-7 rounded-md border bg-background px-2 text-xs font-medium"
+                        >
+                          <option value="">{field.placeholder || "Select an option..."}</option>
+                          {field.options?.map((opt) => (
+                            <option key={opt.id || opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : field.dataType === "BOOLEAN" ? (
+                        <div className="flex items-center gap-2 pt-0.5">
+                          <Checkbox
+                            id={`sf-input-${field.key}`}
+                            checked={Boolean(conversation.superFields?.[field.key])}
+                            onCheckedChange={(checked) =>
+                              onUpdateSuperField(field.key, Boolean(checked))
+                            }
+                          />
+                          <label
+                            htmlFor={`sf-input-${field.key}`}
+                            className="text-xs text-muted-foreground cursor-pointer font-medium"
+                          >
+                            {field.placeholder || "Yes / Active"}
+                          </label>
+                        </div>
+                      ) : field.dataType === "DATE" ? (
+                        <Input
+                          id={`sf-input-${field.key}`}
+                          type="date"
+                          value={conversation.superFields?.[field.key] ?? ""}
+                          onChange={(e) => onUpdateSuperField(field.key, e.target.value)}
+                          className="h-7 text-xs bg-background"
+                        />
+                      ) : field.dataType === "DATETIME" ? (
+                        <Input
+                          id={`sf-input-${field.key}`}
+                          type="datetime-local"
+                          value={conversation.superFields?.[field.key] ?? ""}
+                          onChange={(e) => onUpdateSuperField(field.key, e.target.value)}
+                          className="h-7 text-xs bg-background"
+                        />
+                      ) : field.dataType === "NUMERIC" ||
+                        field.dataType === "DECIMAL" ||
+                        field.dataType === "AMOUNT" ? (
+                        <div className="relative">
+                          {field.dataType === "AMOUNT" && (
+                            <span className="absolute left-2 top-1.5 text-[10px] text-muted-foreground font-mono">
+                              {field.currencySymbol || "₹"}
+                            </span>
+                          )}
+                          <Input
+                            id={`sf-input-${field.key}`}
+                            type="number"
+                            placeholder={field.placeholder || "0"}
+                            value={conversation.superFields?.[field.key] ?? ""}
+                            onChange={(e) => onUpdateSuperField(field.key, e.target.value)}
+                            className={cn(
+                              "h-7 text-xs bg-background",
+                              field.dataType === "AMOUNT" && "pl-5"
+                            )}
+                          />
+                        </div>
+                      ) : field.dataType === "TEXTAREA" ? (
+                        <textarea
+                          id={`sf-input-${field.key}`}
+                          rows={2}
+                          placeholder={field.placeholder || "Enter notes..."}
+                          value={conversation.superFields?.[field.key] ?? ""}
+                          onChange={(e) => onUpdateSuperField(field.key, e.target.value)}
+                          className="w-full rounded-md border bg-background p-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+                        />
+                      ) : (
+                        <Input
+                          id={`sf-input-${field.key}`}
+                          placeholder={field.placeholder || `Enter ${field.label}...`}
+                          value={conversation.superFields?.[field.key] ?? ""}
+                          onChange={(e) => onUpdateSuperField(field.key, e.target.value)}
+                          className="h-7 text-xs bg-background"
+                        />
+                      )}
+                    </div>
+                  ))}
                 </div>
-
-                <div>
-                  <label className="text-[10px] font-medium text-muted-foreground block mb-0.5">
-                    Customer Tier:
-                  </label>
-                  <Input
-                    value={conversation.superFields?.customerTier || ""}
-                    onChange={(e) => onUpdateSuperField("customerTier", e.target.value)}
-                    className="h-7 text-xs bg-background"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-medium text-muted-foreground block mb-0.5">
-                    KYC Verification Status:
-                  </label>
-                  <Input
-                    value={conversation.superFields?.kycStatus || "Verified"}
-                    onChange={(e) => onUpdateSuperField("kycStatus", e.target.value)}
-                    className="h-7 text-xs bg-background"
-                  />
-                </div>
-              </div>
+              )}
             </div>
           </div>
         )}

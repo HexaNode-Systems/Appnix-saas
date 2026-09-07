@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateSuperFieldDto, UpdateSuperFieldDto } from './dto/super-field.dto';
 
@@ -25,14 +25,34 @@ export class SuperFieldsService {
       ];
     }
 
-    const fields = await this.prisma.superField.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
+    const [fields, contacts] = await Promise.all([
+      this.prisma.superField.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.crmContact.findMany({
+        where: { tenantId },
+        select: { superFieldValues: true },
+      }),
+    ]);
+
+    const enrichedFields = fields.map((f) => {
+      let count = 0;
+      for (const contact of contacts) {
+        const vals = contact.superFieldValues as Record<string, any> | null;
+        if (vals && vals[f.key] !== undefined && vals[f.key] !== null && vals[f.key] !== '') {
+          count++;
+        }
+      }
+      return {
+        ...f,
+        usageCount: count,
+      };
     });
 
     return {
       success: true,
-      data: fields,
+      data: enrichedFields,
     };
   }
 
@@ -67,20 +87,30 @@ export class SuperFieldsService {
   }
 
   async create(tenantId: string, dto: CreateSuperFieldDto) {
+    const cleanKey = (dto.key || '')
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9_]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+
+    if (!cleanKey) {
+      throw new BadRequestException('Field key must contain alphanumeric characters');
+    }
+
     const existing = await this.prisma.superField.findFirst({
-      where: { tenantId, key: dto.key },
+      where: { tenantId, key: cleanKey },
     });
     if (existing) {
-      throw new ConflictException(`SuperField with key "${dto.key}" already exists`);
+      throw new ConflictException(`SuperField with key "${cleanKey}" already exists`);
     }
 
     const field = await this.prisma.superField.create({
       data: {
         tenantId,
-        key: dto.key,
+        key: cleanKey,
         label: dto.label,
         description: dto.description || '',
-        dataType: dto.dataType,
+        dataType: (dto.dataType || 'TEXT').toUpperCase(),
         options: dto.options || [],
         defaultValue: dto.defaultValue,
         helperText: dto.helperText,

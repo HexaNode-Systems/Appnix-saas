@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
+import { api } from "@/lib/api/axios";
 import {
   ArrowLeft,
   ChevronRight,
@@ -108,204 +109,18 @@ export interface SessionLog {
   status: "Active" | "Closed" | "Handed Over";
 }
 
-// ---------- Mock Initial Data Sets ----------
-const mockTimeTrends = {
-  "30d": [
-    { date: "01 Aug", whatsapp: 820, instagram: 310, facebook: 160, rcs: 95, cost: 380 },
-    { date: "05 Aug", whatsapp: 950, instagram: 360, facebook: 180, rcs: 110, cost: 440 },
-    { date: "10 Aug", whatsapp: 1120, instagram: 420, facebook: 210, rcs: 140, cost: 520 },
-    { date: "15 Aug", whatsapp: 1040, instagram: 390, facebook: 195, rcs: 130, cost: 485 },
-    { date: "20 Aug", whatsapp: 1280, instagram: 490, facebook: 240, rcs: 165, cost: 590 },
-    { date: "25 Aug", whatsapp: 1420, instagram: 560, facebook: 275, rcs: 190, cost: 660 },
-    { date: "29 Aug", whatsapp: 1560, instagram: 610, facebook: 305, rcs: 210, cost: 725 },
-  ],
-  "7d": [
-    { date: "23 Aug", whatsapp: 1320, instagram: 510, facebook: 250, rcs: 170, cost: 615 },
-    { date: "24 Aug", whatsapp: 1390, instagram: 540, facebook: 265, rcs: 185, cost: 645 },
-    { date: "25 Aug", whatsapp: 1420, instagram: 560, facebook: 275, rcs: 190, cost: 660 },
-    { date: "26 Aug", whatsapp: 1480, instagram: 580, facebook: 290, rcs: 198, cost: 690 },
-    { date: "27 Aug", whatsapp: 1510, instagram: 595, facebook: 298, rcs: 202, cost: 705 },
-    { date: "28 Aug", whatsapp: 1540, instagram: 605, facebook: 302, rcs: 208, cost: 718 },
-    { date: "29 Aug", whatsapp: 1560, instagram: 610, facebook: 305, rcs: 210, cost: 725 },
-  ],
-  today: [
-    { date: "00:00", whatsapp: 45, instagram: 18, facebook: 8, rcs: 5, cost: 21 },
-    { date: "04:00", whatsapp: 22, instagram: 9, facebook: 4, rcs: 2, cost: 10 },
-    { date: "08:00", whatsapp: 180, instagram: 75, facebook: 38, rcs: 25, cost: 84 },
-    { date: "12:00", whatsapp: 340, instagram: 135, facebook: 68, rcs: 45, cost: 158 },
-    { date: "16:00", whatsapp: 420, instagram: 165, facebook: 82, rcs: 56, cost: 195 },
-    { date: "20:00", whatsapp: 380, instagram: 150, facebook: 75, rcs: 50, cost: 176 },
-    { date: "Now", whatsapp: 173, instagram: 58, facebook: 30, rcs: 27, cost: 81 },
-  ],
-  custom: [
-    { date: "W1", whatsapp: 5800, instagram: 2200, facebook: 1100, rcs: 750, cost: 2700 },
-    { date: "W2", whatsapp: 6400, instagram: 2450, facebook: 1220, rcs: 830, cost: 2980 },
-    { date: "W3", whatsapp: 7200, instagram: 2800, facebook: 1380, rcs: 950, cost: 3350 },
-    { date: "W4", whatsapp: 8810, instagram: 3440, facebook: 1710, rcs: 1230, cost: 4100 },
-  ],
+// ---------- Initial Data Structures ----------
+const emptyTimeTrends: Record<
+  DatePreset,
+  Array<{ date: string; whatsapp: number; instagram: number; facebook: number; rcs: number; cost: number }>
+> = {
+  "30d": [],
+  "7d": [],
+  today: [],
+  custom: [],
 };
 
-const defaultChannelRows: ChannelStatRow[] = [
-  {
-    id: "ch_wa_1",
-    name: "WhatsApp Official Channel",
-    identifier: "WhatsApp Cloud API",
-    channelType: "whatsapp",
-    status: "connected",
-    totalConversations: 28210,
-    userInitiated: 18336,
-    businessInitiated: 9874,
-    inboundMessages: 142500,
-    outboundMessages: 186400,
-    avgResponseTime: "1.2 mins",
-    resolutionRate: 89.4,
-    botHandoverRate: 74.0,
-    costInr: 8460.2,
-    marketingConvs: 6120,
-    utilityConvs: 2840,
-    authConvs: 914,
-    serviceConvs: 18336,
-  },
-  {
-    id: "ch_ig_1",
-    name: "Appnix Global Brand",
-    identifier: "@prayerofhopes",
-    channelType: "instagram",
-    status: "connected",
-    totalConversations: 10920,
-    userInitiated: 7644,
-    businessInitiated: 3276,
-    inboundMessages: 54600,
-    outboundMessages: 62400,
-    avgResponseTime: "2.1 mins",
-    resolutionRate: 84.2,
-    botHandoverRate: 68.5,
-    costInr: 3276.0,
-    marketingConvs: 2180,
-    utilityConvs: 896,
-    authConvs: 200,
-    serviceConvs: 7644,
-  },
-  {
-    id: "ch_fb_1",
-    name: "Appnix Tech Page",
-    identifier: "appnix.official.fb",
-    channelType: "facebook",
-    status: "connected",
-    totalConversations: 5410,
-    userInitiated: 3516,
-    businessInitiated: 1894,
-    inboundMessages: 27050,
-    outboundMessages: 31200,
-    avgResponseTime: "3.4 mins",
-    resolutionRate: 78.6,
-    botHandoverRate: 61.2,
-    costInr: 1623.0,
-    marketingConvs: 1250,
-    utilityConvs: 494,
-    authConvs: 150,
-    serviceConvs: 3516,
-  },
-  {
-    id: "ch_rcs_1",
-    name: "Appnix Verified RCS Agent",
-    identifier: "appnix_rcs_in",
-    channelType: "rcs",
-    status: "connected",
-    totalConversations: 3750,
-    userInitiated: 1892,
-    businessInitiated: 1858,
-    inboundMessages: 18750,
-    outboundMessages: 23100,
-    avgResponseTime: "45 secs",
-    resolutionRate: 92.1,
-    botHandoverRate: 82.0,
-    costInr: 921.3,
-    marketingConvs: 950,
-    utilityConvs: 628,
-    authConvs: 280,
-    serviceConvs: 1892,
-  },
-];
-
-const mockSessionLogs: Record<string, SessionLog[]> = {
-  ch_wa_1: [
-    {
-      id: "ses_wa_991",
-      userIdentifier: "+91 99112 34578",
-      category: "Service",
-      startedAt: "10 mins ago",
-      duration: "4m 12s",
-      messagesIn: 6,
-      messagesOut: 5,
-      handledBy: "Appnix AI Agent (Bot)",
-      cost: "₹0.00 (Free Tier)",
-      status: "Closed",
-    },
-    {
-      id: "ses_wa_992",
-      userIdentifier: "+91 98765 43210",
-      category: "Marketing",
-      startedAt: "24 mins ago",
-      duration: "1m 30s",
-      messagesIn: 2,
-      messagesOut: 3,
-      handledBy: "Campaign Engine",
-      cost: "₹0.78",
-      status: "Active",
-    },
-    {
-      id: "ses_wa_993",
-      userIdentifier: "+91 91234 56789",
-      category: "Utility",
-      startedAt: "1 hour ago",
-      duration: "2m 05s",
-      messagesIn: 1,
-      messagesOut: 2,
-      handledBy: "Order Notification Webhook",
-      cost: "₹0.35",
-      status: "Closed",
-    },
-    {
-      id: "ses_wa_994",
-      userIdentifier: "+91 90546 18623",
-      category: "Authentication",
-      startedAt: "2 hours ago",
-      duration: "45s",
-      messagesIn: 0,
-      messagesOut: 1,
-      handledBy: "OTP Service",
-      cost: "₹0.15",
-      status: "Closed",
-    },
-  ],
-  ch_ig_1: [
-    {
-      id: "ses_ig_801",
-      userIdentifier: "@rahul.verma_24",
-      category: "Service",
-      startedAt: "15 mins ago",
-      duration: "6m 10s",
-      messagesIn: 8,
-      messagesOut: 7,
-      handledBy: "Agent Rahul V.",
-      cost: "₹0.00",
-      status: "Active",
-    },
-    {
-      id: "ses_ig_802",
-      userIdentifier: "@sneha_tech",
-      category: "Marketing",
-      startedAt: "45 mins ago",
-      duration: "3m 15s",
-      messagesIn: 3,
-      messagesOut: 4,
-      handledBy: "IG Story Reply Bot",
-      cost: "₹0.30",
-      status: "Closed",
-    },
-  ],
-};
+const sessionLogs: Record<string, SessionLog[]> = {};
 
 const CHANNEL_COLORS = {
   whatsapp: "#10b981", // emerald-500
@@ -327,15 +142,76 @@ export default function ConversationStatisticsPage() {
   const [metricView, setMetricView] = useState<MetricType>("total");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedChannelForLogs, setSelectedChannelForLogs] = useState<ChannelStatRow | null>(null);
+  const [channelRows, setChannelRows] = useState<ChannelStatRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Custom date range state
-  const [customStartDate, setCustomStartDate] = useState("2026-08-01");
-  const [customEndDate, setCustomEndDate] = useState("2026-08-29");
+  const [customStartDate, setCustomStartDate] = useState(() =>
+    new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0]
+  );
+  const [customEndDate, setCustomEndDate] = useState(() =>
+    new Date().toISOString().split("T")[0]
+  );
   const [isCustomDateOpen, setIsCustomDateOpen] = useState(false);
+
+  // Fetch real connected channels from API
+  useEffect(() => {
+    let isMounted = true;
+    async function loadChannels() {
+      try {
+        setIsLoading(true);
+        const res = await api.get("/channels");
+        const list = res.data?.data;
+        if (Array.isArray(list) && isMounted) {
+          const mapped: ChannelStatRow[] = list
+            .filter((c: any) => c.status === "connected" || c.isConnected === true)
+            .map((c: any) => {
+              const rawType = ((c.type || c.channel || "").toLowerCase()) as string;
+              const channelType: ChannelStatRow["channelType"] =
+                rawType === "whatsapp" || rawType === "instagram" || rawType === "facebook" || rawType === "rcs"
+                  ? rawType
+                  : "whatsapp";
+
+              return {
+                id: c.id || String(Math.random()),
+                name: c.name || c.displayName || c.pageName || c.accountName || "Connected Channel",
+                identifier: c.phoneNumber || c.accountHandle || c.pageId || c.agentId || c.subtitle || "Connected",
+                channelType,
+                status: "connected",
+                totalConversations: c.totalConversations || 0,
+                userInitiated: c.userInitiated || 0,
+                businessInitiated: c.businessInitiated || 0,
+                inboundMessages: c.inboundMessages || 0,
+                outboundMessages: c.outboundMessages || 0,
+                avgResponseTime: c.avgResponseTime || "--",
+                resolutionRate: c.resolutionRate || 0,
+                botHandoverRate: c.botHandoverRate || 0,
+                costInr: c.costInr || 0,
+                marketingConvs: c.marketingConvs || 0,
+                utilityConvs: c.utilityConvs || 0,
+                authConvs: c.authConvs || 0,
+                serviceConvs: c.serviceConvs || 0,
+              };
+            });
+          setChannelRows(mapped);
+        } else if (isMounted) {
+          setChannelRows([]);
+        }
+      } catch {
+        if (isMounted) setChannelRows([]);
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    }
+    loadChannels();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Filtered channel rows for the breakdown table
   const filteredChannels = useMemo(() => {
-    return defaultChannelRows.filter((ch) => {
+    return channelRows.filter((ch) => {
       const matchesChannel =
         channelFilter === "all" || ch.channelType === channelFilter;
       const matchesSearch =
@@ -344,7 +220,7 @@ export default function ConversationStatisticsPage() {
         ch.channelType.toLowerCase().includes(searchQuery.toLowerCase());
       return matchesChannel && matchesSearch;
     });
-  }, [channelFilter, searchQuery]);
+  }, [channelRows, channelFilter, searchQuery]);
 
   // Aggregate KPI Calculations
   const kpis = useMemo(() => {
@@ -375,22 +251,57 @@ export default function ConversationStatisticsPage() {
     };
   }, [filteredChannels]);
 
-  // Donut Chart Data (Traffic Share)
+  // Traffic Share by Channel computed dynamically from channelRows
   const channelShareData = useMemo(() => {
+    const counts: Record<string, number> = {
+      whatsapp: 0,
+      instagram: 0,
+      facebook: 0,
+      rcs: 0,
+    };
+
+    channelRows.forEach((ch) => {
+      if (counts[ch.channelType] !== undefined) {
+        counts[ch.channelType] += ch.totalConversations;
+      }
+    });
+
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+
     return [
-      { name: "WhatsApp", value: 28210, color: CHANNEL_COLORS.whatsapp, percentage: "58.4%" },
-      { name: "Instagram", value: 10920, color: CHANNEL_COLORS.instagram, percentage: "22.6%" },
-      { name: "Facebook", value: 5410, color: CHANNEL_COLORS.facebook, percentage: "11.2%" },
-      { name: "RCS", value: 3750, color: CHANNEL_COLORS.rcs, percentage: "7.8%" },
+      {
+        name: "WhatsApp",
+        value: counts.whatsapp,
+        color: CHANNEL_COLORS.whatsapp,
+        percentage: total > 0 ? `${((counts.whatsapp / total) * 100).toFixed(1)}%` : "0%",
+      },
+      {
+        name: "Instagram",
+        value: counts.instagram,
+        color: CHANNEL_COLORS.instagram,
+        percentage: total > 0 ? `${((counts.instagram / total) * 100).toFixed(1)}%` : "0%",
+      },
+      {
+        name: "Facebook",
+        value: counts.facebook,
+        color: CHANNEL_COLORS.facebook,
+        percentage: total > 0 ? `${((counts.facebook / total) * 100).toFixed(1)}%` : "0%",
+      },
+      {
+        name: "RCS",
+        value: counts.rcs,
+        color: CHANNEL_COLORS.rcs,
+        percentage: total > 0 ? `${((counts.rcs / total) * 100).toFixed(1)}%` : "0%",
+      },
     ].filter((item) => {
       if (channelFilter === "all") return true;
       return item.name.toLowerCase() === channelFilter;
     });
-  }, [channelFilter]);
+  }, [channelRows, channelFilter]);
 
   // Category Breakdown Stacked Bar Chart Data
   const categoryBreakdownData = useMemo(() => {
-    return defaultChannelRows
+    return channelRows
       .filter((ch) => channelFilter === "all" || ch.channelType === channelFilter)
       .map((ch) => ({
         name: ch.channelType.toUpperCase(),
@@ -399,9 +310,9 @@ export default function ConversationStatisticsPage() {
         Authentication: ch.authConvs,
         Service: ch.serviceConvs,
       }));
-  }, [channelFilter]);
+  }, [channelRows, channelFilter]);
 
-  const activeTrendData = mockTimeTrends[datePreset] || mockTimeTrends["30d"];
+  const activeTrendData = emptyTimeTrends[datePreset] || [];
 
   // Export CSV Report Action
   const handleExportCsvReport = () => {
@@ -652,9 +563,9 @@ export default function ConversationStatisticsPage() {
             <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
               <MessageSquare className="h-5 w-5" />
             </div>
-            <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 text-[11px] font-semibold gap-1">
+            <Badge className="bg-primary/10 text-primary border-primary/20 text-[11px] font-semibold gap-1">
               <TrendingUp className="h-3 w-3" />
-              +18.4%
+              Live Telemetry
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground mt-3 font-medium">Total Conversations</p>
@@ -701,7 +612,7 @@ export default function ConversationStatisticsPage() {
             {kpis.businessInitiated.toLocaleString()}
           </p>
           <p className="text-[11px] text-muted-foreground mt-1">
-            Marketing (62%) • Utility (28%) • Auth (10%)
+            Marketing • Utility • Authentication outbound
           </p>
         </div>
 
@@ -764,109 +675,119 @@ export default function ConversationStatisticsPage() {
           </div>
 
           {/* Area Chart Container */}
-          <div className="h-72 w-full pt-2">
-            <ResponsiveContainer width="100%" height="100%">
-              {metricView === "cost" ? (
-                <AreaChart data={activeTrendData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="costGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" opacity={0.6} />
-                  <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
-                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} unit="₹" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      borderColor: "hsl(var(--border))",
-                      borderRadius: "0.75rem",
-                      fontSize: "12px",
-                      boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)",
-                    }}
-                    formatter={(val: any) => [`₹${val ?? 0}`, "Daily Cost"]}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="cost"
-                    name="Cost (INR)"
-                    stroke="#10b981"
-                    strokeWidth={2.5}
-                    fillOpacity={1}
-                    fill="url(#costGradient)"
-                  />
-                </AreaChart>
-              ) : (
-                <AreaChart data={activeTrendData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="waGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={CHANNEL_COLORS.whatsapp} stopOpacity={0.3} />
-                      <stop offset="95%" stopColor={CHANNEL_COLORS.whatsapp} stopOpacity={0.0} />
-                    </linearGradient>
-                    <linearGradient id="igGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={CHANNEL_COLORS.instagram} stopOpacity={0.25} />
-                      <stop offset="95%" stopColor={CHANNEL_COLORS.instagram} stopOpacity={0.0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" opacity={0.6} />
-                  <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
-                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      borderColor: "hsl(var(--border))",
-                      borderRadius: "0.75rem",
-                      fontSize: "12px",
-                      boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)",
-                    }}
-                  />
-                  {(channelFilter === "all" || channelFilter === "whatsapp") && (
+          {activeTrendData.length === 0 ? (
+            <div className="h-72 w-full flex flex-col items-center justify-center text-center p-4 text-muted-foreground border rounded-xl border-dashed">
+              <TrendingUp className="h-8 w-8 text-muted-foreground/30 mb-2" />
+              <p className="text-xs font-semibold text-foreground">No trend data recorded</p>
+              <p className="text-[11px] text-muted-foreground max-w-sm mt-0.5">
+                Daily conversation volume and cost trends will appear automatically as inbound and outbound messages occur.
+              </p>
+            </div>
+          ) : (
+            <div className="h-72 w-full pt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                {metricView === "cost" ? (
+                  <AreaChart data={activeTrendData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="costGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" opacity={0.6} />
+                    <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
+                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} unit="₹" />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--card))",
+                        borderColor: "hsl(var(--border))",
+                        borderRadius: "0.75rem",
+                        fontSize: "12px",
+                        boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)",
+                      }}
+                      formatter={(val: any) => [`₹${val ?? 0}`, "Daily Cost"]}
+                    />
                     <Area
                       type="monotone"
-                      dataKey="whatsapp"
-                      name="WhatsApp"
-                      stroke={CHANNEL_COLORS.whatsapp}
+                      dataKey="cost"
+                      name="Cost (INR)"
+                      stroke="#10b981"
                       strokeWidth={2.5}
                       fillOpacity={1}
-                      fill="url(#waGradient)"
+                      fill="url(#costGradient)"
                     />
-                  )}
-                  {(channelFilter === "all" || channelFilter === "instagram") && (
-                    <Area
-                      type="monotone"
-                      dataKey="instagram"
-                      name="Instagram"
-                      stroke={CHANNEL_COLORS.instagram}
-                      strokeWidth={2}
-                      fillOpacity={1}
-                      fill="url(#igGradient)"
+                  </AreaChart>
+                ) : (
+                  <AreaChart data={activeTrendData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="waGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={CHANNEL_COLORS.whatsapp} stopOpacity={0.3} />
+                        <stop offset="95%" stopColor={CHANNEL_COLORS.whatsapp} stopOpacity={0.0} />
+                      </linearGradient>
+                      <linearGradient id="igGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={CHANNEL_COLORS.instagram} stopOpacity={0.25} />
+                        <stop offset="95%" stopColor={CHANNEL_COLORS.instagram} stopOpacity={0.0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" opacity={0.6} />
+                    <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
+                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--card))",
+                        borderColor: "hsl(var(--border))",
+                        borderRadius: "0.75rem",
+                        fontSize: "12px",
+                        boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)",
+                      }}
                     />
-                  )}
-                  {(channelFilter === "all" || channelFilter === "facebook") && (
-                    <Line
-                      type="monotone"
-                      dataKey="facebook"
-                      name="Facebook"
-                      stroke={CHANNEL_COLORS.facebook}
-                      strokeWidth={2}
-                      dot={false}
-                    />
-                  )}
-                  {(channelFilter === "all" || channelFilter === "rcs") && (
-                    <Line
-                      type="monotone"
-                      dataKey="rcs"
-                      name="RCS"
-                      stroke={CHANNEL_COLORS.rcs}
-                      strokeWidth={2}
-                      dot={false}
-                    />
-                  )}
-                </AreaChart>
-              )}
-            </ResponsiveContainer>
-          </div>
+                    {(channelFilter === "all" || channelFilter === "whatsapp") && (
+                      <Area
+                        type="monotone"
+                        dataKey="whatsapp"
+                        name="WhatsApp"
+                        stroke={CHANNEL_COLORS.whatsapp}
+                        strokeWidth={2.5}
+                        fillOpacity={1}
+                        fill="url(#waGradient)"
+                      />
+                    )}
+                    {(channelFilter === "all" || channelFilter === "instagram") && (
+                      <Area
+                        type="monotone"
+                        dataKey="instagram"
+                        name="Instagram"
+                        stroke={CHANNEL_COLORS.instagram}
+                        strokeWidth={2}
+                        fillOpacity={1}
+                        fill="url(#igGradient)"
+                      />
+                    )}
+                    {(channelFilter === "all" || channelFilter === "facebook") && (
+                      <Line
+                        type="monotone"
+                        dataKey="facebook"
+                        name="Facebook"
+                        stroke={CHANNEL_COLORS.facebook}
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                    )}
+                    {(channelFilter === "all" || channelFilter === "rcs") && (
+                      <Line
+                        type="monotone"
+                        dataKey="rcs"
+                        name="RCS"
+                        stroke={CHANNEL_COLORS.rcs}
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                    )}
+                  </AreaChart>
+                )}
+              </ResponsiveContainer>
+            </div>
+          )}
 
           {/* Chart Legend Footer */}
           <div className="flex items-center justify-center gap-6 pt-2 border-t text-xs text-muted-foreground flex-wrap">
@@ -896,34 +817,44 @@ export default function ConversationStatisticsPage() {
             <p className="text-xs text-muted-foreground mt-0.5">Distribution of conversation volume</p>
           </div>
 
-          <div className="h-52 w-full flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
-              <RechartsPieChart>
-                <Pie
-                  data={channelShareData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={55}
-                  outerRadius={85}
-                  paddingAngle={3}
-                  dataKey="value"
-                >
-                  {channelShareData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "hsl(var(--card))",
-                    borderColor: "hsl(var(--border))",
-                    borderRadius: "0.5rem",
-                    fontSize: "12px",
-                  }}
-                  formatter={(val: any) => [`${Number(val || 0).toLocaleString()} convos`, "Volume"]}
-                />
-              </RechartsPieChart>
-            </ResponsiveContainer>
-          </div>
+          {channelShareData.every((item) => item.value === 0) ? (
+            <div className="h-52 w-full flex flex-col items-center justify-center text-center p-4 text-muted-foreground border rounded-xl border-dashed">
+              <PieChart className="h-8 w-8 text-muted-foreground/30 mb-2" />
+              <p className="text-xs font-semibold text-foreground">No conversation traffic</p>
+              <p className="text-[11px] text-muted-foreground max-w-xs mt-0.5">
+                Share distribution will display once channels have active conversations.
+              </p>
+            </div>
+          ) : (
+            <div className="h-52 w-full flex items-center justify-center">
+              <ResponsiveContainer width="100%" height="100%">
+                <RechartsPieChart>
+                  <Pie
+                    data={channelShareData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={55}
+                    outerRadius={85}
+                    paddingAngle={3}
+                    dataKey="value"
+                  >
+                    {channelShareData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      borderColor: "hsl(var(--border))",
+                      borderRadius: "0.5rem",
+                      fontSize: "12px",
+                    }}
+                    formatter={(val: any) => [`${Number(val || 0).toLocaleString()} convos`, "Volume"]}
+                  />
+                </RechartsPieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
 
           {/* Breakdown List */}
           <div className="space-y-2 pt-2 border-t text-xs">
@@ -958,28 +889,41 @@ export default function ConversationStatisticsPage() {
             </div>
           </div>
 
-          <div className="h-64 w-full pt-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <RechartsBarChart data={categoryBreakdownData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" opacity={0.6} />
-                <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
-                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "hsl(var(--card))",
-                    borderColor: "hsl(var(--border))",
-                    borderRadius: "0.75rem",
-                    fontSize: "12px",
-                  }}
-                />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: "12px", paddingTop: "12px" }} />
-                <Bar dataKey="Marketing" stackId="a" fill={CATEGORY_COLORS.marketing} radius={[0, 0, 0, 0]} />
-                <Bar dataKey="Utility" stackId="a" fill={CATEGORY_COLORS.utility} radius={[0, 0, 0, 0]} />
-                <Bar dataKey="Authentication" stackId="a" fill={CATEGORY_COLORS.authentication} radius={[0, 0, 0, 0]} />
-                <Bar dataKey="Service" stackId="a" fill={CATEGORY_COLORS.service} radius={[4, 4, 0, 0]} />
-              </RechartsBarChart>
-            </ResponsiveContainer>
-          </div>
+          {categoryBreakdownData.length === 0 ||
+          categoryBreakdownData.every(
+            (c) => c.Marketing === 0 && c.Utility === 0 && c.Authentication === 0 && c.Service === 0
+          ) ? (
+            <div className="h-64 w-full flex flex-col items-center justify-center text-center p-4 text-muted-foreground border rounded-xl border-dashed">
+              <BarChart3 className="h-8 w-8 text-muted-foreground/30 mb-2" />
+              <p className="text-xs font-semibold text-foreground">No category breakdown data</p>
+              <p className="text-[11px] text-muted-foreground max-w-sm mt-0.5">
+                Categorized sessions (Marketing, Utility, Authentication, Service) will appear as messages are processed.
+              </p>
+            </div>
+          ) : (
+            <div className="h-64 w-full pt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <RechartsBarChart data={categoryBreakdownData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" opacity={0.6} />
+                  <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
+                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      borderColor: "hsl(var(--border))",
+                      borderRadius: "0.75rem",
+                      fontSize: "12px",
+                    }}
+                  />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: "12px", paddingTop: "12px" }} />
+                  <Bar dataKey="Marketing" stackId="a" fill={CATEGORY_COLORS.marketing} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="Utility" stackId="a" fill={CATEGORY_COLORS.utility} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="Authentication" stackId="a" fill={CATEGORY_COLORS.authentication} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="Service" stackId="a" fill={CATEGORY_COLORS.service} radius={[4, 4, 0, 0]} />
+                </RechartsBarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1096,10 +1040,29 @@ export default function ConversationStatisticsPage() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {filteredChannels.length === 0 ? (
+              {isLoading ? (
                 <tr>
                   <td colSpan={8} className="py-12 text-center text-muted-foreground text-xs">
-                    No channel statistics match your search or filter criteria.
+                    <div className="flex items-center justify-center gap-2">
+                      <RefreshCw className="h-4 w-4 animate-spin text-primary" />
+                      <span>Loading channel statistics...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredChannels.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-12 text-center text-muted-foreground text-xs">
+                    <div className="flex flex-col items-center justify-center gap-1.5 py-4">
+                      <MessageSquare className="h-8 w-8 text-muted-foreground/30 mb-1" />
+                      <p className="font-semibold text-foreground">No channel statistics available</p>
+                      <p className="text-muted-foreground">Connect a channel or start conversations to view live telemetry.</p>
+                      <Link href="/channels" className="mt-2">
+                        <Button size="sm" variant="outline" className="text-xs h-7 gap-1">
+                          <span>Manage Channels</span>
+                          <ChevronRight className="h-3 w-3" />
+                        </Button>
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -1124,7 +1087,9 @@ export default function ConversationStatisticsPage() {
                         {channel.totalConversations.toLocaleString()}
                       </p>
                       <span className="text-[10px] text-muted-foreground">
-                        {((channel.totalConversations / kpis.totalConversations) * 100).toFixed(1)}% of total
+                        {kpis.totalConversations > 0
+                          ? `${((channel.totalConversations / kpis.totalConversations) * 100).toFixed(1)}% of total`
+                          : "0.0% of total"}
                       </span>
                     </td>
 
@@ -1143,13 +1108,21 @@ export default function ConversationStatisticsPage() {
                         <div
                           className="bg-blue-500 h-full"
                           style={{
-                            width: `${(channel.inboundMessages / (channel.inboundMessages + channel.outboundMessages)) * 100}%`,
+                            width: `${
+                              channel.inboundMessages + channel.outboundMessages > 0
+                                ? (channel.inboundMessages / (channel.inboundMessages + channel.outboundMessages)) * 100
+                                : 50
+                            }%`,
                           }}
                         />
                         <div
                           className="bg-emerald-500 h-full"
                           style={{
-                            width: `${(channel.outboundMessages / (channel.inboundMessages + channel.outboundMessages)) * 100}%`,
+                            width: `${
+                              channel.inboundMessages + channel.outboundMessages > 0
+                                ? (channel.outboundMessages / (channel.inboundMessages + channel.outboundMessages)) * 100
+                                : 50
+                            }%`,
                           }}
                         />
                       </div>
@@ -1162,7 +1135,7 @@ export default function ConversationStatisticsPage() {
                         <span className="font-medium text-foreground">{channel.avgResponseTime}</span>
                       </div>
                       <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
-                        99.2% SLA met
+                        {channel.resolutionRate > 0 ? `${channel.resolutionRate}% SLA met` : "SLA on track"}
                       </span>
                     </td>
 
@@ -1287,10 +1260,17 @@ export default function ConversationStatisticsPage() {
                 <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   Recent Session Logs
                 </h3>
-                <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  Live Sync Active
-                </span>
+                {(sessionLogs[selectedChannelForLogs.id] || []).length > 0 ? (
+                  <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Live Sync Active
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                    <span className="h-2 w-2 rounded-full bg-muted-foreground/40" />
+                    No Active Sessions
+                  </span>
+                )}
               </div>
 
               <div className="rounded-xl border overflow-hidden">
@@ -1306,7 +1286,14 @@ export default function ConversationStatisticsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {(mockSessionLogs[selectedChannelForLogs.id] || mockSessionLogs["ch_wa_1"]).map((ses) => (
+                    {(sessionLogs[selectedChannelForLogs.id] || []).length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-muted-foreground text-xs">
+                          No recent session logs recorded for this channel.
+                        </td>
+                      </tr>
+                    ) : (
+                      (sessionLogs[selectedChannelForLogs.id] || []).map((ses) => (
                       <tr key={ses.id} className="hover:bg-muted/20">
                         <td className="py-2.5 px-3 font-medium text-foreground">
                           <p className="font-mono text-xs">{ses.userIdentifier}</p>
@@ -1352,7 +1339,8 @@ export default function ConversationStatisticsPage() {
                           </Badge>
                         </td>
                       </tr>
-                    ))}
+                    ))
+                  )}
                   </tbody>
                 </table>
               </div>

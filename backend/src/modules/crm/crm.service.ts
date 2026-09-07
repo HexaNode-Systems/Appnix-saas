@@ -46,12 +46,19 @@ export class CrmContactsService {
       tags.push(`goal:${this.sanitizeValue(dto.marketingGoal)}`);
     }
 
+    const superFieldValues: Record<string, any> = {
+      ...(dto.superFieldValues || {}),
+    };
+    if (dto.marketingBudget) superFieldValues.marketingBudget = this.sanitizeValue(dto.marketingBudget);
+    if (dto.marketingGoal) superFieldValues.marketingGoal = this.sanitizeValue(dto.marketingGoal);
+
     return this.prisma.crmContact.create({
       data: {
         name: sanitizedName,
         phone: sanitizedPhone,
         email: dto.email ? this.sanitizeValue(dto.email) : undefined,
         tags,
+        superFieldValues,
         tenantId,
       },
     });
@@ -78,13 +85,23 @@ export class CrmContactsService {
   }
 
   async update(tenantId: string, id: string, dto: UpdateCrmContactDto) {
-    await this.findOne(tenantId, id);
+    const existing = await this.findOne(tenantId, id);
 
     const dataToUpdate: any = {};
     if (dto.name !== undefined) dataToUpdate.name = this.sanitizeValue(dto.name);
     if (dto.phone !== undefined) dataToUpdate.phone = this.normalizePhoneNumber(dto.phone);
     if (dto.email !== undefined) dataToUpdate.email = this.sanitizeValue(dto.email);
     if (dto.tags !== undefined) dataToUpdate.tags = dto.tags;
+
+    if (dto.superFieldValues !== undefined || dto.marketingBudget !== undefined || dto.marketingGoal !== undefined) {
+      const currentValues = (existing.superFieldValues as Record<string, any>) || {};
+      if (dto.superFieldValues) {
+        Object.assign(currentValues, dto.superFieldValues);
+      }
+      if (dto.marketingBudget !== undefined) currentValues.marketingBudget = this.sanitizeValue(dto.marketingBudget);
+      if (dto.marketingGoal !== undefined) currentValues.marketingGoal = this.sanitizeValue(dto.marketingGoal);
+      dataToUpdate.superFieldValues = currentValues;
+    }
 
     return this.prisma.crmContact.update({
       where: { id },
@@ -105,6 +122,121 @@ export class CrmContactsService {
         tenantId,
       },
     });
+  }
+
+  async getSegments(tenantId: string) {
+    let audiences = await this.prisma.campaignAudience.findMany({
+      where: { tenantId, status: 'ACTIVE' },
+      orderBy: { name: 'asc' },
+    });
+
+    if (audiences.length === 0) {
+      const contactCount = await this.prisma.crmContact.count({ where: { tenantId } });
+      if (contactCount > 0) {
+        const contacts = await this.prisma.crmContact.findMany({
+          where: { tenantId },
+          select: { id: true, tags: true },
+        });
+        const allContactIds = contacts.map((c) => c.id);
+
+        const allAudience = await this.prisma.campaignAudience.create({
+          data: {
+            tenantId,
+            name: 'All Contacts',
+            description: 'All subscribed contacts in your CRM',
+            contactIds: allContactIds,
+            contactCount: allContactIds.length,
+            status: 'ACTIVE',
+          },
+        });
+        audiences = [allAudience];
+
+        const tagMap = new Map<string, string[]>();
+        for (const c of contacts) {
+          for (const tag of c.tags) {
+            if (!tag.startsWith('budget:') && !tag.startsWith('goal:')) {
+              const list = tagMap.get(tag) || [];
+              list.push(c.id);
+              tagMap.set(tag, list);
+            }
+          }
+        }
+
+        for (const [tag, ids] of tagMap.entries()) {
+          if (ids.length > 0) {
+            const tagAudience = await this.prisma.campaignAudience.create({
+              data: {
+                tenantId,
+                name: `${tag.charAt(0).toUpperCase() + tag.slice(1)} Segment`,
+                description: `Contacts tagged with "${tag}"`,
+                contactIds: ids,
+                contactCount: ids.length,
+                status: 'ACTIVE',
+              },
+            });
+            audiences.push(tagAudience);
+          }
+        }
+      }
+    }
+
+    return audiences;
+  }
+
+  async createSegment(tenantId: string, data: { name: string; description?: string; tag?: string; superFieldKey?: string; superFieldValue?: string; contactIds?: string[] }) {
+    let contactIds = data.contactIds || [];
+    if (data.superFieldKey) {
+      const allContacts = await this.prisma.crmContact.findMany({
+        where: { tenantId },
+        select: { id: true, superFieldValues: true },
+      });
+      contactIds = allContacts
+        .filter((c) => {
+          const vals = c.superFieldValues as Record<string, any> | null;
+          if (!vals) return false;
+          const val = vals[data.superFieldKey!];
+          if (val === undefined || val === null || val === '') return false;
+          if (data.superFieldValue !== undefined && data.superFieldValue !== '') {
+            return String(val).trim().toLowerCase() === String(data.superFieldValue).trim().toLowerCase();
+          }
+          return true;
+        })
+        .map((c) => c.id);
+    } else if (data.tag) {
+      const matchingContacts = await this.prisma.crmContact.findMany({
+        where: {
+          tenantId,
+          tags: { has: data.tag },
+        },
+        select: { id: true },
+      });
+      contactIds = matchingContacts.map((c) => c.id);
+    } else if (contactIds.length === 0) {
+      const allContacts = await this.prisma.crmContact.findMany({
+        where: { tenantId },
+        select: { id: true },
+      });
+      contactIds = allContacts.map((c) => c.id);
+    }
+
+    return this.prisma.campaignAudience.create({
+      data: {
+        tenantId,
+        name: this.sanitizeValue(data.name),
+        description: data.description ? this.sanitizeValue(data.description) : undefined,
+        contactIds,
+        contactCount: contactIds.length,
+        status: 'ACTIVE',
+      },
+    });
+  }
+
+  async deleteSegment(tenantId: string, id: string) {
+    const audience = await this.prisma.campaignAudience.findUnique({ where: { id } });
+    if (!audience || audience.tenantId !== tenantId) {
+      throw new NotFoundException('Segment not found');
+    }
+    return this.prisma.campaignAudience.delete({ where: { id } });
   }
 
   // -------------------------------------------------------------

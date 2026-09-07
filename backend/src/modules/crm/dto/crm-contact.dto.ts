@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEmail, IsArray, IsEnum, IsNumber, ValidateNested, IsNotEmpty } from 'class-validator';
+import { IsString, IsOptional, IsEmail, IsArray, IsEnum, IsNumber, ValidateNested, IsNotEmpty, IsObject } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum DuplicateStrategy {
@@ -39,6 +39,10 @@ export class CreateCrmContactDto {
   @IsOptional()
   @IsString()
   marketingGoal?: string;
+
+  @IsOptional()
+  @IsObject()
+  superFieldValues?: Record<string, any>;
 }
 
 export class UpdateCrmContactDto {
@@ -66,6 +70,10 @@ export class UpdateCrmContactDto {
   @IsOptional()
   @IsString()
   marketingGoal?: string;
+
+  @IsOptional()
+  @IsObject()
+  superFieldValues?: Record<string, any>;
 }
 
 export class CsvContactRowDto {

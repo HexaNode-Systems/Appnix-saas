@@ -18,6 +18,7 @@ export interface FacebookPage {
   isConnectedToOtherWorkspace: boolean;
   connectedWorkspaceName?: string;
   accessTokenStatus: 'valid' | 'expired' | 'revoked';
+  accessToken?: string;
 }
 
 export interface FacebookChannelConfig {

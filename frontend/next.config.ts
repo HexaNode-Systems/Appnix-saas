@@ -82,6 +82,31 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+
+  async redirects() {
+    return [
+      {
+        source: "/super-admin/billing",
+        destination: "/super-admin/subscriptions",
+        permanent: false,
+      },
+      {
+        source: "/super-admin/system-health",
+        destination: "/super-admin/health",
+        permanent: false,
+      },
+      {
+        source: "/app/:path*",
+        destination: "/dashboard/:path*",
+        permanent: false,
+      },
+      {
+        source: "/app",
+        destination: "/dashboard",
+        permanent: false,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

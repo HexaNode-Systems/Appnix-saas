@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray, IsObject, IsNumber } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, IsNumber } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateBotDto {
@@ -17,15 +17,45 @@ export class CreateBotDto {
   @IsOptional()
   triggerType?: string;
 
-  @ApiPropertyOptional()
-  @IsArray()
+  @ApiPropertyOptional({ example: 'ACTIVE' })
+  @IsString()
   @IsOptional()
-  nodes?: any[];
+  status?: string;
 
   @ApiPropertyOptional()
+  @IsOptional()
+  nodes?: any;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  edges?: any;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  workflow?: any;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  trigger?: any;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  settings?: any;
+
+  @ApiPropertyOptional({ example: ['whatsapp'] })
   @IsArray()
   @IsOptional()
-  edges?: any[];
+  channels?: string[];
+
+  @ApiPropertyOptional({ example: ['Support', 'AI'] })
+  @IsArray()
+  @IsOptional()
+  tags?: string[];
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  folderId?: string;
 }
 
 export class UpdateBotDto {
@@ -45,14 +75,44 @@ export class UpdateBotDto {
   status?: string;
 
   @ApiPropertyOptional()
-  @IsArray()
+  @IsString()
   @IsOptional()
-  nodes?: any[];
+  triggerType?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  nodes?: any;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  edges?: any;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  workflow?: any;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  trigger?: any;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  settings?: any;
 
   @ApiPropertyOptional()
   @IsArray()
   @IsOptional()
-  edges?: any[];
+  channels?: string[];
+
+  @ApiPropertyOptional()
+  @IsArray()
+  @IsOptional()
+  tags?: string[];
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  folderId?: string;
 
   @ApiPropertyOptional()
   @IsNumber()

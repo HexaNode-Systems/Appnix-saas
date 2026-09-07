@@ -7,11 +7,14 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
+import * as crypto from 'crypto';
 import {
   ConnectChannelDto,
   MetaEmbeddedSignupDto,
   CreateRcsTemplateDto,
   UpdateRcsTemplateDto,
+  ConnectFacebookPageDto,
+  FacebookOAuthExchangeDto,
 } from './dto/channels.dto';
 import { encryptPayload, decryptPayload } from '../../common/utils/encryption.util';
 
@@ -24,110 +27,125 @@ export class ChannelsService {
     private readonly configService: ConfigService,
   ) {}
 
+  private get metaAppId(): string {
+    return (
+      this.configService.get<string>('META_APP_ID') ||
+      process.env.META_APP_ID ||
+      '1320704840107894'
+    );
+  }
+
+  private get metaAppSecret(): string {
+    return (
+      this.configService.get<string>('META_APP_SECRET') ||
+      process.env.META_APP_SECRET ||
+      '2b70a4ffb53fd2dbfa7d4213432400ae'
+    );
+  }
+
+  private get metaApiVersion(): string {
+    return (
+      this.configService.get<string>('META_GRAPH_API_VERSION') ||
+      process.env.META_GRAPH_API_VERSION ||
+      'v21.0'
+    );
+  }
+
   // ----------------- CHANNELS OVERVIEW & CONNECTION -----------------
 
   async getAllChannels(tenantId: string) {
     const channelConfigs = await this.prisma.channelConfig.findMany({
-      where: { tenantId },
+      where: { tenantId, isConnected: true },
     });
 
-    const getChannelData = (type: 'WHATSAPP' | 'INSTAGRAM' | 'FACEBOOK' | 'RCS') => {
-      const found = channelConfigs.find((c) => c.channel === type);
-      const conf = (found?.config as any) || {};
-
-      let status = 'not_configured';
-      if (found) {
-        status = found.isConnected ? 'connected' : 'disconnected';
-      }
+    const data = channelConfigs.map((found) => {
+      const conf = (found.config as any) || {};
+      const type = found.channel;
 
       if (type === 'WHATSAPP') {
-        if (!found || !found.isConnected) {
-          return {
-            id: 'whatsapp',
-            name: 'WhatsApp Cloud API',
-            type: 'WHATSAPP',
-            status: 'not_configured',
-            phoneNumber: null,
-            wabaId: null,
-            phoneNumberId: null,
-            qualityRating: null,
-            tierLimit: null,
-            webhookUrl: `https://api.appnix.co.in/api/v1/webhooks/whatsapp`,
-            lastVerifiedAt: null,
-          };
-        }
-
         return {
-          id: found.id || 'whatsapp',
+          id: found.id,
           name: conf.displayName || conf.wabaName || 'WhatsApp Cloud API',
-          type: 'WHATSAPP',
+          subtitle: conf.phoneNumber || (conf.wabaId ? `WABA: ${conf.wabaId}` : 'WhatsApp Business'),
+          type: 'whatsapp',
           status: 'connected',
           phoneNumber: conf.phoneNumber || null,
           wabaId: conf.wabaId || null,
           phoneNumberId: conf.phoneNumberId || null,
+          businessId: conf.businessId || null,
           qualityRating: conf.qualityRating || null,
-          tierLimit: conf.messagingLimitTier || null,
+          messagingLimitTier: conf.messagingLimitTier || null,
+          codeVerificationStatus: conf.codeVerificationStatus || null,
+          accountReviewStatus: conf.accountReviewStatus || null,
+          webhookSubscribed: conf.webhookSubscribed ?? true,
           webhookUrl: `https://api.appnix.co.in/api/v1/webhooks/whatsapp`,
-          lastVerifiedAt: found.lastVerifiedAt,
           connectedAt: found.connectedAt,
+          lastVerifiedAt: found.lastVerifiedAt,
         };
       }
 
       if (type === 'INSTAGRAM') {
         return {
-          id: 'instagram',
-          name: 'Instagram Direct API',
-          type: 'INSTAGRAM',
-          status,
-          accountHandle: conf.accountHandle || (status === 'connected' ? '@appnix_official' : 'Not Configured'),
-          pageId: conf.pageId || (status === 'connected' ? '1092837465928' : 'Not Configured'),
-          verified: status === 'connected',
+          id: found.id,
+          name: conf.accountName || conf.name || (conf.accountHandle ? (conf.accountHandle.startsWith('@') ? conf.accountHandle : `@${conf.accountHandle}`) : 'Instagram Professional'),
+          subtitle: conf.accountHandle ? (conf.accountHandle.startsWith('@') ? conf.accountHandle : `@${conf.accountHandle}`) : (conf.pageId ? `Page ID: ${conf.pageId}` : 'Instagram Channel'),
+          type: 'instagram',
+          status: 'connected',
+          accountHandle: conf.accountHandle || null,
+          pageId: conf.pageId || null,
+          autoReplyEnabled: conf.autoReplyEnabled,
           webhookUrl: `https://api.appnix.co.in/api/v1/webhooks/instagram`,
-          lastVerifiedAt: found?.lastVerifiedAt,
+          connectedAt: found.connectedAt,
+          lastVerifiedAt: found.lastVerifiedAt,
         };
       }
 
       if (type === 'FACEBOOK') {
         return {
-          id: 'facebook',
-          name: 'Facebook Messenger',
-          type: 'FACEBOOK',
-          status,
-          pageName: conf.pageName || (status === 'connected' ? 'Appnix Technologies' : 'Not Configured'),
-          pageId: conf.pageId || (status === 'connected' ? '849201948201' : 'Not Configured'),
-          connectedSince: found?.connectedAt ? found.connectedAt.toLocaleDateString('en-GB') : null,
+          id: found.id,
+          name: conf.pageName || conf.name || 'Facebook Page',
+          subtitle: conf.pageId ? `Page ID: ${conf.pageId}` : (conf.subtitle || 'Facebook Channel'),
+          type: 'facebook',
+          status: 'connected',
+          pageName: conf.pageName || null,
+          pageId: conf.pageId || null,
+          category: conf.category || null,
+          avatarUrl: conf.avatarUrl || null,
+          colorCode: conf.colorCode || '#4F46E5',
+          botEnabled: conf.botEnabled,
+          welcomeMessage: conf.welcomeMessage || null,
+          webhookSubscribed: conf.webhookSubscribed ?? true,
           webhookUrl: `https://api.appnix.co.in/api/v1/webhooks/facebook`,
-          lastVerifiedAt: found?.lastVerifiedAt,
+          connectedAt: found.connectedAt,
+          lastVerifiedAt: found.lastVerifiedAt,
         };
       }
 
       // RCS
       return {
-        id: 'rcs',
-        name: 'Google RCS Business Messaging',
-        type: 'RCS',
-        status,
-        agentName: conf.agentName || (status === 'connected' ? 'Appnix RCS Verified' : 'Not Configured'),
-        agentId: conf.agentId || (status === 'connected' ? 'agent_appnix_rcs_prod' : 'Not Configured'),
-        carriers: status === 'connected' ? ['Jio', 'Airtel', 'Vodafone Idea'] : [],
+        id: found.id,
+        name: conf.agentName || conf.name || 'Google RCS Agent',
+        subtitle: conf.agentId ? `Agent: ${conf.agentId}` : 'RCS Channel',
+        type: 'rcs',
+        status: 'connected',
+        agentName: conf.agentName || null,
+        agentId: conf.agentId || null,
+        carriers: conf.carriers || null,
+        throughput: conf.throughput || null,
         webhookUrl: `https://api.appnix.co.in/api/v1/webhooks/rcs`,
-        lastVerifiedAt: found?.lastVerifiedAt,
+        connectedAt: found.connectedAt,
+        lastVerifiedAt: found.lastVerifiedAt,
       };
-    };
+    });
 
     return {
       success: true,
-      data: [
-        getChannelData('WHATSAPP'),
-        getChannelData('INSTAGRAM'),
-        getChannelData('FACEBOOK'),
-        getChannelData('RCS'),
-      ],
+      data,
     };
   }
 
   async connectChannel(tenantId: string, dto: ConnectChannelDto) {
-    const channelEnum = dto.channel as any;
+    const channelEnum = String(dto.channel).toUpperCase() as any;
     const config = await this.prisma.channelConfig.upsert({
       where: {
         tenantId_channel: { tenantId, channel: channelEnum },
@@ -166,7 +184,7 @@ export class ChannelsService {
   }
 
   async disconnectChannel(tenantId: string, channel: string) {
-    const channelEnum = channel as any;
+    const channelEnum = String(channel).toUpperCase() as any;
     const config = await this.prisma.channelConfig.update({
       where: {
         tenantId_channel: { tenantId, channel: channelEnum },
@@ -174,17 +192,26 @@ export class ChannelsService {
       data: {
         isConnected: false,
       },
-    });
+    }).catch(() => null);
+
+    if (channelEnum === 'INSTAGRAM') {
+      await this.prisma.instagramChannel.updateMany({
+        where: { tenantId },
+        data: { status: 'DISCONNECTED' },
+      }).catch(() => null);
+    }
 
     // Log Activity
-    await this.prisma.activityLog.create({
-      data: {
-        tenantId,
-        action: `Disconnected ${channel} communication channel`,
-        module: 'Channels',
-        status: 'Warning',
-      },
-    });
+    if (config) {
+      await this.prisma.activityLog.create({
+        data: {
+          tenantId,
+          action: `Disconnected ${channel} communication channel`,
+          module: 'Channels',
+          status: 'Warning',
+        },
+      });
+    }
 
     return {
       success: true,
@@ -215,28 +242,37 @@ export class ChannelsService {
   }
 
   async handleMetaEmbeddedSignup(tenantId: string, dto: MetaEmbeddedSignupDto) {
-    const appId = this.configService.get<string>('META_APP_ID');
-    const appSecret = this.configService.get<string>('META_APP_SECRET');
+    const rawAppId = this.configService.get<string>('META_APP_ID');
+    const rawAppSecret = this.configService.get<string>('META_APP_SECRET');
     const graphVersion = this.configService.get<string>('META_GRAPH_API_VERSION') || 'v21.0';
 
     if (!dto.code || typeof dto.code !== 'string') {
       throw new BadRequestException('Meta authorization code is required for Embedded Signup.');
     }
 
-    if (!appId || !appSecret || appId === 'your_meta_app_id' || appSecret === 'your_meta_app_secret') {
+    if (!rawAppId || !rawAppSecret || rawAppId === 'your_meta_app_id' || rawAppSecret === 'your_meta_app_secret') {
       throw new BadRequestException(
         'Meta App credentials (META_APP_ID and META_APP_SECRET) are not configured in backend environment. Please configure them in backend/.env to verify and register WhatsApp Business accounts.',
       );
     }
 
-    let wabaId = dto.wabaId || null;
-    let phoneNumberId = dto.phoneNumberId || null;
-    let businessId = dto.businessId || null;
+    const appId = rawAppId.replace(/^["']|["']$/g, '').trim();
+    const appSecret = rawAppSecret.replace(/^["']|["']$/g, '').trim();
+
+    let wabaId = dto.wabaId ? String(dto.wabaId).trim() : null;
+    let phoneNumberId = dto.phoneNumberId ? String(dto.phoneNumberId).trim() : null;
+    let businessId = dto.businessId ? String(dto.businessId).trim() : null;
     let wabaName = 'WhatsApp Business Account';
     let phoneNumber: string | null = null;
     let displayName = 'WhatsApp Business';
     let qualityRating = 'UNKNOWN';
     let messagingLimitTier = 'TIER_50';
+    let codeVerificationStatus: string | null = null;
+    let nameStatus: string | null = null;
+    let currency: string | null = null;
+    let timezoneId: string | null = null;
+    let accountReviewStatus: string | null = null;
+    let messageTemplateNamespace: string | null = null;
     let rawAccessToken = '';
     let webhookSubscribed = false;
 
@@ -248,63 +284,125 @@ export class ChannelsService {
 
       if (!tokenRes.ok || !tokenData.access_token) {
         this.logger.error(`Meta token exchange failed: ${JSON.stringify(tokenData)}`);
-        throw new BadRequestException(
-          tokenData.error?.message || 'Failed to exchange Meta authorization code with Graph API.',
-        );
+        const metaError = tokenData.error || {};
+        const metaMsg = metaError.message || 'Failed to exchange Meta authorization code with Graph API.';
+        const errSubcode = metaError.error_subcode ? ` (Subcode: ${metaError.error_subcode})` : '';
+        throw new BadRequestException(`Meta Graph API token exchange error: ${metaMsg}${errSubcode}`);
       }
 
       rawAccessToken = tokenData.access_token;
 
-      // Step 2: Debug token to get WABA ID if not provided in callback
-      if (!wabaId) {
-        const debugUrl = `https://graph.facebook.com/${graphVersion}/debug_token?input_token=${encodeURIComponent(rawAccessToken)}&access_token=${encodeURIComponent(appId)}|${encodeURIComponent(appSecret)}`;
-        const debugRes = await fetch(debugUrl);
-        const debugData = await debugRes.json();
-        const targetIds = debugData.data?.granular_scopes?.find(
-          (s: any) => s.scope === 'whatsapp_business_management',
-        )?.target_ids;
+      // Step 2: Debug token to get WABA ID & Business ID if not provided in callback
+      if (!wabaId || !businessId) {
+        try {
+          const debugUrl = `https://graph.facebook.com/${graphVersion}/debug_token?input_token=${encodeURIComponent(rawAccessToken)}&access_token=${encodeURIComponent(appId)}|${encodeURIComponent(appSecret)}`;
+          const debugRes = await fetch(debugUrl);
+          const debugData = await debugRes.json();
 
-        if (targetIds && targetIds.length > 0) {
-          wabaId = targetIds[0];
-        }
-        if (debugData.data?.business_id) {
-          businessId = debugData.data.business_id;
+          if (debugData.data?.business_id && !businessId) {
+            businessId = String(debugData.data.business_id);
+          }
+
+          if (!wabaId) {
+            const granularScopes = debugData.data?.granular_scopes || [];
+            const waScope = granularScopes.find(
+              (s: any) =>
+                s.scope === 'whatsapp_business_management' ||
+                s.scope === 'whatsapp_business_messaging',
+            );
+            if (waScope?.target_ids && waScope.target_ids.length > 0) {
+              wabaId = String(waScope.target_ids[0]);
+            } else if (debugData.data?.target_ids && debugData.data.target_ids.length > 0) {
+              wabaId = String(debugData.data.target_ids[0]);
+            }
+          }
+        } catch (debugErr: any) {
+          this.logger.warn(`debug_token inspection warning: ${debugErr.message}`);
         }
       }
 
-      // Step 3: Fetch WABA details
+      // Step 2b: Fallback to owned/client WABAs if wabaId is still not found
+      if (!wabaId && businessId) {
+        try {
+          const ownedWabaUrl = `https://graph.facebook.com/${graphVersion}/${businessId}/owned_whatsapp_business_accounts?access_token=${encodeURIComponent(rawAccessToken)}`;
+          const ownedRes = await fetch(ownedWabaUrl);
+          if (ownedRes.ok) {
+            const ownedJson = await ownedRes.json();
+            if (ownedJson.data && ownedJson.data.length > 0) {
+              wabaId = String(ownedJson.data[0].id);
+            }
+          }
+
+          if (!wabaId) {
+            const clientWabaUrl = `https://graph.facebook.com/${graphVersion}/${businessId}/client_whatsapp_business_accounts?access_token=${encodeURIComponent(rawAccessToken)}`;
+            const clientRes = await fetch(clientWabaUrl);
+            if (clientRes.ok) {
+              const clientJson = await clientRes.json();
+              if (clientJson.data && clientJson.data.length > 0) {
+                wabaId = String(clientJson.data[0].id);
+              }
+            }
+          }
+        } catch (bizErr: any) {
+          this.logger.warn(`Business WABA lookup warning: ${bizErr.message}`);
+        }
+      }
+
+      // Step 3: Fetch verified WABA details
       if (wabaId) {
-        const wabaUrl = `https://graph.facebook.com/${graphVersion}/${wabaId}?fields=id,name,currency,timezone_id,account_review_status&access_token=${encodeURIComponent(rawAccessToken)}`;
-        const wabaRes = await fetch(wabaUrl);
-        if (wabaRes.ok) {
-          const wabaJson = await wabaRes.json();
-          wabaName = wabaJson.name || wabaName;
+        try {
+          const wabaUrl = `https://graph.facebook.com/${graphVersion}/${wabaId}?fields=id,name,currency,timezone_id,account_review_status,message_template_namespace&access_token=${encodeURIComponent(rawAccessToken)}`;
+          const wabaRes = await fetch(wabaUrl);
+          if (wabaRes.ok) {
+            const wabaJson = await wabaRes.json();
+            wabaName = wabaJson.name || wabaName;
+            currency = wabaJson.currency || null;
+            timezoneId = wabaJson.timezone_id || null;
+            accountReviewStatus = wabaJson.account_review_status || null;
+            messageTemplateNamespace = wabaJson.message_template_namespace || null;
+          }
+        } catch (wabaErr: any) {
+          this.logger.warn(`WABA details fetch warning: ${wabaErr.message}`);
         }
 
-        // Step 4: Fetch Phone Numbers for WABA
+        // Step 4: Fetch verified Phone Numbers for WABA
         if (phoneNumberId) {
-          const phoneUrl = `https://graph.facebook.com/${graphVersion}/${phoneNumberId}?fields=id,display_phone_number,verified_name,quality_rating,messaging_limit_tier&access_token=${encodeURIComponent(rawAccessToken)}`;
-          const phoneRes = await fetch(phoneUrl);
-          if (phoneRes.ok) {
-            const phoneJson = await phoneRes.json();
-            phoneNumber = phoneJson.display_phone_number || null;
-            displayName = phoneJson.verified_name || wabaName;
-            qualityRating = phoneJson.quality_rating || qualityRating;
-            messagingLimitTier = phoneJson.messaging_limit_tier || messagingLimitTier;
-          }
-        } else {
-          const phoneUrl = `https://graph.facebook.com/${graphVersion}/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,messaging_limit_tier&access_token=${encodeURIComponent(rawAccessToken)}`;
-          const phoneRes = await fetch(phoneUrl);
-          if (phoneRes.ok) {
-            const phoneJson = await phoneRes.json();
-            const primaryPhone = phoneJson.data?.[0];
-            if (primaryPhone) {
-              phoneNumberId = primaryPhone.id;
-              phoneNumber = primaryPhone.display_phone_number || null;
-              displayName = primaryPhone.verified_name || displayName;
-              qualityRating = primaryPhone.quality_rating || qualityRating;
-              messagingLimitTier = primaryPhone.messaging_limit_tier || messagingLimitTier;
+          try {
+            const phoneUrl = `https://graph.facebook.com/${graphVersion}/${phoneNumberId}?fields=id,display_phone_number,verified_name,quality_rating,messaging_limit_tier,code_verification_status,name_status&access_token=${encodeURIComponent(rawAccessToken)}`;
+            const phoneRes = await fetch(phoneUrl);
+            if (phoneRes.ok) {
+              const phoneJson = await phoneRes.json();
+              phoneNumber = phoneJson.display_phone_number || null;
+              displayName = phoneJson.verified_name || wabaName;
+              qualityRating = phoneJson.quality_rating || qualityRating;
+              messagingLimitTier = phoneJson.messaging_limit_tier || messagingLimitTier;
+              codeVerificationStatus = phoneJson.code_verification_status || null;
+              nameStatus = phoneJson.name_status || null;
             }
+          } catch (phoneErr: any) {
+            this.logger.warn(`Phone number ID fetch warning: ${phoneErr.message}`);
+          }
+        }
+
+        if (!phoneNumber) {
+          try {
+            const phoneUrl = `https://graph.facebook.com/${graphVersion}/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,messaging_limit_tier,code_verification_status,name_status&access_token=${encodeURIComponent(rawAccessToken)}`;
+            const phoneRes = await fetch(phoneUrl);
+            if (phoneRes.ok) {
+              const phoneJson = await phoneRes.json();
+              const primaryPhone = phoneJson.data?.[0];
+              if (primaryPhone) {
+                phoneNumberId = primaryPhone.id;
+                phoneNumber = primaryPhone.display_phone_number || null;
+                displayName = primaryPhone.verified_name || displayName;
+                qualityRating = primaryPhone.quality_rating || qualityRating;
+                messagingLimitTier = primaryPhone.messaging_limit_tier || messagingLimitTier;
+                codeVerificationStatus = primaryPhone.code_verification_status || null;
+                nameStatus = primaryPhone.name_status || null;
+              }
+            }
+          } catch (phoneListErr: any) {
+            this.logger.warn(`Phone numbers list fetch warning: ${phoneListErr.message}`);
           }
         }
 
@@ -315,7 +413,8 @@ export class ChannelsService {
             method: 'POST',
             headers: { Authorization: `Bearer ${rawAccessToken}` },
           });
-          webhookSubscribed = subRes.ok;
+          const subJson = await subRes.json().catch(() => ({}));
+          webhookSubscribed = subRes.ok && (subJson.success === true || subJson.data?.[0]?.success === true || subRes.status === 200);
         } catch (subErr: any) {
           this.logger.warn(`Webhook subscription request warning: ${subErr.message}`);
         }
@@ -328,7 +427,34 @@ export class ChannelsService {
       throw new BadRequestException(`Meta Graph API verification failed: ${err.message}`);
     }
 
-    // Step 6: Encrypt the Access Token using AES-256-GCM
+    // Step 6: Prevent duplicate active phone numbers across workspaces
+    if (phoneNumberId || phoneNumber) {
+      const existingOtherTenants = await this.prisma.channelConfig.findMany({
+        where: {
+          channel: 'WHATSAPP',
+          isConnected: true,
+          tenantId: { not: tenantId },
+        },
+        select: { id: true, tenantId: true, config: true },
+      });
+
+      const duplicate = existingOtherTenants.find((c) => {
+        const conf = (c.config as any) || {};
+        const confPhoneId = conf.phoneNumberId;
+        const confPhone = conf.phoneNumber;
+        if (phoneNumberId && confPhoneId && String(confPhoneId).trim() === String(phoneNumberId).trim()) return true;
+        if (phoneNumber && confPhone && String(confPhone).trim() === String(phoneNumber).trim()) return true;
+        return false;
+      });
+
+      if (duplicate) {
+        throw new BadRequestException(
+          `The WhatsApp phone number (${phoneNumber || phoneNumberId}) is already actively registered with another workspace. Each phone number can only be connected to one workspace at a time. Please disconnect it from the other workspace first.`,
+        );
+      }
+    }
+
+    // Step 7: Encrypt the Access Token using AES-256-GCM
     const encryptedToken = encryptPayload(rawAccessToken);
 
     const configPayload = {
@@ -340,12 +466,18 @@ export class ChannelsService {
       businessId: businessId || undefined,
       qualityRating,
       messagingLimitTier,
+      codeVerificationStatus,
+      nameStatus,
+      currency,
+      timezoneId,
+      accountReviewStatus,
+      messageTemplateNamespace,
       encryptedAccessToken: encryptedToken,
       webhookSubscribed,
       onboardingMethod: 'EMBEDDED_SIGNUP',
     };
 
-    // Step 7: Persist verified ChannelConfig in PostgreSQL
+    // Step 8: Persist verified ChannelConfig in PostgreSQL
     const channelConfig = await this.prisma.channelConfig.upsert({
       where: {
         tenantId_channel: { tenantId, channel: 'WHATSAPP' },
@@ -366,7 +498,7 @@ export class ChannelsService {
       },
     });
 
-    // Step 8: Log Audit Trail
+    // Step 9: Log Audit Trail
     await this.prisma.activityLog.create({
       data: {
         tenantId,
@@ -626,4 +758,594 @@ export class ChannelsService {
     await this.prisma.rcsTemplate.delete({ where: { id } });
     return { success: true, message: 'RCS Template deleted successfully' };
   }
+
+  // ----------------- FACEBOOK PAGE & MESSENGER INTEGRATION -----------------
+
+  getFacebookOAuthUrl(
+    tenantId: string,
+    customRedirectUri?: string,
+    customConfigId?: string,
+  ) {
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') ||
+      process.env.FRONTEND_URL ||
+      'http://localhost:3000';
+
+    const redirectUri =
+      customRedirectUri || `${frontendUrl}/channels/facebook/callback`;
+
+    const statePayload = {
+      tenantId,
+      timestamp: Date.now(),
+      channel: 'FACEBOOK',
+      nonce: crypto.randomBytes(12).toString('hex'),
+    };
+    const state = Buffer.from(JSON.stringify(statePayload)).toString('base64url');
+
+    const configId =
+      customConfigId?.trim() ||
+      this.configService.get<string>('META_FACEBOOK_CONFIG_ID')?.trim() ||
+      process.env.META_FACEBOOK_CONFIG_ID?.trim();
+
+    let oauthUrl: string;
+    if (configId) {
+      // Facebook Login for Business with Configuration ID (no scope parameter per Meta specification)
+      oauthUrl = `https://www.facebook.com/${this.metaApiVersion}/dialog/oauth?client_id=${
+        this.metaAppId
+      }&redirect_uri=${encodeURIComponent(
+        redirectUri,
+      )}&config_id=${encodeURIComponent(configId)}&response_type=code&state=${state}`;
+    } else {
+      const scopes = [
+        'pages_show_list',
+        'pages_read_engagement',
+        'pages_manage_metadata',
+        'pages_messaging',
+      ];
+
+      oauthUrl = `https://www.facebook.com/${this.metaApiVersion}/dialog/oauth?client_id=${
+        this.metaAppId
+      }&redirect_uri=${encodeURIComponent(
+        redirectUri,
+      )}&scope=${scopes.join(',')}&response_type=code&state=${state}`;
+    }
+
+    return {
+      success: true,
+      data: {
+        oauthUrl,
+        state,
+        appId: this.metaAppId,
+        redirectUri,
+        configId: configId || null,
+      },
+    };
+  }
+
+  async exchangeFacebookOAuthCode(
+    tenantId: string,
+    code: string,
+    redirectUri?: string,
+  ) {
+    this.logger.log(`Exchanging Meta OAuth code for Facebook Pages (tenant: ${tenantId})...`);
+
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') ||
+      process.env.FRONTEND_URL ||
+      'http://localhost:3000';
+
+    const rUri = redirectUri || `${frontendUrl}/channels/facebook/callback`;
+
+    // Step 1: Exchange code for short-lived access token
+    const tokenUrl = `https://graph.facebook.com/${this.metaApiVersion}/oauth/access_token?client_id=${
+      this.metaAppId
+    }&client_secret=${this.metaAppSecret}&redirect_uri=${encodeURIComponent(
+      rUri,
+    )}&code=${encodeURIComponent(code)}`;
+
+    const shortTokenRes = await fetch(tokenUrl);
+    const shortTokenData = await shortTokenRes.json();
+
+    if (!shortTokenRes.ok || shortTokenData.error) {
+      const errMsg =
+        shortTokenData.error?.message ||
+        'Failed to exchange authorization code with Meta Graph API';
+      this.logger.error(`Meta OAuth short-lived token error: ${errMsg}`);
+      throw new BadRequestException(errMsg);
+    }
+
+    const shortLivedToken = shortTokenData.access_token;
+
+    // Step 2: Exchange short-lived token for long-lived user access token (60 days)
+    const longTokenUrl = `https://graph.facebook.com/${this.metaApiVersion}/oauth/access_token?grant_type=fb_exchange_token&client_id=${
+      this.metaAppId
+    }&client_secret=${this.metaAppSecret}&fb_exchange_token=${shortLivedToken}`;
+
+    const longTokenRes = await fetch(longTokenUrl);
+    const longTokenData = await longTokenRes.json();
+    const longLivedUserToken = longTokenData.access_token || shortLivedToken;
+
+    // Step 3: Fetch Meta User Profile
+    let userProfile = {
+      id: 'fb_user',
+      name: 'Facebook User',
+      email: '',
+      avatarUrl: '',
+      connectedAt: new Date().toISOString(),
+    };
+
+    try {
+      const meUrl = `https://graph.facebook.com/${this.metaApiVersion}/me?fields=id,name,email,picture{url}&access_token=${longLivedUserToken}`;
+      const meRes = await fetch(meUrl);
+      const meData = await meRes.json();
+      if (meData?.id) {
+        userProfile = {
+          id: meData.id,
+          name: meData.name || 'Facebook User',
+          email: meData.email || '',
+          avatarUrl: meData.picture?.data?.url || '',
+          connectedAt: new Date().toISOString(),
+        };
+      }
+    } catch (e) {
+      this.logger.warn(`Could not fetch Facebook user profile: ${e}`);
+    }
+
+    // Step 4: Fetch User's Facebook Pages
+    const pagesUrl = `https://graph.facebook.com/${this.metaApiVersion}/me/accounts?fields=id,name,access_token,category,picture{url},fan_count,followers_count,tasks&access_token=${longLivedUserToken}`;
+
+    const pagesRes = await fetch(pagesUrl);
+    const pagesData = await pagesRes.json();
+
+    if (!pagesRes.ok || pagesData.error) {
+      const errMsg =
+        pagesData.error?.message || 'Failed to fetch Facebook Pages from Meta API';
+      this.logger.error(`Meta Pages query error: ${errMsg}`);
+      throw new BadRequestException(errMsg);
+    }
+
+    // Check currently connected Page for this tenant
+    const currentConfig = await this.prisma.channelConfig.findUnique({
+      where: {
+        tenantId_channel: { tenantId, channel: 'FACEBOOK' },
+      },
+    });
+
+    const connectedPageId = currentConfig?.isConnected
+      ? (currentConfig.config as any)?.pageId
+      : null;
+
+    const rawPages = pagesData.data || [];
+    const availablePages = rawPages.map((page: any) => ({
+      id: page.id,
+      name: page.name,
+      category: page.category || 'Business & Brand',
+      avatarUrl:
+        page.picture?.data?.url ||
+        `https://graph.facebook.com/${this.metaApiVersion}/${page.id}/picture?type=normal`,
+      followerCount: page.followers_count || page.fan_count || 0,
+      likesCount: page.fan_count || 0,
+      hasAdminPermission: true,
+      isConnectedToCurrentWorkspace: Boolean(connectedPageId === page.id),
+      isConnectedToOtherWorkspace: false,
+      accessTokenStatus: 'valid',
+      accessToken: page.access_token,
+    }));
+
+    return {
+      success: true,
+      data: {
+        user: userProfile,
+        pages: availablePages,
+        totalPages: availablePages.length,
+        hasPages: availablePages.length > 0,
+        guidance:
+          availablePages.length === 0
+            ? 'No Facebook Pages found under your account. Ensure you have created a Facebook Page and have Admin access in Meta Business Suite.'
+            : undefined,
+      },
+    };
+  }
+
+  async verifyFacebookToken(tenantId: string, accessToken: string, pageId?: string) {
+    const token = accessToken?.trim();
+    if (!token) {
+      throw new BadRequestException('Facebook Access Token is required.');
+    }
+
+    try {
+      // 1. Query Meta Graph API /me
+      const meUrl = `https://graph.facebook.com/${this.metaApiVersion}/me?fields=id,name,category,picture{url},followers_count,fan_count&access_token=${token}`;
+      const meRes = await fetch(meUrl);
+      const meData = await meRes.json();
+
+      if (meData?.error) {
+        throw new BadRequestException(
+          meData.error.message || 'Invalid or expired Meta Facebook access token.',
+        );
+      }
+
+      // Check currently connected Page for this tenant
+      const currentConfig = await this.prisma.channelConfig.findUnique({
+        where: { tenantId_channel: { tenantId, channel: 'FACEBOOK' } },
+      });
+      const connectedPageId = currentConfig?.isConnected
+        ? (currentConfig.config as any)?.pageId
+        : null;
+
+      // Case A: Token directly belongs to a Page (has category or matches requested pageId)
+      if (meData.category || (pageId && pageId === meData.id)) {
+        const page = {
+          id: meData.id,
+          name: meData.name,
+          category: meData.category || 'Business Page',
+          avatarUrl:
+            meData.picture?.data?.url ||
+            `https://graph.facebook.com/${this.metaApiVersion}/${meData.id}/picture?type=normal`,
+          followerCount: meData.followers_count || meData.fan_count || 0,
+          likesCount: meData.fan_count || 0,
+          hasAdminPermission: true,
+          isConnectedToCurrentWorkspace: Boolean(connectedPageId === meData.id),
+          isConnectedToOtherWorkspace: false,
+          accessTokenStatus: 'valid',
+          accessToken: token,
+        };
+
+        return {
+          success: true,
+          type: 'PAGE',
+          page,
+          pages: [page],
+        };
+      }
+
+      // Case B: Token belongs to a User, query /me/accounts
+      const accountsUrl = `https://graph.facebook.com/${this.metaApiVersion}/me/accounts?fields=id,name,access_token,category,picture{url},fan_count,followers_count&access_token=${token}`;
+      const accRes = await fetch(accountsUrl);
+      const accData = await accRes.json();
+
+      if (accRes.ok && Array.isArray(accData.data) && accData.data.length > 0) {
+        const pages = accData.data.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          category: p.category || 'Business Page',
+          avatarUrl:
+            p.picture?.data?.url ||
+            `https://graph.facebook.com/${this.metaApiVersion}/${p.id}/picture?type=normal`,
+          followerCount: p.followers_count || p.fan_count || 0,
+          likesCount: p.fan_count || 0,
+          hasAdminPermission: true,
+          isConnectedToCurrentWorkspace: Boolean(connectedPageId === p.id),
+          isConnectedToOtherWorkspace: false,
+          accessTokenStatus: 'valid',
+          accessToken: p.access_token || token,
+        }));
+
+        return {
+          success: true,
+          type: 'USER_PAGES',
+          pages,
+        };
+      }
+
+      // Case C: If pageId was provided, query that page directly using the token
+      if (pageId) {
+        const directPageUrl = `https://graph.facebook.com/${this.metaApiVersion}/${pageId}?fields=id,name,category,picture{url},followers_count,fan_count&access_token=${token}`;
+        const directRes = await fetch(directPageUrl);
+        const directData = await directRes.json();
+
+        if (directRes.ok && directData?.id) {
+          const page = {
+            id: directData.id,
+            name: directData.name,
+            category: directData.category || 'Business Page',
+            avatarUrl:
+              directData.picture?.data?.url ||
+              `https://graph.facebook.com/${this.metaApiVersion}/${directData.id}/picture?type=normal`,
+            followerCount: directData.followers_count || directData.fan_count || 0,
+            likesCount: directData.fan_count || 0,
+            hasAdminPermission: true,
+            isConnectedToCurrentWorkspace: Boolean(connectedPageId === directData.id),
+            isConnectedToOtherWorkspace: false,
+            accessTokenStatus: 'valid',
+            accessToken: token,
+          };
+
+          return {
+            success: true,
+            type: 'PAGE',
+            page,
+            pages: [page],
+          };
+        }
+      }
+
+      throw new BadRequestException(
+        'The provided token is valid for a Facebook user, but no Facebook Pages were found. Please generate a Page Access Token with pages_show_list and pages_messaging permissions in Meta Graph API Explorer or Meta Business Suite.',
+      );
+    } catch (err: any) {
+      if (err instanceof BadRequestException) throw err;
+      this.logger.error(`Error verifying Facebook token: ${err?.message || err}`);
+      throw new BadRequestException(
+        err?.message || 'Failed to verify Facebook access token with Meta Graph API.',
+      );
+    }
+  }
+
+  async connectFacebookPage(tenantId: string, dto: ConnectFacebookPageDto) {
+    if (!dto.pageId || !dto.accessToken) {
+      throw new BadRequestException('Page ID and Page Access Token are required.');
+    }
+
+    let pageName = dto.pageName?.trim();
+    let category = dto.category;
+    let avatarUrl = dto.avatarUrl;
+
+    if (!pageName) {
+      try {
+        const pageRes = await fetch(
+          `https://graph.facebook.com/${this.metaApiVersion}/${dto.pageId}?fields=id,name,category,picture{url}&access_token=${dto.accessToken}`,
+        );
+        const pageInfo = await pageRes.json();
+        if (pageInfo?.name) {
+          pageName = pageInfo.name;
+          category = category || pageInfo.category;
+          avatarUrl = avatarUrl || pageInfo.picture?.data?.url;
+        }
+      } catch (e) {
+        // Fallback below
+      }
+    }
+    pageName = pageName || `Facebook Page ${dto.pageId}`;
+
+    this.logger.log(
+      `Connecting Facebook Page ${pageName} (${dto.pageId}) for tenant ${tenantId}...`,
+    );
+
+    // Encrypt Page Access Token at rest using AES-256-GCM
+    const encryptedToken = encryptPayload(dto.accessToken);
+
+    // Auto-subscribe the Facebook Page to Webhooks via Meta Graph API
+    let webhookSubscribed = false;
+    try {
+      const subscribeUrl = `https://graph.facebook.com/${this.metaApiVersion}/${dto.pageId}/subscribed_apps`;
+      const subRes = await fetch(subscribeUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subscribed_fields: [
+            'messages',
+            'messaging_postbacks',
+            'message_deliveries',
+            'message_reads',
+          ],
+          access_token: dto.accessToken,
+        }),
+      });
+      const subData = await subRes.json();
+      webhookSubscribed = Boolean(subData?.success);
+      this.logger.log(
+        `Meta Webhook auto-subscription for Facebook page ${dto.pageId}: ${JSON.stringify(
+          subData,
+        )}`,
+      );
+    } catch (subErr) {
+      this.logger.warn(`Could not auto-subscribe page to webhooks: ${subErr}`);
+    }
+
+    const channelName = dto.channelName?.trim() || pageName;
+
+    // Upsert into ChannelConfig table
+    const config = await this.prisma.channelConfig.upsert({
+      where: {
+        tenantId_channel: { tenantId, channel: 'FACEBOOK' },
+      },
+      create: {
+        tenantId,
+        channel: 'FACEBOOK',
+        isConnected: true,
+        connectedAt: new Date(),
+        lastVerifiedAt: new Date(),
+        config: {
+          id: `fb_${dto.pageId}`,
+          pageId: dto.pageId,
+          pageName: channelName,
+          originalPageName: dto.pageName.trim(),
+          category: dto.category || 'General & Business',
+          avatarUrl: dto.avatarUrl || null,
+          colorCode: dto.colorCode || '#4F46E5',
+          botEnabled: dto.botEnabled ?? true,
+          welcomeMessage: dto.welcomeMessage || '',
+          accessToken: encryptedToken,
+          webhookSubscribed,
+          status: 'connected',
+        },
+      },
+      update: {
+        isConnected: true,
+        connectedAt: new Date(),
+        lastVerifiedAt: new Date(),
+        config: {
+          id: `fb_${dto.pageId}`,
+          pageId: dto.pageId,
+          pageName: channelName,
+          originalPageName: dto.pageName.trim(),
+          category: dto.category || 'General & Business',
+          avatarUrl: dto.avatarUrl || null,
+          colorCode: dto.colorCode || '#4F46E5',
+          botEnabled: dto.botEnabled ?? true,
+          welcomeMessage: dto.welcomeMessage || '',
+          accessToken: encryptedToken,
+          webhookSubscribed,
+          status: 'connected',
+        },
+      },
+    });
+
+    // Log Activity
+    await this.prisma.activityLog.create({
+      data: {
+        tenantId,
+        action: `Connected Facebook Page: ${dto.pageName}`,
+        module: 'Channels',
+        status: 'Success',
+      },
+    });
+
+    return {
+      success: true,
+      message: `Facebook Page ${dto.pageName} connected successfully`,
+      data: {
+        id: config.id,
+        channel: 'FACEBOOK',
+        isConnected: true,
+        pageId: dto.pageId,
+        pageName: channelName,
+        category: dto.category || 'General & Business',
+        botEnabled: dto.botEnabled ?? true,
+        webhookSubscribed,
+      },
+    };
+  }
+
+  async getFacebookStatus(tenantId: string) {
+    const config = await this.prisma.channelConfig.findUnique({
+      where: {
+        tenantId_channel: { tenantId, channel: 'FACEBOOK' },
+      },
+    });
+
+    if (!config || !config.isConnected) {
+      return {
+        success: true,
+        data: {
+          isConnected: false,
+          channel: null,
+        },
+      };
+    }
+
+    const conf = (config.config as any) || {};
+
+    return {
+      success: true,
+      data: {
+        isConnected: true,
+        id: config.id,
+        pageId: conf.pageId || null,
+        pageName: conf.pageName || 'Facebook Page',
+        category: conf.category || null,
+        avatarUrl: conf.avatarUrl || null,
+        colorCode: conf.colorCode || '#4F46E5',
+        botEnabled: conf.botEnabled ?? true,
+        welcomeMessage: conf.welcomeMessage || '',
+        webhookSubscribed: conf.webhookSubscribed ?? true,
+        connectedAt: config.connectedAt,
+        lastVerifiedAt: config.lastVerifiedAt,
+      },
+    };
+  }
+
+  async syncFacebookChannel(tenantId: string) {
+    const config = await this.prisma.channelConfig.findUnique({
+      where: {
+        tenantId_channel: { tenantId, channel: 'FACEBOOK' },
+      },
+    });
+
+    if (!config || !config.isConnected) {
+      throw new NotFoundException('No connected Facebook channel found for this tenant.');
+    }
+
+    const conf = (config.config as any) || {};
+    if (!conf.accessToken || !conf.pageId) {
+      throw new BadRequestException('Connected Facebook channel is missing Page ID or access token.');
+    }
+
+    let token: string;
+    try {
+      token = decryptPayload(conf.accessToken);
+    } catch {
+      throw new BadRequestException('Failed to decrypt Facebook access token.');
+    }
+
+    // Verify token & fetch fresh page details from Meta Graph API
+    const pageUrl = `https://graph.facebook.com/${this.metaApiVersion}/${conf.pageId}?fields=id,name,category,picture{url},fan_count,followers_count&access_token=${token}`;
+    const pageRes = await fetch(pageUrl);
+    const pageData = await pageRes.json();
+
+    if (!pageRes.ok || pageData.error) {
+      const errMsg = pageData.error?.message || 'Meta token is invalid or expired';
+      this.logger.warn(`Facebook sync error: ${errMsg}`);
+      throw new BadRequestException(`Facebook sync failed: ${errMsg}`);
+    }
+
+    // Update lastVerifiedAt
+    const updated = await this.prisma.channelConfig.update({
+      where: { id: config.id },
+      data: {
+        lastVerifiedAt: new Date(),
+        config: {
+          ...conf,
+          originalPageName: pageData.name || conf.originalPageName,
+          category: pageData.category || conf.category,
+          avatarUrl: pageData.picture?.data?.url || conf.avatarUrl,
+        },
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Facebook Page status synced successfully with Meta Graph API',
+      data: {
+        isConnected: true,
+        pageId: conf.pageId,
+        pageName: conf.pageName,
+        followerCount: pageData.followers_count || pageData.fan_count || 0,
+        lastVerifiedAt: updated.lastVerifiedAt,
+      },
+    };
+  }
+
+  async getFacebookActivity(tenantId: string) {
+    // Return real metrics from Conversation and Message tables
+    const [totalConversations, totalMessages, recentConversations] = await Promise.all([
+      this.prisma.conversation.count({
+        where: { tenantId, channel: 'facebook' },
+      }),
+      this.prisma.message.count({
+        where: { tenantId, conversation: { channel: 'facebook' } },
+      }),
+      this.prisma.conversation.findMany({
+        where: { tenantId, channel: 'facebook' },
+        orderBy: { lastMessageTime: 'desc' },
+        take: 10,
+        include: {
+          contact: {
+            select: { name: true, phone: true, avatarUrl: true },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      success: true,
+      data: {
+        totalConversations,
+        totalMessages,
+        recentConversations: recentConversations.map((c) => ({
+          id: c.id,
+          uid: c.uid,
+          name: c.name,
+          identifier: c.identifier,
+          lastMessage: c.lastMessage,
+          lastMessageSender: c.lastMessageSender,
+          lastMessageTime: c.lastMessageTime,
+          unreadCount: c.unreadCount,
+          avatarUrl: c.avatarUrl || c.contact?.avatarUrl || null,
+        })),
+      },
+    };
+  }
 }
+

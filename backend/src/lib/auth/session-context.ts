@@ -15,13 +15,21 @@ export interface SessionContext {
   /** The only tenant application queries may use for this request. */
   tenantId: string;
   impersonatedWorkspaceId?: string;
+  /** Materialized hierarchical path (e.g. "root.t_123.t_456") for subtree isolation */
+  orgPath: string;
+  /** Organization tier (PLATFORM_ROOT, PRIMARY_RESELLER, SUB_RESELLER, END_CLIENT) */
+  tier: string;
+  /** Granted permissions array */
+  permissions: string[];
 }
 
 interface ImpersonationClaims {
   sub: string;
   role: Role;
   targetWorkspaceId: string;
-  purpose: 'super_admin_impersonation';
+  targetOrgPath?: string;
+  targetTier?: string;
+  purpose: 'super_admin_impersonation' | 'reseller_impersonation';
 }
 
 /**
@@ -40,7 +48,15 @@ export class SessionContextResolver {
 
   resolve(request: Request): SessionContext {
     const principal = request.user as
-      | { userId?: string; email?: string; tenantId?: string; role?: Role }
+      | {
+          userId?: string;
+          email?: string;
+          tenantId?: string;
+          role?: Role;
+          orgPath?: string;
+          tier?: string;
+          permissions?: string[];
+        }
       | undefined;
 
     if (!principal?.userId || !principal.tenantId || !principal.role) {
@@ -53,15 +69,15 @@ export class SessionContextResolver {
       role: principal.role,
       workspaceId: principal.tenantId,
       tenantId: principal.tenantId,
+      orgPath: principal.orgPath || 'root',
+      tier: principal.tier || 'END_CLIENT',
+      permissions: principal.permissions || ['*'],
     };
 
     const impersonationToken = request.header('x-impersonation-token');
     if (!impersonationToken) {
       this.tenantContextStore.enter(context);
       return context;
-    }
-    if (context.role !== Role.SUPER_ADMIN) {
-      throw new ForbiddenException('Only Super Admins may use support impersonation');
     }
 
     try {
@@ -71,19 +87,33 @@ export class SessionContextResolver {
           this.config.get<string>('JWT_ACCESS_SECRET') ||
           this.config.get<string>('JWT_SECRET'),
       });
-      if (
-        claims.purpose !== 'super_admin_impersonation' ||
-        claims.sub !== context.userId ||
-        claims.role !== Role.SUPER_ADMIN ||
-        !claims.targetWorkspaceId
-      ) {
-        throw new Error('Impersonation token claims do not match the active session');
+
+      if (claims.sub !== context.userId) {
+        throw new Error('Impersonation token actor does not match active session');
       }
+
+      if (context.role === Role.SUPER_ADMIN) {
+        // Full platform inspection allowed
+      } else if (context.role === Role.RESELLER_ADMIN) {
+        if (claims.targetOrgPath && !claims.targetOrgPath.startsWith(context.orgPath + '.')) {
+          throw new ForbiddenException('Cannot inspect workspace outside your reseller tree');
+        }
+      } else {
+        throw new ForbiddenException('Only Super Admins and Reseller Admins may use delegated inspection');
+      }
+
       context.impersonatedWorkspaceId = claims.targetWorkspaceId;
       context.tenantId = claims.targetWorkspaceId;
+      if (claims.targetOrgPath) {
+        context.orgPath = claims.targetOrgPath;
+      }
+      if (claims.targetTier) {
+        context.tier = claims.targetTier;
+      }
       this.tenantContextStore.enter(context);
       return context;
-    } catch {
+    } catch (e: any) {
+      if (e instanceof ForbiddenException) throw e;
       throw new ForbiddenException('Invalid or expired support impersonation context');
     }
   }

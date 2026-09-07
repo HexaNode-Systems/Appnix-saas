@@ -279,6 +279,15 @@ export class CampaignResponseDto {
   @ApiProperty()
   createdBy: string;
 
+  @ApiPropertyOptional()
+  sentCount?: number;
+
+  @ApiPropertyOptional()
+  deliveryRate?: string;
+
+  @ApiPropertyOptional()
+  openRate?: string;
+
   @ApiProperty()
   createdAt: Date;
 

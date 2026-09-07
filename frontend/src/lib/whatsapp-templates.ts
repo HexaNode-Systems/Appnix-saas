@@ -47,344 +47,78 @@ export const CATEGORY_DETAILS: Record<
 };
 
 export const STANDARD_DATA_SOURCES = [
-  { id: 'contact.name', label: 'Customer Full Name', defaultSample: 'Jitendra Kumar' },
-  { id: 'contact.first_name', label: 'Customer First Name', defaultSample: 'Jitendra' },
-  { id: 'contact.phone', label: 'Customer Phone Number', defaultSample: '+91 98765 43210' },
-  { id: 'order.id', label: 'Order ID', defaultSample: 'ORD-12345' },
-  { id: 'order.total', label: 'Order Amount', defaultSample: '₹7,999' },
+  { id: 'contact.name', label: 'Customer Full Name', defaultSample: 'John Doe' },
+  { id: 'contact.first_name', label: 'Customer First Name', defaultSample: 'John' },
+  { id: 'contact.phone', label: 'Customer Phone Number', defaultSample: '+1 555-0100' },
+  { id: 'order.id', label: 'Order ID', defaultSample: 'ORD-10001' },
+  { id: 'order.total', label: 'Order Amount', defaultSample: '$99.00' },
   { id: 'order.date', label: 'Order Date', defaultSample: '29 Aug 2026' },
-  { id: 'order.delivery_date', label: 'Estimated Delivery Date', defaultSample: 'Tomorrow, 5 PM' },
-  { id: 'company.name', label: 'Company / Brand Name', defaultSample: 'Appnix Technologies' },
-  { id: 'auth.otp', label: 'OTP Code', defaultSample: '849201' },
-  { id: 'offer.discount', label: 'Discount Percentage', defaultSample: '25%' },
-  { id: 'offer.code', label: 'Promo Code', defaultSample: 'FESTIVE25' },
+  { id: 'order.delivery_date', label: 'Estimated Delivery Date', defaultSample: 'Tomorrow, 5:00 PM' },
+  { id: 'company.name', label: 'Company / Brand Name', defaultSample: 'Appnix' },
+  { id: 'auth.otp', label: 'OTP Code', defaultSample: '123456' },
+  { id: 'offer.discount', label: 'Discount Percentage', defaultSample: '20%' },
+  { id: 'offer.code', label: 'Promo Code', defaultSample: 'SAVE20' },
   { id: 'custom', label: 'Custom Variable (Manual input)', defaultSample: 'Sample Value' },
 ];
 
-export const INITIAL_TEMPLATES: WhatsAppTemplate[] = [
-  {
-    id: 'tpl-1',
-    channelId: '1',
-    name: 'order_confirmation_v2',
-    category: 'UTILITY',
-    language: 'en_US',
-    contentType: 'TEXT',
-    header: {
-      type: 'TEXT',
-      text: 'Order Confirmed - Appnix Store',
-    },
-    body: 'Hello {{1}},\n\nThank you for choosing Appnix! Your order #{{2}} amounting to {{3}} has been successfully placed and is being prepared.\n\nEstimated delivery date: *{{4}}*.\n\nWe will notify you once your package is dispatched.',
-    variables: [
-      { index: 1, name: 'Customer Name', sampleValue: 'Jitendra Kumar', dataSource: 'contact.name' },
-      { index: 2, name: 'Order ID', sampleValue: 'ORD12345', dataSource: 'order.id' },
-      { index: 3, name: 'Order Amount', sampleValue: '₹7,999', dataSource: 'order.total' },
-      { index: 4, name: 'Delivery Date', sampleValue: 'Tomorrow, 5:00 PM', dataSource: 'order.delivery_date' },
-    ],
-    variableMappings: {
-      '1': 'Customer Name',
-      '2': 'Order ID',
-      '3': 'Order Amount',
-      '4': 'Delivery Date',
-    },
-    footer: 'Appnix Technologies • 24x7 Support',
-    buttons: [
-      {
-        id: 'btn-1',
-        type: 'URL',
-        text: 'Track Order',
-        url: 'https://appnix.io/track/{{1}}',
-        urlType: 'DYNAMIC',
-      },
-      {
-        id: 'btn-2',
-        type: 'PHONE_NUMBER',
-        text: 'Call Support',
-        phoneNumber: '+918062765557',
-        countryCode: '+91',
-      },
-    ],
-    status: 'APPROVED',
-    metaTemplateId: 'meta_tpl_98421001',
-    preview: 'Hello Jitendra Kumar, Thank you for choosing Appnix! Your order #ORD12345 amounting to ₹7,999 has been successfully placed...',
-    qualityScore: 'GREEN',
-    createdAt: '2026-08-20T10:30:00Z',
-    updatedAt: '2026-08-20T10:35:00Z',
-    submittedAt: '2026-08-20T10:31:00Z',
-    approvedAt: '2026-08-20T10:35:00Z',
-  },
-  {
-    id: 'tpl-2',
-    channelId: '1',
-    name: 'festive_season_promo',
-    category: 'MARKETING',
-    language: 'en_US',
-    contentType: 'MEDIA',
-    header: {
-      type: 'IMAGE',
-      mediaUrl: 'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=800&auto=format&fit=crop&q=80',
-      mediaFileName: 'festive_offer_banner.jpg',
-    },
-    body: '🎉 Mega Festive Sale is Live for {{1}}!\n\nGet FLAT {{2}}% OFF on all SaaS workflow bots and WhatsApp automation packages.\n\nUse Promo Code: *{{3}}*\nOffer expires on: {{4}}.\n\nBoost your sales today!',
-    variables: [
-      { index: 1, name: 'Customer Name', sampleValue: 'Priya Sharma', dataSource: 'contact.name' },
-      { index: 2, name: 'Discount Percent', sampleValue: '35', dataSource: 'offer.discount' },
-      { index: 3, name: 'Promo Code', sampleValue: 'FESTIVE35', dataSource: 'offer.code' },
-      { index: 4, name: 'Expiry Date', sampleValue: '31st August 2026', dataSource: 'offer.expiry' },
-    ],
-    variableMappings: {
-      '1': 'Customer Name',
-      '2': 'Discount Percent',
-      '3': 'Promo Code',
-      '4': 'Expiry Date',
-    },
-    footer: 'Reply STOP to opt out of promotions',
-    buttons: [
-      {
-        id: 'btn-promo-1',
-        type: 'URL',
-        text: 'Claim Offer Now',
-        url: 'https://appnix.io/festive-deal',
-        urlType: 'STATIC',
-      },
-      {
-        id: 'btn-promo-2',
-        type: 'QUICK_REPLY',
-        text: 'Chat with Sales',
-        payload: 'TALK_TO_SALES',
-      },
-    ],
-    status: 'APPROVED',
-    metaTemplateId: 'meta_tpl_98421002',
-    preview: 'Mega Festive Sale is Live for Priya Sharma! Get FLAT 35% OFF on all SaaS workflow bots...',
-    qualityScore: 'GREEN',
-    createdAt: '2026-08-22T14:10:00Z',
-    updatedAt: '2026-08-22T14:20:00Z',
-    submittedAt: '2026-08-22T14:12:00Z',
-    approvedAt: '2026-08-22T14:20:00Z',
-  },
-  {
-    id: 'tpl-3',
-    channelId: '1',
-    name: 'account_verification_otp',
-    category: 'AUTHENTICATION',
-    language: 'en_US',
-    contentType: 'TEXT',
-    header: {
-      type: 'NONE',
-    },
-    body: '{{1}} is your Appnix account verification code. Do NOT share this code with anyone including staff. Valid for 10 minutes.',
-    variables: [
-      { index: 1, name: 'OTP Code', sampleValue: '619842', dataSource: 'auth.otp' },
-    ],
-    variableMappings: {
-      '1': 'OTP Code',
-    },
-    footer: 'Appnix Security Alert',
-    buttons: [
-      {
-        id: 'btn-auth-1',
-        type: 'COPY_CODE',
-        text: 'Copy Code',
-        payload: '{{1}}',
-      },
-    ],
-    status: 'APPROVED',
-    metaTemplateId: 'meta_tpl_98421003',
-    preview: '619842 is your Appnix account verification code. Do NOT share this code with anyone...',
-    qualityScore: 'GREEN',
-    createdAt: '2026-08-24T09:00:00Z',
-    updatedAt: '2026-08-24T09:05:00Z',
-    submittedAt: '2026-08-24T09:01:00Z',
-    approvedAt: '2026-08-24T09:05:00Z',
-  },
-  {
-    id: 'tpl-4',
-    channelId: '1',
-    name: 'shipping_dispatch_express',
-    category: 'UTILITY',
-    language: 'en_US',
-    contentType: 'TEXT',
-    header: {
-      type: 'TEXT',
-      text: 'Package Out for Delivery 📦',
-    },
-    body: 'Hello {{1}}, good news! Your parcel #{{2}} is out for delivery with courier partner {{3}}. Courier Contact: {{4}}.\n\nPlease keep OTP ready at delivery.',
-    variables: [
-      { index: 1, name: 'Customer Name', sampleValue: 'Rohan Gupta', dataSource: 'contact.name' },
-      { index: 2, name: 'Order Number', sampleValue: 'ORD-88192', dataSource: 'order.id' },
-      { index: 3, name: 'Courier Partner', sampleValue: 'BlueDart Express', dataSource: 'custom' },
-      { index: 4, name: 'Driver Number', sampleValue: '+91 99887 76655', dataSource: 'custom' },
-    ],
-    variableMappings: {
-      '1': 'Customer Name',
-      '2': 'Order Number',
-      '3': 'Courier Partner',
-      '4': 'Driver Number',
-    },
-    footer: 'Appnix Logistics Team',
-    buttons: [
-      {
-        id: 'btn-ship-1',
-        type: 'URL',
-        text: 'Track Live Map',
-        url: 'https://appnix.io/track/{{2}}',
-        urlType: 'DYNAMIC',
-      },
-    ],
-    status: 'PENDING',
-    metaTemplateId: 'meta_tpl_98421004',
-    preview: 'Hello Rohan Gupta, good news! Your parcel #ORD-88192 is out for delivery...',
-    createdAt: '2026-08-28T18:00:00Z',
-    updatedAt: '2026-08-28T18:00:00Z',
-    submittedAt: '2026-08-28T18:00:00Z',
-  },
-  {
-    id: 'tpl-5',
-    channelId: '1',
-    name: 'flash_discount_rejected_example',
-    category: 'UTILITY',
-    language: 'en_US',
-    contentType: 'TEXT',
-    header: {
-      type: 'TEXT',
-      text: 'SUPER 50% DISCOUNT TODAY!',
-    },
-    body: 'Hey {{1}}, buy now and get a 50% discount on all cloud automation products! Click the link below to purchase immediately.',
-    variables: [
-      { index: 1, name: 'Customer Name', sampleValue: 'Customer', dataSource: 'contact.name' },
-    ],
-    variableMappings: {
-      '1': 'Customer Name',
-    },
-    buttons: [
-      {
-        id: 'btn-rej-1',
-        type: 'URL',
-        text: 'Shop Now',
-        url: 'https://example.com/flash-sale',
-        urlType: 'STATIC',
-      },
-    ],
-    status: 'REJECTED',
-    metaTemplateId: 'meta_tpl_98421005',
-    rejectionReason: 'Category Mismatch: The template contains promotional marketing content, discounts, and calls-to-purchase, but was submitted under UTILITY category.',
-    rejectionDetails: {
-      code: 'CATEGORY_MISMATCH_PROMOTIONAL',
-      reason: 'WhatsApp template policy requires all promotional, marketing, and discount messages to be submitted under the MARKETING category.',
-      recommendation: 'Change category from UTILITY to MARKETING, ensure opt-out footer is provided, and resubmit.',
-      date: '2026-08-26T15:45:00Z',
-    },
-    preview: 'Hey Customer, buy now and get a 50% discount on all cloud automation products...',
-    createdAt: '2026-08-26T15:30:00Z',
-    updatedAt: '2026-08-26T15:45:00Z',
-    submittedAt: '2026-08-26T15:32:00Z',
-  },
-  {
-    id: 'tpl-6',
-    channelId: '1',
-    name: 'automation_carousel_suite',
-    category: 'MARKETING',
-    language: 'en_US',
-    contentType: 'CAROUSEL',
-    header: {
-      type: 'NONE',
-    },
-    body: 'Hi {{1}}, discover our best automation plans designed to accelerate your business growth:',
-    variables: [
-      { index: 1, name: 'Customer Name', sampleValue: 'Amit Shah', dataSource: 'contact.name' },
-    ],
-    variableMappings: {
-      '1': 'Customer Name',
-    },
-    buttons: [],
-    carouselCards: [
-      {
-        id: 'card-1',
-        mediaUrl: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=600&auto=format&fit=crop&q=80',
-        header: 'WhatsApp AI Bot Pro',
-        body: 'Automate 90% of customer chats with custom ChatGPT flows and instant lead booking.',
-        buttons: [
-          { id: 'cbtn-1', type: 'URL', text: 'View Bot Demo', url: 'https://appnix.io/bot-demo', urlType: 'STATIC' },
-          { id: 'cbtn-2', type: 'QUICK_REPLY', text: 'Get Bot', payload: 'BUY_BOT' },
-        ],
-      },
-      {
-        id: 'card-2',
-        mediaUrl: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600&auto=format&fit=crop&q=80',
-        header: 'Omnichannel CRM Suite',
-        body: 'Manage WhatsApp, Instagram, Facebook, and RCS conversations in one unified inbox.',
-        buttons: [
-          { id: 'cbtn-3', type: 'URL', text: 'Explore CRM', url: 'https://appnix.io/crm-suite', urlType: 'STATIC' },
-          { id: 'cbtn-4', type: 'QUICK_REPLY', text: 'Contact Us', payload: 'CONTACT_CRM' },
-        ],
-      },
-    ],
-    footer: 'Appnix Cloud Automation • Scale your sales',
-    status: 'APPROVED',
-    metaTemplateId: 'meta_tpl_98421006',
-    preview: 'Hi Amit Shah, discover our best automation plans designed to accelerate your business growth...',
-    qualityScore: 'GREEN',
-    createdAt: '2026-08-21T11:00:00Z',
-    updatedAt: '2026-08-21T11:15:00Z',
-    submittedAt: '2026-08-21T11:05:00Z',
-    approvedAt: '2026-08-21T11:15:00Z',
-  },
-  {
-    id: 'tpl-7',
-    channelId: '1',
-    name: 'draft_survey_feedback',
-    category: 'UTILITY',
-    language: 'en_US',
-    contentType: 'TEXT',
-    header: {
-      type: 'TEXT',
-      text: 'How was your experience?',
-    },
-    body: 'Hi {{1}}, we hope you enjoyed your recent purchase #{{2}}. Could you take 30 seconds to rate your experience with Appnix?',
-    variables: [
-      { index: 1, name: 'Customer Name', sampleValue: 'Kavita', dataSource: 'contact.name' },
-      { index: 2, name: 'Order ID', sampleValue: 'ORD-44120', dataSource: 'order.id' },
-    ],
-    variableMappings: {
-      '1': 'Customer Name',
-      '2': 'Order ID',
-    },
-    footer: 'Your feedback helps us improve',
-    buttons: [
-      {
-        id: 'btn-draft-1',
-        type: 'URL',
-        text: 'Rate Us (5 Stars ⭐)',
-        url: 'https://appnix.io/feedback/{{2}}',
-        urlType: 'DYNAMIC',
-      },
-    ],
-    status: 'DRAFT',
-    preview: 'Hi Kavita, we hope you enjoyed your recent purchase #ORD-44120...',
-    createdAt: '2026-08-29T00:45:00Z',
-    updatedAt: '2026-08-29T00:45:00Z',
-  },
-];
+export const INITIAL_TEMPLATES: WhatsAppTemplate[] = [];
 
 const STORAGE_KEY = 'appnix_whatsapp_templates';
 
+const LEGACY_DUMMY_IDS = new Set([
+  'tpl-1',
+  'tpl-2',
+  'tpl-3',
+  'tpl-4',
+  'tpl-5',
+  'tpl-6',
+  'tpl-7',
+  'tpl-101',
+  'tpl-102',
+  'tpl-103',
+  'tpl-104',
+  'tpl-105',
+  'tpl-106',
+]);
+
+const LEGACY_DUMMY_NAMES = new Set([
+  'order_confirmation_v2',
+  'festive_season_promo',
+  'festive_diwali_special',
+  'account_verification_otp',
+  'account_login_otp',
+  'shipping_dispatch_express',
+  'shipping_dispatch_alert',
+  'flash_discount_rejected_example',
+  'flash_sale_promo_rejected',
+  'automation_carousel_suite',
+  'draft_survey_feedback',
+  'abandoned_cart_recovery',
+  'abandoned_cart_reminder_draft',
+]);
+
 export function getStoredTemplates(): WhatsAppTemplate[] {
-  if (typeof window === 'undefined') return INITIAL_TEMPLATES;
+  if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_TEMPLATES));
-      return INITIAL_TEMPLATES;
+      return [];
     }
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
+    if (Array.isArray(parsed)) {
+      // Clean out any legacy mock/dummy templates that were previously seeded
+      const filtered = parsed.filter(
+        (t) => t && !LEGACY_DUMMY_IDS.has(t.id) && !LEGACY_DUMMY_NAMES.has(t.name)
+      );
+      if (filtered.length !== parsed.length) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+      }
+      return filtered;
     }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_TEMPLATES));
-    return INITIAL_TEMPLATES;
+    return [];
   } catch (err) {
     console.error('Error loading stored templates:', err);
-    return INITIAL_TEMPLATES;
+    return [];
   }
 }
 

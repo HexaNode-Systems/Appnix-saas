@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { executeSuperAdminLogout } from "@/super-admin/services/superAdminApi";
 import {
   Search,
   Menu,
@@ -31,15 +32,28 @@ import {
   X,
   CheckCircle2,
   AlertTriangle,
-  LifeBuoy,
 } from "lucide-react";
 
 interface SuperAdminHeaderProps {
   onMenuClick: () => void;
+  isSuperAdmin?: boolean;
 }
 
-export function SuperAdminHeader({ onMenuClick }: SuperAdminHeaderProps) {
+export function SuperAdminHeader({ onMenuClick, isSuperAdmin: propIsSuperAdmin }: SuperAdminHeaderProps) {
   const router = useRouter();
+  const pathname = usePathname();
+
+  const isSuperAdminSubdomain =
+    typeof window !== "undefined" &&
+    (window.location.hostname.startsWith("superadmin.") ||
+      window.location.hostname === "superadmin.local" ||
+      window.location.hostname.includes("superadmin"));
+
+  const isSuperAdmin =
+    propIsSuperAdmin !== undefined
+      ? propIsSuperAdmin
+      : pathname.startsWith("/super-admin") || isSuperAdminSubdomain;
+
   const [searchQuery, setSearchQuery] = useState("");
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
@@ -75,6 +89,22 @@ export function SuperAdminHeader({ onMenuClick }: SuperAdminHeaderProps) {
     }
   };
 
+  const handleLogout = async () => {
+    if (confirm(`Sign out from ${isSuperAdmin ? "Super Admin Platform Root" : "Admin Console"}?`)) {
+      if (isSuperAdmin) {
+        await executeSuperAdminLogout();
+      } else {
+        localStorage.removeItem("appnix_admin_token");
+        localStorage.removeItem("appnix_admin_user");
+        localStorage.removeItem("appnix_auth_token");
+        localStorage.removeItem("appnix_user");
+        document.cookie = "appnix_admin_token=; path=/; max-age=0";
+        document.cookie = "appnix_access_token=; path=/; max-age=0";
+        window.location.href = isSuperAdminSubdomain ? "/logout" : "/admin/logout";
+      }
+    }
+  };
+
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-card px-4 sm:px-6 shadow-2xs">
       {/* Left side: Mobile Toggle & Global Search */}
@@ -90,27 +120,16 @@ export function SuperAdminHeader({ onMenuClick }: SuperAdminHeaderProps) {
         <div className="relative w-full">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search clients, tickets, plans, staff, logs..."
+            placeholder={isSuperAdmin ? "Search partners, wholesale plans, clients, domains..." : "Search clients, tickets, plans, staff, logs..."}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 h-9 text-xs bg-muted/30 border-border/70 focus-visible:ring-1 focus-visible:ring-emerald-600"
+            className="pl-9 h-9 text-xs bg-muted/30 border-border/70 focus-visible:ring-1 focus-visible:ring-amber-500"
           />
         </div>
       </div>
 
       {/* Right side: Utilities, Notifications, Admin Profile */}
       <div className="flex items-center gap-2 sm:gap-3">
-        {/* QR Utility Icon */}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => alert("Platform Authenticator QR & Token Console")}
-          className="h-9 w-9 text-muted-foreground hover:text-foreground"
-          title="Security QR"
-        >
-          <QrCode className="h-4.5 w-4.5" />
-        </Button>
-
         {/* Fullscreen Icon */}
         <Button
           variant="ghost"
@@ -131,25 +150,24 @@ export function SuperAdminHeader({ onMenuClick }: SuperAdminHeaderProps) {
               setIsNotificationsOpen(!isNotificationsOpen);
             }}
             className="h-9 w-9 relative text-muted-foreground hover:text-foreground"
-            title="Super Admin Alerts"
+            title="Platform Alerts"
           >
             <Bell className="h-4.5 w-4.5" />
-            <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-rose-600 ring-2 ring-card animate-pulse" />
+            <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-amber-500 ring-2 ring-card animate-pulse" />
           </Button>
 
           {isNotificationsOpen && (
             <div className="absolute right-0 mt-2 w-80 rounded-xl border bg-card p-3 shadow-xl z-50 animate-in space-y-2">
               <div className="flex items-center justify-between border-b pb-2 px-1">
                 <span className="font-bold text-xs text-foreground">Platform Alerts</span>
-                <Badge className="bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 text-[10px]">
-                  3 New
+                <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 text-[10px]">
+                  Real-Time
                 </Badge>
               </div>
 
-              {/* 45-Day Retention Notice */}
               <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-2 text-[10px] text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5 text-amber-600 shrink-0" />
-                <span>Alerts are automatically removed after <strong>45 days</strong>.</span>
+                <span>Security logs are retained immutably in <strong>audit_logs</strong>.</span>
               </div>
 
               <div className="space-y-1.5 max-h-64 overflow-y-auto">
@@ -167,11 +185,19 @@ export function SuperAdminHeader({ onMenuClick }: SuperAdminHeaderProps) {
 
               <div className="border-t pt-2 text-center">
                 <Link
-                  href="/super-admin/audit-logs"
+                  href={
+                    isSuperAdmin
+                      ? isSuperAdminSubdomain && !pathname.startsWith("/super-admin")
+                        ? "/audit-logs"
+                        : "/super-admin/audit-logs"
+                      : !pathname.startsWith("/admin") && typeof window !== "undefined" && window.location.hostname.startsWith("admin.")
+                      ? "/audit-logs"
+                      : "/admin/audit-logs"
+                  }
                   onClick={() => setIsNotificationsOpen(false)}
-                  className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold hover:underline"
+                  className="text-xs text-amber-600 dark:text-amber-400 font-semibold hover:underline"
                 >
-                  View All Audit Alerts →
+                  View Full Audit Logs →
                 </Link>
               </div>
             </div>
@@ -181,17 +207,23 @@ export function SuperAdminHeader({ onMenuClick }: SuperAdminHeaderProps) {
         {/* Admin Profile & Avatar Menu */}
         <div className="border-l pl-2 sm:pl-3">
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-2 p-1 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer group outline-none focus-visible:ring-1 focus-visible:ring-emerald-600 data-[state=open]:bg-muted/80">
+            <DropdownMenuTrigger className="flex items-center gap-2 p-1 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer group outline-none focus-visible:ring-1 focus-visible:ring-amber-500 data-[state=open]:bg-muted/80">
               <div className="hidden text-right sm:block">
-                <p className="text-xs font-bold leading-tight text-foreground group-hover:text-emerald-600 transition-colors">
-                  Sarah Jenkins
+                <p className="text-xs font-bold leading-tight text-foreground group-hover:text-amber-600 transition-colors">
+                  {isSuperAdmin ? "Root Administrator" : "Admin Console"}
                 </p>
-                <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-                  Super Admin
+                <p className={cn(
+                  "text-[10px] font-semibold uppercase tracking-wider",
+                  isSuperAdmin ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"
+                )}>
+                  {isSuperAdmin ? "Tier-0 Hardware Clearance" : "Reseller Admin"}
                 </p>
               </div>
-              <div className="h-8 w-8 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs ring-2 ring-emerald-600/30">
-                SJ
+              <div className={cn(
+                "h-8 w-8 rounded-full text-white flex items-center justify-center font-bold text-xs ring-2",
+                isSuperAdmin ? "bg-amber-600 ring-amber-600/30" : "bg-indigo-600 ring-indigo-600/30"
+              )}>
+                {isSuperAdmin ? "SA" : "AD"}
               </div>
               <ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
             </DropdownMenuTrigger>
@@ -200,12 +232,19 @@ export function SuperAdminHeader({ onMenuClick }: SuperAdminHeaderProps) {
               <DropdownMenuLabel className="font-normal px-2 py-2">
                 <div className="flex flex-col space-y-1">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-bold text-foreground">Sarah Jenkins</p>
-                    <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 text-[10px] font-semibold">
-                      Root Admin
+                    <p className="text-xs font-bold text-foreground">
+                      {isSuperAdmin ? "Super Admin Root" : "Workspace Admin"}
+                    </p>
+                    <Badge className={cn(
+                      "text-[10px] font-semibold",
+                      isSuperAdmin ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300" : "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300"
+                    )}>
+                      {isSuperAdmin ? "PLATFORM ROOT" : "Admin Portal"}
                     </Badge>
                   </div>
-                  <p className="text-[11px] text-muted-foreground">sarah.admin@appnix.io</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {isSuperAdmin ? "superadmin@appnix.co.in" : "admin@platform.com"}
+                  </p>
                 </div>
               </DropdownMenuLabel>
 
@@ -213,26 +252,21 @@ export function SuperAdminHeader({ onMenuClick }: SuperAdminHeaderProps) {
 
               <DropdownMenuItem asChild>
                 <Link
-                  href="/super-admin/settings"
+                  href={
+                    isSuperAdmin
+                      ? isSuperAdminSubdomain && !pathname.startsWith("/super-admin")
+                        ? "/dashboard"
+                        : "/super-admin/dashboard"
+                      : !pathname.startsWith("/admin") && typeof window !== "undefined" && window.location.hostname.startsWith("admin.")
+                      ? "/settings"
+                      : "/admin/settings"
+                  }
                   className="flex items-center gap-2.5 px-2.5 py-2 cursor-pointer rounded-md text-xs text-foreground hover:bg-accent focus:bg-accent transition-colors"
                 >
-                  <Settings className="h-4 w-4 text-muted-foreground" />
+                  <Shield className="h-4 w-4 text-muted-foreground" />
                   <div className="flex flex-col">
-                    <span className="font-medium">Profile & Settings</span>
-                    <span className="text-[10px] text-muted-foreground">Admin console preferences</span>
-                  </div>
-                </Link>
-              </DropdownMenuItem>
-
-              <DropdownMenuItem asChild>
-                <Link
-                  href="/super-admin/team"
-                  className="flex items-center gap-2.5 px-2.5 py-2 cursor-pointer rounded-md text-xs text-foreground hover:bg-accent focus:bg-accent transition-colors"
-                >
-                  <Users className="h-4 w-4 text-muted-foreground" />
-                  <div className="flex flex-col">
-                    <span className="font-medium">Manage Members</span>
-                    <span className="text-[10px] text-muted-foreground">Staff access & permissions</span>
+                    <span className="font-medium">{isSuperAdmin ? "Platform Overview" : "Profile & Settings"}</span>
+                    <span className="text-[10px] text-muted-foreground">System console control</span>
                   </div>
                 </Link>
               </DropdownMenuItem>
@@ -240,11 +274,7 @@ export function SuperAdminHeader({ onMenuClick }: SuperAdminHeaderProps) {
               <DropdownMenuSeparator />
 
               <DropdownMenuItem
-                onClick={() => {
-                  if (confirm("Sign out from Super Admin Console?")) {
-                    router.push("/signin");
-                  }
-                }}
+                onClick={handleLogout}
                 className="flex items-center gap-2.5 px-2.5 py-2 cursor-pointer rounded-md text-xs text-rose-600 focus:text-rose-600 focus:bg-rose-50 dark:focus:bg-rose-950/40 transition-colors"
               >
                 <LogOut className="h-4 w-4 text-rose-600" />

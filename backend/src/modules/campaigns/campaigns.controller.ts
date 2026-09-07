@@ -99,6 +99,12 @@ export class CampaignsController {
     return this.campaignsService.refreshTemplates(req.user.tenantId, channel);
   }
 
+  @Get('stats')
+  @ApiOperation({ summary: 'Get campaign aggregate metrics and statistics' })
+  async getStats(@Request() req: any) {
+    return this.campaignsService.getStats(req.user.tenantId);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get campaign by ID' })
   @ApiResponse({ status: 200, type: CampaignResponseDto })

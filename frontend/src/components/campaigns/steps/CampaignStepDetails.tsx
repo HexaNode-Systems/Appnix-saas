@@ -176,10 +176,10 @@ export function CampaignStepDetails({
               type="button"
               variant="outline"
               onClick={onPrev}
-              className="text-xs h-10 px-4 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+              className="text-xs h-10 px-4 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg gap-1.5"
             >
-              <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />
-              <span>Save & Exit</span>
+              <ArrowLeft className="h-3.5 w-3.5" />
+              <span>Back to Channel</span>
             </Button>
           ) : (
             <div />

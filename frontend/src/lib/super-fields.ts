@@ -149,6 +149,16 @@ export const DATA_TYPE_METADATA: Record<SuperFieldDataType, DataTypeConfig> = {
     supportsOptions: false,
     supportsMinMax: false,
   },
+  BOOLEAN: {
+    type: 'BOOLEAN',
+    label: 'Checkbox / Boolean',
+    category: 'Choice & Enums',
+    description: 'Yes/No binary checkbox or status verification flag',
+    badgeStyle: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300',
+    example: 'Yes / No (True / False)',
+    supportsOptions: false,
+    supportsMinMax: false,
+  },
   PERIODIC_TIME: {
     type: 'PERIODIC_TIME',
     label: 'Periodic Time / Duration',
@@ -161,239 +171,7 @@ export const DATA_TYPE_METADATA: Record<SuperFieldDataType, DataTypeConfig> = {
   },
 };
 
-export const INITIAL_SUPER_FIELDS: SuperField[] = [
-  {
-    id: 'sf-city',
-    key: 'city',
-    label: 'City',
-    description: 'Primary customer resident location for regional broadcasts and logistics delivery.',
-    dataType: 'DROPDOWN',
-    options: [
-      { id: 'opt-1', label: 'Delhi NCR', value: 'Delhi NCR', color: '#2563EB', isDefault: true },
-      { id: 'opt-2', label: 'Mumbai', value: 'Mumbai', color: '#059669' },
-      { id: 'opt-3', label: 'Bengaluru', value: 'Bengaluru', color: '#7C3AED' },
-      { id: 'opt-4', label: 'Hyderabad', value: 'Hyderabad', color: '#D97706' },
-      { id: 'opt-5', label: 'Dubai', value: 'Dubai', color: '#E11D48' },
-      { id: 'opt-6', label: 'Singapore', value: 'Singapore', color: '#0891B2' },
-      { id: 'opt-7', label: 'New York', value: 'New York', color: '#4F46E5' },
-    ],
-    defaultValue: 'Delhi NCR',
-    helperText: 'Select the metropolitan jurisdiction for this account.',
-    placeholder: 'Select a city...',
-    validation: {
-      isRequired: true,
-    },
-    placement: {
-      contactProfile: true,
-      chatInboxLabel: true,
-      chatInboxSidebar: true,
-    },
-    status: 'ACTIVE',
-    usageCount: 4280,
-    createdAt: '2026-08-15T10:00:00Z',
-    updatedAt: '2026-08-28T14:30:00Z',
-  },
-  {
-    id: 'sf-customer-tier',
-    key: 'customer_tier',
-    label: 'Customer Tier',
-    description: 'VIP tier ranking that prioritizes support ticket routing and SLA windows.',
-    dataType: 'DROPDOWN',
-    options: [
-      { id: 'tier-1', label: 'Enterprise VIP', value: 'Enterprise VIP', color: '#7C3AED', isDefault: false },
-      { id: 'tier-2', label: 'Platinum Partner', value: 'Platinum Partner', color: '#2563EB', isDefault: false },
-      { id: 'tier-3', label: 'Gold Pro', value: 'Gold Pro', color: '#D97706', isDefault: true },
-      { id: 'tier-4', label: 'Standard Free', value: 'Standard Free', color: '#64748B', isDefault: false },
-    ],
-    defaultValue: 'Gold Pro',
-    helperText: 'Assigned automatically via billing spend or manager override.',
-    placeholder: 'Select VIP tier...',
-    validation: {
-      isRequired: true,
-    },
-    placement: {
-      contactProfile: true,
-      chatInboxLabel: true,
-      chatInboxSidebar: true,
-    },
-    status: 'ACTIVE',
-    usageCount: 5120,
-    createdAt: '2026-08-10T12:00:00Z',
-    updatedAt: '2026-08-29T09:15:00Z',
-  },
-  {
-    id: 'sf-annual-budget',
-    key: 'annual_budget',
-    label: 'Annual Budget',
-    description: 'Declared fiscal spending allocation for omnichannel campaigns.',
-    dataType: 'AMOUNT',
-    defaultValue: 500000,
-    currencySymbol: '₹',
-    helperText: 'Enter amount in INR or USD.',
-    placeholder: 'e.g. ₹5,00,000',
-    validation: {
-      isRequired: false,
-      minValue: 10000,
-      maxValue: 100000000,
-    },
-    placement: {
-      contactProfile: true,
-      chatInboxLabel: false,
-      chatInboxSidebar: true,
-    },
-    status: 'ACTIVE',
-    usageCount: 1840,
-    createdAt: '2026-08-12T15:30:00Z',
-    updatedAt: '2026-08-27T11:45:00Z',
-  },
-  {
-    id: 'sf-gender',
-    key: 'gender',
-    label: 'Gender',
-    description: 'Demographic attribute for personalized greeting syntax and custom promotions.',
-    dataType: 'DROPDOWN',
-    options: [
-      { id: 'g-1', label: 'Female', value: 'Female', color: '#E11D48' },
-      { id: 'g-2', label: 'Male', value: 'Male', color: '#2563EB' },
-      { id: 'g-3', label: 'Non-Binary', value: 'Non-Binary', color: '#7C3AED' },
-      { id: 'g-4', label: 'Prefer not to say', value: 'Prefer not to say', color: '#64748B' },
-    ],
-    helperText: 'Used to calibrate automated AI greeting pronoun preferences.',
-    placeholder: 'Select gender...',
-    validation: {
-      isRequired: false,
-    },
-    placement: {
-      contactProfile: true,
-      chatInboxLabel: false,
-      chatInboxSidebar: false,
-    },
-    status: 'ACTIVE',
-    usageCount: 3890,
-    createdAt: '2026-08-01T09:00:00Z',
-    updatedAt: '2026-08-20T16:00:00Z',
-  },
-  {
-    id: 'sf-industry-tags',
-    key: 'industry_tags',
-    label: 'Industry Tags',
-    description: 'Multi-tag taxonomy classifying the lead corporate domain.',
-    dataType: 'MULTI_SELECT',
-    options: [
-      { id: 'ind-1', label: 'SaaS & Cloud', value: 'SaaS & Cloud', color: '#2563EB' },
-      { id: 'ind-2', label: 'E-Commerce / D2C', value: 'E-Commerce / D2C', color: '#059669' },
-      { id: 'ind-3', label: 'FinTech & Banking', value: 'FinTech & Banking', color: '#D97706' },
-      { id: 'ind-4', label: 'Healthcare & Pharma', value: 'Healthcare & Pharma', color: '#E11D48' },
-      { id: 'ind-5', label: 'Logistics & Supply', value: 'Logistics & Supply', color: '#0891B2' },
-      { id: 'ind-6', label: 'EdTech', value: 'EdTech', color: '#7C3AED' },
-    ],
-    helperText: 'Select all industries that apply to this business account.',
-    placeholder: 'Select tags...',
-    validation: {
-      isRequired: false,
-    },
-    placement: {
-      contactProfile: true,
-      chatInboxLabel: true,
-      chatInboxSidebar: true,
-    },
-    status: 'ACTIVE',
-    usageCount: 2950,
-    createdAt: '2026-08-05T14:20:00Z',
-    updatedAt: '2026-08-28T18:00:00Z',
-  },
-  {
-    id: 'sf-onboarding-date',
-    key: 'onboarding_date',
-    label: 'Onboarding Date',
-    description: 'Timestamp when the client completed account setup and verification.',
-    dataType: 'DATE',
-    helperText: 'Calendar date of verified account go-live.',
-    placeholder: 'Select onboarding date...',
-    validation: {
-      isRequired: true,
-    },
-    placement: {
-      contactProfile: true,
-      chatInboxLabel: false,
-      chatInboxSidebar: true,
-    },
-    status: 'ACTIVE',
-    usageCount: 4120,
-    createdAt: '2026-08-08T11:10:00Z',
-    updatedAt: '2026-08-25T13:40:00Z',
-  },
-  {
-    id: 'sf-billing-email',
-    key: 'billing_email',
-    label: 'Finance / Invoicing Email',
-    description: 'Dedicated email address for tax invoices and payment receipt copies.',
-    dataType: 'EMAIL',
-    helperText: 'Invoices will be automatically copied to this email address.',
-    placeholder: 'accounts@company.com',
-    validation: {
-      isRequired: false,
-    },
-    placement: {
-      contactProfile: true,
-      chatInboxLabel: false,
-      chatInboxSidebar: true,
-    },
-    status: 'ACTIVE',
-    usageCount: 2210,
-    createdAt: '2026-08-02T10:30:00Z',
-    updatedAt: '2026-08-22T08:15:00Z',
-  },
-  {
-    id: 'sf-account-notes',
-    key: 'account_notes',
-    label: 'Account Manager Notes',
-    description: 'Freeform internal agent commentary and historical account context.',
-    dataType: 'TEXTAREA',
-    helperText: 'Internal notes visible only to logged-in team members.',
-    placeholder: 'Add key account context...',
-    validation: {
-      isRequired: false,
-    },
-    placement: {
-      contactProfile: true,
-      chatInboxLabel: false,
-      chatInboxSidebar: true,
-    },
-    status: 'ACTIVE',
-    usageCount: 1740,
-    createdAt: '2026-08-03T14:15:00Z',
-    updatedAt: '2026-08-24T16:20:00Z',
-  },
-  {
-    id: 'sf-kyc-status',
-    key: 'kyc_verification_status',
-    label: 'KYC Verification Status',
-    description: 'Telecom DLT & Government ID document verification checkpoint.',
-    dataType: 'DROPDOWN',
-    options: [
-      { id: 'kyc-1', label: 'Verified & Approved', value: 'Verified & Approved', color: '#059669', isDefault: false },
-      { id: 'kyc-2', label: 'Under Review', value: 'Under Review', color: '#D97706', isDefault: true },
-      { id: 'kyc-3', label: 'Documents Pending', value: 'Documents Pending', color: '#64748B', isDefault: false },
-      { id: 'kyc-4', label: 'Rejected / Resubmit', value: 'Rejected / Resubmit', color: '#E11D48', isDefault: false },
-    ],
-    defaultValue: 'Under Review',
-    helperText: 'Reflects the verified enterprise telecom KYC status.',
-    placeholder: 'Select verification status...',
-    validation: {
-      isRequired: true,
-    },
-    placement: {
-      contactProfile: true,
-      chatInboxLabel: true,
-      chatInboxSidebar: true,
-    },
-    status: 'ACTIVE',
-    usageCount: 4890,
-    createdAt: '2026-08-04T16:00:00Z',
-    updatedAt: '2026-08-30T11:00:00Z',
-  },
-];
+export const INITIAL_SUPER_FIELDS: SuperField[] = [];
 
 const STORAGE_KEY = 'appnix_super_fields_v2';
 
@@ -407,30 +185,11 @@ export function generateFieldKey(label: string): string {
 }
 
 export function getStoredSuperFields(): SuperField[] {
-  if (typeof window === 'undefined') return INITIAL_SUPER_FIELDS;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_SUPER_FIELDS));
-      return INITIAL_SUPER_FIELDS;
-    }
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    return INITIAL_SUPER_FIELDS;
-  } catch (e) {
-    console.error('Failed to parse super fields from localStorage:', e);
-    return INITIAL_SUPER_FIELDS;
-  }
+  return [];
 }
 
-export function saveStoredSuperFields(fields: SuperField[]): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(fields));
-    window.dispatchEvent(new Event('super-fields-updated'));
-  } catch (e) {
-    console.error('Failed to save super fields to localStorage:', e);
-  }
+export function saveStoredSuperFields(_fields: SuperField[]): void {
+  // Deprecated in favor of real backend API
 }
 
 export function validateSuperField(

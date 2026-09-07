@@ -325,7 +325,48 @@ export default function CampaignsPage() {
               {isLoading ? (
                 <tr><td colSpan={8} className="p-8 text-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" /></td></tr>
               ) : filteredCampaigns.length === 0 ? (
-                <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">No campaigns found matching your criteria.</td></tr>
+                <tr>
+                  <td colSpan={8} className="p-12 text-center text-muted-foreground">
+                    <div className="flex flex-col items-center justify-center space-y-3 max-w-sm mx-auto">
+                      <div className="h-12 w-12 rounded-2xl bg-muted flex items-center justify-center text-muted-foreground/60">
+                        <Megaphone className="h-6 w-6" />
+                      </div>
+                      <h4 className="text-sm font-semibold text-foreground">
+                        {searchQuery || statusFilter !== "all" || channelFilter !== "all"
+                          ? "No matching campaigns"
+                          : "No campaigns created yet"}
+                      </h4>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {searchQuery || statusFilter !== "all" || channelFilter !== "all"
+                          ? "Try changing your search term or clearing active filters."
+                          : "Launch targeted marketing broadcasts across WhatsApp, Instagram, RCS, and Facebook."}
+                      </p>
+                      <div className="pt-1">
+                        {searchQuery || statusFilter !== "all" || channelFilter !== "all" ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setStatusFilter("all");
+                              setChannelFilter("all");
+                              setSearchQuery("");
+                            }}
+                            className="text-xs"
+                          >
+                            Reset Filters
+                          </Button>
+                        ) : (
+                          <Button asChild size="sm" className="text-xs gap-1.5 bg-primary">
+                            <Link href="/crm/campaigns/create">
+                              <Plus className="h-3.5 w-3.5" />
+                              Create Campaign
+                            </Link>
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+                </tr>
               ) : (
                 filteredCampaigns.map((camp) => {
                   const ch = channelConfig[camp.channel];

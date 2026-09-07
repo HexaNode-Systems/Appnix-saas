@@ -7,6 +7,7 @@ export interface Contact {
   email?: string;
   marketingBudget: string;
   marketingGoal: string;
+  superFieldValues?: Record<string, any>;
 }
 
 export type DuplicateStrategy = "SKIP" | "UPDATE" | "NEW";

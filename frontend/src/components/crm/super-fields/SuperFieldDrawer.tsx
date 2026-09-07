@@ -788,6 +788,15 @@ export function SuperFieldDrawer({
                   </span>
                   <Input placeholder={placeholder || "50,000"} className="pl-7 h-8 text-xs font-mono" />
                 </div>
+              ) : dataType === "BOOLEAN" ? (
+                <div className="flex items-center gap-2 pt-1">
+                  <Switch checked={false} />
+                  <span className="text-xs text-muted-foreground">{placeholder || "Toggle status / verify checkbox"}</span>
+                </div>
+              ) : dataType === "DATE" ? (
+                <Input type="date" className="h-8 text-xs font-mono" />
+              ) : dataType === "DATETIME" ? (
+                <Input type="datetime-local" className="h-8 text-xs font-mono" />
               ) : (
                 <Input placeholder={placeholder || currentTypeMeta.example} className="h-8 text-xs font-mono" />
               )}

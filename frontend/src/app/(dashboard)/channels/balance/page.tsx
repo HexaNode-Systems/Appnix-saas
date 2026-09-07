@@ -341,8 +341,7 @@ export default function ChannelsBalancePage() {
           >
             All Channels
           </Link>
-          <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
-          <span className="text-primary font-semibold">Total Balance & Wallet</span>
+
         </div>
 
         {/* Title Bar & Main Actions */}

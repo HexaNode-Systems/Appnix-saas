@@ -1,5 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  PartnerWelcomeEmailData,
+  renderPartnerWelcomeEmail,
+} from './templates/partner-welcome.template';
+
+export { PartnerWelcomeEmailData };
 
 export interface SendEmailOptions {
   to: { email: string; name?: string }[];
@@ -197,4 +203,34 @@ export class MailService {
       htmlContent,
     });
   }
+
+  /**
+   * Sends a white-label partner welcome email containing admin credentials
+   */
+  async sendPartnerWelcomeEmail(
+    data: PartnerWelcomeEmailData,
+  ): Promise<{ messageId?: string; success: boolean }> {
+    const { subject, htmlContent, textContent } = renderPartnerWelcomeEmail(data);
+
+    this.logger.log(
+      `📧 Dispatching White-Label Partner welcome email to ${data.adminEmail} for brand "${data.brandName}"...`,
+    );
+
+    try {
+      return await this.sendMail({
+        to: [{ email: data.adminEmail, name: data.adminName }],
+        subject,
+        htmlContent,
+        textContent,
+      });
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to send partner welcome email to ${data.adminEmail}: ${error.message}`,
+        error.stack,
+      );
+      // Re-throw so caller knows if delivery failed or can handle appropriately
+      throw error;
+    }
+  }
 }
+

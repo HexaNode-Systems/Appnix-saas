@@ -21,6 +21,9 @@ export class JwtAccessStrategy extends PassportStrategy(Strategy, 'jwt-access') 
       email: payload.email,
       tenantId: payload.tenantId,
       role: payload.role,
+      orgPath: payload.orgPath || 'root',
+      tier: payload.tier || 'END_CLIENT',
+      permissions: payload.permissions || ['*'],
     };
   }
 }

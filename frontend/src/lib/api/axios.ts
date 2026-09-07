@@ -154,6 +154,9 @@ export const apiEndpoints = {
     test: (id: string) => `/bots/${id}/test`,
     publish: (id: string) => `/bots/${id}/publish`,
     duplicate: (id: string) => `/bots/${id}/duplicate`,
+    folders: "/bots/folders",
+    createFolder: "/bots/folders",
+    deleteFolder: (id: string) => `/bots/folders/${id}`,
   },
   automations: {
     list: "/automations",

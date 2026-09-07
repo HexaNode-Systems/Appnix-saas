@@ -12,6 +12,9 @@ async function bootstrap() {
   const allowedOrigins = [
     'https://www.appnix.co.in',
     'https://appnix.co.in',
+    'https://app.appnix.co.in',
+    'https://admin.appnix.co.in',
+    'https://superadmin.appnix.co.in',
     'http://localhost:3000',
     'http://localhost:3001',
     process.env.FRONTEND_URL,
@@ -19,7 +22,8 @@ async function bootstrap() {
 
   app.enableCors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+      const isAllowedSubdomain = Boolean(origin && /^https:\/\/([a-zA-Z0-9-]+\.)?appnix\.co\.in$/.test(origin));
+      if (!origin || allowedOrigins.includes(origin) || isAllowedSubdomain || process.env.NODE_ENV !== 'production') {
         callback(null, true);
       } else {
         callback(new Error(`Origin ${origin} not allowed by CORS policy`));

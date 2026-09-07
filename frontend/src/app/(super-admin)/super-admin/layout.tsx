@@ -1,14 +1,16 @@
-import { SuperAdminLayout } from "@/super-admin/layouts/SuperAdminLayout";
-
 export const metadata = {
-  title: "Super Admin Console — Appnix",
-  description: "Appnix Platform Super Admin Management Console",
+  title: "Super Admin Platform Root — Appnix",
+  description: "Platform Root Infrastructure & Super Administrator Control Panel",
 };
 
-export default function RootSuperAdminLayout({
+export default function SuperAdminRootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return <SuperAdminLayout>{children}</SuperAdminLayout>;
+  return (
+    <div className="min-h-screen bg-background text-foreground antialiased">
+      {children}
+    </div>
+  );
 }

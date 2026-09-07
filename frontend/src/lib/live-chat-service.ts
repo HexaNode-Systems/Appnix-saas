@@ -24,7 +24,7 @@ export async function fetchConversationsFromApi(params?: { channel?: string; sea
     return [];
   } catch (err) {
     console.error('Failed to fetch conversations from API:', err);
-    return getStoredConversations();
+    return [];
   }
 }
 
@@ -372,6 +372,13 @@ export function updateSuperFieldValue(
   const currentList = getStoredConversations();
   const updated = currentList.map((c) => {
     if (c.id === conversationId) {
+      if (c.contactId) {
+        api.patch(`/contacts/${c.contactId}`, {
+          superFieldValues: { [fieldKey]: val },
+        }).catch((err) => {
+          console.error("Failed to sync super field update to CRM contact:", err);
+        });
+      }
       return {
         ...c,
         superFields: {

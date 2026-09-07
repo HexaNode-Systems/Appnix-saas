@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { UsersModule } from '../users/users.module';
@@ -13,7 +13,12 @@ import { RecaptchaService } from './recaptcha.service';
 import { RecaptchaGuard } from './guards/recaptcha.guard';
 import { SessionContextResolver } from '../../lib/auth/session-context';
 import { SuperAdminGuard } from './guards/super-admin.guard';
+import { JwtAccessGuard } from './guards/jwt-access.guard';
+import { JwtRefreshGuard } from './guards/jwt-refresh.guard';
 
+import { TenantContextStore } from '../../lib/auth/tenant-context.store';
+
+@Global()
 @Module({
   imports: [PassportModule, JwtModule.register({}), UsersModule, MailModule],
   controllers: [AuthController],
@@ -26,7 +31,10 @@ import { SuperAdminGuard } from './guards/super-admin.guard';
     RecaptchaService,
     RecaptchaGuard,
     SessionContextResolver,
+    TenantContextStore,
     SuperAdminGuard,
+    JwtAccessGuard,
+    JwtRefreshGuard,
   ],
   // SuperAdminModule signs short-lived support contexts with the same configured
   // JWT provider, so re-export the module rather than creating a second signer.
@@ -36,7 +44,10 @@ import { SuperAdminGuard } from './guards/super-admin.guard';
     RecaptchaService,
     RecaptchaGuard,
     SessionContextResolver,
+    TenantContextStore,
     SuperAdminGuard,
+    JwtAccessGuard,
+    JwtRefreshGuard,
   ],
 })
 export class AuthModule {}

@@ -1,6 +1,7 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { TenantContextMiddleware } from './common/middleware/tenant-context.middleware';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
@@ -20,6 +21,7 @@ import { ContactTagsModule } from './modules/contact-tags/contact-tags.module';
 import { DepartmentModule } from './modules/department/department.module';
 import { WorkspaceModule } from './modules/workspace/workspace.module';
 import { ChannelsModule } from './modules/channels/channels.module';
+import { InstagramModule } from './modules/instagram/instagram.module';
 import { BotsModule } from './modules/bots/bots.module';
 import { TeamModule } from './modules/team/team.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
@@ -58,6 +60,7 @@ import { PrismaModule } from './prisma/prisma.module';
     DepartmentModule,
     WorkspaceModule,
     ChannelsModule,
+    InstagramModule,
     BotsModule,
     TeamModule,
     AnalyticsModule,
@@ -69,4 +72,8 @@ import { PrismaModule } from './prisma/prisma.module';
   ],
   providers: [{ provide: APP_INTERCEPTOR, useClass: SupportAuditInterceptor }],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(TenantContextMiddleware).forRoutes('*');
+  }
+}

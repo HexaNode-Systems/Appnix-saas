@@ -82,6 +82,30 @@ export class CrmContactsController {
     };
   }
 
+  @Get('segments')
+  @ApiOperation({ summary: 'Get CRM audience segments for current tenant' })
+  getSegments(@CurrentUser() user: AuthUser) {
+    const tenantId = user?.tenantId || 'tenant_default';
+    return this.crmContactsService.getSegments(tenantId);
+  }
+
+  @Post('segments')
+  @ApiOperation({ summary: 'Create a new CRM audience segment' })
+  createSegment(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: { name: string; description?: string; tag?: string; superFieldKey?: string; superFieldValue?: string; contactIds?: string[] },
+  ) {
+    const tenantId = user?.tenantId || 'tenant_default';
+    return this.crmContactsService.createSegment(tenantId, dto);
+  }
+
+  @Delete('segments/:id')
+  @ApiOperation({ summary: 'Delete a CRM audience segment' })
+  deleteSegment(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const tenantId = user?.tenantId || 'tenant_default';
+    return this.crmContactsService.deleteSegment(tenantId, id);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get single contact details' })
   findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {

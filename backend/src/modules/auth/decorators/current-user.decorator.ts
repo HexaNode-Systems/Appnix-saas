@@ -9,6 +9,9 @@ export interface AuthUser {
   role: Role;
   workspaceId?: string;
   impersonatedWorkspaceId?: string;
+  orgPath?: string;
+  tier?: string;
+  permissions?: string[];
 }
 
 export const CurrentUser = createParamDecorator(

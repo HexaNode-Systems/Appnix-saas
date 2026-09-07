@@ -12,18 +12,35 @@ model Tenant {
   name               String
   slug               String               @unique
   status             TenantStatus         @default(ACTIVE)
+  tier               TenantTier           @default(END_CLIENT)
+  path               String               @default("root")
+  depth              Int                  @default(0)
+  parentId           String?
+  parent             Tenant?              @relation("TenantHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children           Tenant[]             @relation("TenantHierarchy")
+  customDomain       String?              @unique
+  primaryColor       String?              @default("#0f172a")
+  logoUrl            String?
+  faviconUrl         String?
+  maxSubResellers    Int                  @default(0)
+  maxEndClients      Int                  @default(10)
+  maxUsers           Int                  @default(25)
   apiKey             String?              @unique
   webhookUrl         String?
   twoFactorEnabled   Boolean              @default(false)
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   
+  domainMappings     DomainMapping[]
   crmContacts        CrmContact[]
   subscriptions      Subscription[]
   users              User[]
   campaigns          Campaign[]
   campaignAudiences  CampaignAudience[]
   channelConfigs     ChannelConfig[]
+  instagramChannels        InstagramChannel[]
+  instagramAutomationRules InstagramAutomationRule[]
+  instagramAutomationLogs  InstagramAutomationLog[]
   metaTemplates      MetaTemplate[]
   rcsTemplates       RcsTemplate[]
   appCredentials     AppCredential[]
@@ -45,8 +62,31 @@ model Tenant {
   bots               Bot[]
   webhookEvents      WebhookEvent[]
   media              Media[]
+  partnerConfig      PartnerConfig?
 
+  @@index([path])
+  @@index([parentId])
+  @@index([tier, status])
   @@map("tenants")
+}
+
+model DomainMapping {
+  id                String    @id @default(uuid())
+  tenantId          String
+  domain            String    @unique
+  isVerified        Boolean   @default(false)
+  sslProvisioned    Boolean   @default(false)
+  dnsRecordType     String?   @default("CNAME")
+  dnsExpectedValue  String?   @default("cname.appnix.co.in")
+  verificationToken String?
+  sslStatus         String?   @default("PENDING")
+  lastCheckedAt     DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("domain_mappings")
 }
 
 // Append-only support and platform-administration audit trail. It intentionally
@@ -57,6 +97,9 @@ model AuditLog {
   targetWorkspaceId String
   action            String
   endpoint          String
+  actorEmail        String?
+  ipAddress         String?
+  details           Json?
   createdAt         DateTime @default(now())
 
   @@index([superAdminId, createdAt])
@@ -403,6 +446,95 @@ model ChannelConfig {
   @@unique([tenantId, channel])
   @@index([tenantId])
   @@map("channel_configs")
+}
+
+enum InstagramChannelStatus {
+  ACTIVE
+  EXPIRED
+  DISCONNECTED
+}
+
+enum InstagramPostScope {
+  ALL_POSTS
+  SPECIFIC_POST
+}
+
+enum InstagramAutomationStatus {
+  SUCCESS
+  FAILED
+}
+
+model InstagramChannel {
+  id                  String                 @id @default(uuid())
+  tenantId            String
+  workspaceId         String?
+  instagramBusinessId String                 @unique
+  pageId              String
+  username            String
+  name                String?
+  profilePictureUrl   String?
+  accessToken         String                 // Encrypted long-lived token (AES-256-GCM)
+  tokenExpiresAt      DateTime?
+  status              InstagramChannelStatus @default(ACTIVE)
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  tenant              Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rules               InstagramAutomationRule[]
+  logs                InstagramAutomationLog[]
+
+  @@index([tenantId])
+  @@index([instagramBusinessId])
+  @@map("instagram_channels")
+}
+
+model InstagramAutomationRule {
+  id                  String              @id @default(uuid())
+  tenantId            String
+  channelId           String
+  name                String
+  isActive            Boolean             @default(true)
+  postScope           InstagramPostScope  @default(ALL_POSTS)
+  specificMediaId     String?
+  triggerKeywords     String[]            @default([])
+  publicReplyTemplate String?
+  privateDmTemplate   String
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  tenant              Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  channel             InstagramChannel    @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  logs                InstagramAutomationLog[]
+
+  @@index([channelId])
+  @@index([tenantId])
+  @@map("instagram_automation_rules")
+}
+
+model InstagramAutomationLog {
+  id                String                    @id @default(uuid())
+  tenantId          String
+  channelId         String
+  ruleId            String?
+  commentId         String
+  commentText       String?
+  mediaId           String?
+  senderInstagramId String
+  senderUsername    String?
+  publicReplySent   Boolean                   @default(false)
+  privateDmSent     Boolean                   @default(false)
+  status            InstagramAutomationStatus @default(SUCCESS)
+  error             String?
+  createdAt         DateTime                  @default(now())
+
+  tenant            Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  channel           InstagramChannel          @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  rule              InstagramAutomationRule?  @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@index([channelId])
+  @@index([ruleId])
+  @@index([tenantId])
+  @@map("instagram_automation_logs")
 }
 
 model MetaTemplate {
@@ -795,8 +927,16 @@ enum TemplateStatus {
 
 enum Role {
   SUPER_ADMIN
+  RESELLER_ADMIN
   TENANT_ADMIN
   MEMBER
+}
+
+enum TenantTier {
+  PLATFORM_ROOT
+  PRIMARY_RESELLER
+  SUB_RESELLER
+  END_CLIENT
 }
 
 enum TenantStatus {
@@ -821,20 +961,39 @@ enum PaymentOrderStatus {
 }
 
 model Plan {
-  id              String         @id @default(uuid())
-  name            String
-  slug            String         @unique
-  price           Decimal        @db.Decimal(10, 2)
-  currency        String         @default("INR")
-  billingCycle    String         @default("monthly")
-  monthlyMessages Int            @default(2000)
-  botflows        Int            @default(1)
-  teamSeats       Int            @default(2)
-  features        String[]
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  subscriptions   Subscription[]
-  paymentOrders   PaymentOrder[]
+  id                   String         @id @default(uuid())
+  name                 String
+  slug                 String         @unique
+  description          String?
+  price                Decimal        @db.Decimal(10, 2)
+  monthlyPrice         Float?
+  yearlyPrice          Float?
+  currency             String         @default("INR")
+  billingCycle         String         @default("monthly")
+  monthlyMessages      Int            @default(2000)
+  botflows             Int            @default(1)
+  teamSeats            Int            @default(2)
+  maxUsers             Int?           @default(2)
+  maxContacts          Int?           @default(500)
+  maxCampaigns         Int?           @default(5)
+  maxBots              Int?           @default(1)
+  maxMessages          Int?           @default(2000)
+  apiQuota             Int?
+  storageQuotaMb       Int?
+  supportLevel         String?
+  trialDays            Int?           @default(0)
+  isPopular            Boolean?       @default(false)
+  customDomain         Boolean?       @default(false)
+  sso                  Boolean?       @default(false)
+  prioritySupport      Boolean?       @default(false)
+  status               String?        @default("ACTIVE")
+  features             Json           @default("[]")
+  razorpayAnnualPlanId String?
+  razorpayMonthlyPlanId String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  subscriptions        Subscription[]
+  paymentOrders        PaymentOrder[]
 
   @@map("plans")
 }
@@ -859,3 +1018,40 @@ model PaymentOrder {
   @@map("payment_orders")
 }
 
+model WholesalePlan {
+  id             String          @id @default(uuid())
+  name           String
+  slug           String          @unique
+  description    String?
+  setupFee       Decimal         @default(0) @db.Decimal(10, 2)
+  perClientPrice Decimal         @default(499) @db.Decimal(10, 2)
+  currency       String          @default("INR")
+  billingCycle   String          @default("monthly")
+  maxClients     Int             @default(50)
+  featureAccess  Json            @default("[]")
+  status         String          @default("ACTIVE")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  partnerConfigs PartnerConfig[]
+
+  @@map("wholesale_plans")
+}
+
+model PartnerConfig {
+  id              String         @id @default(uuid())
+  tenantId        String         @unique
+  wholesalePlanId String?
+  setupFee        Decimal        @default(0) @db.Decimal(10, 2)
+  setupFeePaid    Boolean        @default(true)
+  perClientRate   Decimal        @default(499) @db.Decimal(10, 2)
+  clientLimit     Int            @default(20)
+  featureAccess   Json           @default("[]")
+  customDomain    String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  wholesalePlan   WholesalePlan? @relation(fields: [wholesalePlanId], references: [id], onDelete: SetNull)
+
+  @@index([wholesalePlanId])
+  @@map("partner_configs")
+}

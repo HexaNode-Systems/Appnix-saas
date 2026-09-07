@@ -12,6 +12,7 @@ export type SuperFieldDataType =
   | 'ADDRESS'
   | 'DATE'
   | 'DATETIME'
+  | 'BOOLEAN'
   | 'PERIODIC_TIME';
 
 export interface SuperFieldOption {

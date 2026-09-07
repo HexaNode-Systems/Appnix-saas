@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api/axios";
+import { SuperField } from "@/types/super-field";
 import type { TemplateVariable } from "@/hooks/useCampaignWizard";
 
 const DATA_SOURCES = [
@@ -45,6 +47,38 @@ export function CampaignStepConfigure({
   isSaving,
 }: CampaignStepConfigureProps) {
   const [mappings, setMappings] = useState<Record<string, string>>(campaign.variableMappings || {});
+  const [superFields, setSuperFields] = useState<SuperField[]>([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    api
+      .get("/crm/super-fields")
+      .then((res) => {
+        const list = Array.isArray(res.data?.data)
+          ? res.data.data
+          : Array.isArray(res.data)
+          ? res.data
+          : [];
+        if (isMounted) {
+          setSuperFields(list.filter((f: any) => f.status === "ACTIVE"));
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load super fields for campaign template mapping:", err);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const allDataSources = useMemo(() => {
+    const custom = superFields.map((f) => ({
+      value: `superField:${f.key}`,
+      label: `${f.label} [Custom Field]`,
+      sample: f.placeholder || (f.options && f.options.length > 0 ? f.options[0].label : f.label),
+    }));
+    return [...DATA_SOURCES, ...custom];
+  }, [superFields]);
 
   useEffect(() => {
     if (campaign.variableMappings) {
@@ -175,7 +209,7 @@ export function CampaignStepConfigure({
               {variables.map((variable) => {
                 const currentVal = mappings[variable.variable] || "";
                 const isMapped = !!currentVal;
-                const sourceObj = DATA_SOURCES.find((s) => s.value === currentVal);
+                const sourceObj = allDataSources.find((s) => s.value === currentVal);
 
                 return (
                   <div
@@ -204,7 +238,7 @@ export function CampaignStepConfigure({
                           <SelectValue placeholder="Select audience data source..." />
                         </SelectTrigger>
                         <SelectContent>
-                          {DATA_SOURCES.map((source) => (
+                          {allDataSources.map((source) => (
                             <SelectItem key={source.value} value={source.value} className="text-xs">
                               <div className="flex items-center justify-between gap-4 w-full">
                                 <span>{source.label}</span>

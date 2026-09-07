@@ -78,6 +78,9 @@ function SignInContent() {
 
   // If already authenticated, redirect active subscriptions to dashboard, otherwise to subscription
   useEffect(() => {
+    const isSwitch = searchParams.get("switch") === "true";
+    if (isSwitch) return;
+
     if (!isAuthLoading && isAuthenticated && user) {
       if (user.role === "owner" || (user as any).role === "SUPER_ADMIN") {
         router.replace("/super-admin/dashboard");
@@ -91,7 +94,7 @@ function SignInContent() {
         }
       });
     }
-  }, [isAuthLoading, isAuthenticated, user, router, callbackUrl]);
+  }, [isAuthLoading, isAuthenticated, user, router, callbackUrl, searchParams]);
 
   const {
     register,
