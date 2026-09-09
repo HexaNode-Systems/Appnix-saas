@@ -29,7 +29,7 @@ import {
 
 const signInSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
   rememberMe: z.boolean().optional(),
 });
 
@@ -86,6 +86,14 @@ function SignInContent() {
         router.replace("/super-admin/dashboard");
         return;
       }
+      if (
+        user.role === "admin" ||
+        (user as any).role === "RESELLER_ADMIN" ||
+        (user as any).tier === "PRIMARY_RESELLER"
+      ) {
+        router.replace("/admin/dashboard");
+        return;
+      }
       verifySubscriptionStatus(user.workspaceId).then((subResult) => {
         if (subResult.hasActiveSubscription) {
           router.replace(callbackUrl);
@@ -127,6 +135,12 @@ function SignInContent() {
 
       if (parsedUser?.role === "owner" || parsedUser?.role === "SUPER_ADMIN") {
         router.push("/super-admin/dashboard");
+      } else if (
+        parsedUser?.role === "admin" ||
+        parsedUser?.role === "RESELLER_ADMIN" ||
+        parsedUser?.tier === "PRIMARY_RESELLER"
+      ) {
+        router.push("/admin/dashboard");
       } else {
         const workspaceId = parsedUser?.workspaceId || parsedUser?.tenantId;
         const token =

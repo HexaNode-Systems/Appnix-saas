@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { executeSuperAdminLogout } from "@/super-admin/services/superAdminApi";
+import { useAuth } from "@/lib/auth/auth-context";
+import { config } from "@/lib/config";
 import {
   Search,
   Menu,
@@ -42,6 +44,8 @@ interface SuperAdminHeaderProps {
 export function SuperAdminHeader({ onMenuClick, isSuperAdmin: propIsSuperAdmin }: SuperAdminHeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const { user: authUser } = useAuth();
+  const [localUser, setLocalUser] = useState<any>(null);
 
   const isSuperAdminSubdomain =
     typeof window !== "undefined" &&
@@ -53,6 +57,55 @@ export function SuperAdminHeader({ onMenuClick, isSuperAdmin: propIsSuperAdmin }
     propIsSuperAdmin !== undefined
       ? propIsSuperAdmin
       : pathname.startsWith("/super-admin") || isSuperAdminSubdomain;
+
+  useEffect(() => {
+    try {
+      const key = isSuperAdmin
+        ? config.auth.superAdminUserKey
+        : config.auth.adminUserKey;
+      const raw =
+        localStorage.getItem(key) ||
+        localStorage.getItem(config.auth.userKey) ||
+        localStorage.getItem(isSuperAdmin ? "appnix_superadmin_user" : "appnix_admin_user");
+      if (raw) {
+        setLocalUser(JSON.parse(raw));
+      }
+    } catch {}
+  }, [isSuperAdmin]);
+
+  const activeUser = authUser || localUser;
+
+  const displayName =
+    activeUser?.name ||
+    (activeUser?.email ? activeUser.email.split("@")[0] : isSuperAdmin ? "Root Administrator" : "Admin");
+
+  const rawRole = activeUser?.rawRole || activeUser?.systemRole || activeUser?.role;
+
+  const formatRole = (role?: string, isSuper?: boolean) => {
+    if (!role) return isSuper ? "Root Administrator" : "Admin";
+    const upper = role.toUpperCase();
+    if (upper === "SUPER_ADMIN") return isSuper ? "Root Administrator" : "Super Admin";
+    if (upper === "RESELLER_ADMIN") return "Reseller Admin";
+    if (upper === "TENANT_ADMIN") return "Tenant Admin";
+    if (upper === "OWNER") return "Owner";
+    if (upper === "ADMIN") return "Admin";
+    if (upper === "MEMBER") return "Member";
+    return role.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+  };
+
+  const displayRole = formatRole(rawRole, isSuperAdmin);
+
+  const getInitials = (name?: string, email?: string) => {
+    const clean = (name || email?.split("@")[0] || "").trim();
+    if (!clean) return isSuperAdmin ? "SA" : "AD";
+    const parts = clean.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return clean.slice(0, Math.min(2, clean.length)).toUpperCase();
+  };
+
+  const initials = getInitials(activeUser?.name, activeUser?.email);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -94,12 +147,21 @@ export function SuperAdminHeader({ onMenuClick, isSuperAdmin: propIsSuperAdmin }
       if (isSuperAdmin) {
         await executeSuperAdminLogout();
       } else {
+        localStorage.removeItem(config.auth.adminTokenKey);
+        localStorage.removeItem(config.auth.adminUserKey);
+        localStorage.removeItem(config.auth.adminRefreshTokenKey);
+        localStorage.removeItem(config.auth.tokenKey);
+        localStorage.removeItem(config.auth.userKey);
+        localStorage.removeItem(config.auth.refreshTokenKey);
         localStorage.removeItem("appnix_admin_token");
         localStorage.removeItem("appnix_admin_user");
         localStorage.removeItem("appnix_auth_token");
         localStorage.removeItem("appnix_user");
+        localStorage.removeItem("appnix_admin_refresh_token");
+        localStorage.removeItem("appnix_refresh_token");
         document.cookie = "appnix_admin_token=; path=/; max-age=0";
         document.cookie = "appnix_access_token=; path=/; max-age=0";
+        document.cookie = "appnix_auth_token=; path=/; max-age=0";
         window.location.href = isSuperAdminSubdomain ? "/logout" : "/admin/logout";
       }
     }
@@ -120,7 +182,7 @@ export function SuperAdminHeader({ onMenuClick, isSuperAdmin: propIsSuperAdmin }
         <div className="relative w-full">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder={isSuperAdmin ? "Search partners, wholesale plans, clients, domains..." : "Search clients, tickets, plans, staff, logs..."}
+            placeholder={isSuperAdmin ? "Search partners, wholesale plans, clients..." : "Search clients, tickets, plans, staff, logs..."}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9 h-9 text-xs bg-muted/30 border-border/70 focus-visible:ring-1 focus-visible:ring-amber-500"
@@ -210,21 +272,31 @@ export function SuperAdminHeader({ onMenuClick, isSuperAdmin: propIsSuperAdmin }
             <DropdownMenuTrigger className="flex items-center gap-2 p-1 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer group outline-none focus-visible:ring-1 focus-visible:ring-amber-500 data-[state=open]:bg-muted/80">
               <div className="hidden text-right sm:block">
                 <p className="text-xs font-bold leading-tight text-foreground group-hover:text-amber-600 transition-colors">
-                  {isSuperAdmin ? "Root Administrator" : "Admin Console"}
+                  {displayName}
                 </p>
                 <p className={cn(
                   "text-[10px] font-semibold uppercase tracking-wider",
                   isSuperAdmin ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"
                 )}>
-                  {isSuperAdmin ? "Tier-0 Hardware Clearance" : "Reseller Admin"}
+                  {displayRole}
                 </p>
               </div>
-              <div className={cn(
-                "h-8 w-8 rounded-full text-white flex items-center justify-center font-bold text-xs ring-2",
-                isSuperAdmin ? "bg-amber-600 ring-amber-600/30" : "bg-indigo-600 ring-indigo-600/30"
-              )}>
-                {isSuperAdmin ? "SA" : "AD"}
-              </div>
+              {activeUser?.avatar ? (
+                <div className="h-8 w-8 rounded-full overflow-hidden ring-2 ring-indigo-600/30">
+                  <img
+                    src={activeUser.avatar}
+                    alt={displayName}
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+              ) : (
+                <div className={cn(
+                  "h-8 w-8 rounded-full text-white flex items-center justify-center font-bold text-xs ring-2",
+                  isSuperAdmin ? "bg-amber-600 ring-amber-600/30" : "bg-indigo-600 ring-indigo-600/30"
+                )}>
+                  {initials}
+                </div>
+              )}
               <ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
             </DropdownMenuTrigger>
 
@@ -232,18 +304,18 @@ export function SuperAdminHeader({ onMenuClick, isSuperAdmin: propIsSuperAdmin }
               <DropdownMenuLabel className="font-normal px-2 py-2">
                 <div className="flex flex-col space-y-1">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-bold text-foreground">
-                      {isSuperAdmin ? "Super Admin Root" : "Workspace Admin"}
+                    <p className="text-xs font-bold text-foreground truncate max-w-[130px]">
+                      {displayName}
                     </p>
                     <Badge className={cn(
                       "text-[10px] font-semibold",
                       isSuperAdmin ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300" : "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300"
                     )}>
-                      {isSuperAdmin ? "PLATFORM ROOT" : "Admin Portal"}
+                      {displayRole}
                     </Badge>
                   </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    {isSuperAdmin ? "superadmin@appnix.co.in" : "admin@platform.com"}
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    {activeUser?.email || (isSuperAdmin ? "superadmin@appnix.co.in" : "admin@platform.com")}
                   </p>
                 </div>
               </DropdownMenuLabel>

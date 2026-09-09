@@ -37,8 +37,8 @@ async function bootstrap() {
       'X-Requested-With',
       'X-Tenant-Id',
       'x-hub-signature-256',
-      'x-razorpay-signature',
-      'stripe-signature',
+      'x-webhook-signature',
+      'x-webhook-timestamp',
     ],
   });
 

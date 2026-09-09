@@ -13,6 +13,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const cleanEmail = typeof email === "string" ? email.toLowerCase().trim() : email;
+    const payload: Record<string, any> = { email: cleanEmail, password };
+    if (orgSlug && typeof orgSlug === "string" && orgSlug.trim()) {
+      payload.orgSlug = orgSlug.trim();
+    }
+    if (mfaCode && typeof mfaCode === "string" && mfaCode.trim()) {
+      payload.mfaCode = mfaCode.trim();
+    }
+
     // Forward to backend NestJS admin login endpoint:
     // http://localhost:4000/api/v1/auth/admin/login
     const backendUrl = `${config.api.baseUrl}/auth/admin/login`;
@@ -24,7 +33,7 @@ export async function POST(request: NextRequest) {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email, password, orgSlug, mfaCode }),
+        body: JSON.stringify(payload),
       });
     } catch (networkError: any) {
       console.warn("[Admin Auth Proxy] Primary admin login unreachable, trying standard login fallback:", networkError.message);
@@ -34,15 +43,18 @@ export async function POST(request: NextRequest) {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: cleanEmail, password }),
       });
     }
 
-    const data = await backendRes.json();
+    const data = await backendRes.json().catch(() => ({}));
 
     if (!backendRes.ok) {
+      const errorMsg = Array.isArray(data.message)
+        ? data.message.join(", ")
+        : data.message || "Admin authentication failed";
       return NextResponse.json(
-        { message: data.message || "Admin authentication failed" },
+        { message: errorMsg },
         { status: backendRes.status }
       );
     }

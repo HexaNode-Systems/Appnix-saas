@@ -15,6 +15,7 @@ import { AuthService } from './auth.service';
 import {
   SignupDto,
   LoginDto,
+  AdminLoginDto,
   ForgotPasswordDto,
   ResetPasswordDto,
   VerifyOtpDto,
@@ -116,11 +117,17 @@ export class AuthController {
   @Post('admin/login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Sign in to the Admin/Reseller Portal with privilege check' })
-  @ApiBody({ type: LoginDto })
+  @ApiBody({ type: AdminLoginDto })
   @ApiResponse({ status: 200, description: 'Admin signed in successfully.' })
   @ApiResponse({ status: 403, description: 'User is not an admin or reseller.' })
-  async adminLogin(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
-    const result = await this.authService.adminLogin(dto.email, dto.password, dto.recaptchaToken);
+  async adminLogin(@Body() dto: AdminLoginDto, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.adminLogin(
+      dto.email,
+      dto.password,
+      dto.recaptchaToken,
+      dto.orgSlug,
+      dto.mfaCode,
+    );
     this.setAuthCookies(res, result.accessToken, result.refreshToken);
     return { success: true, data: result };
   }
@@ -188,8 +195,8 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Current user profile.' })
   @ApiResponse({ status: 401, description: 'Unauthorized.' })
   async getMe(@Req() req: Request) {
-    const authUser = req.user as { userId: string };
-    const user = await this.authService.getMe(authUser.userId);
+    const authUser = req.user as { userId: string; tenantId?: string };
+    const user = await this.authService.getMe(authUser.userId, authUser.tenantId);
     return { success: true, data: user };
   }
 

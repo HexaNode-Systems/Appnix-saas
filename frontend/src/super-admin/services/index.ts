@@ -1,5 +1,6 @@
+import { api } from "@/lib/api/axios";
+import { config } from "@/lib/config";
 import {
-  mockClients,
   mockPlans,
   mockTickets,
   mockStaff,
@@ -21,56 +22,120 @@ import {
 } from "../types";
 
 export const clientService = {
-  getAll: async (): Promise<Client[]> => {
-    return [...mockClients];
+  getAll: async (params?: { search?: string; status?: string; plan?: string }): Promise<Client[]> => {
+    try {
+      const res = await api.get("/tenants/clients", { params });
+      const payload = res.data?.data || res.data;
+      if (payload && Array.isArray(payload.data)) {
+        return payload.data;
+      }
+      return Array.isArray(payload) ? payload : [];
+    } catch (err) {
+      console.error("Failed to fetch clients from backend:", err);
+      return [];
+    }
   },
   getById: async (id: string): Promise<Client | undefined> => {
-    return mockClients.find((c) => c.id === id);
+    try {
+      const res = await api.get(`/tenants/clients/${id}`);
+      return res.data?.data || res.data;
+    } catch (err) {
+      console.error(`Failed to fetch client ${id}:`, err);
+      return undefined;
+    }
   },
   create: async (newClient: Omit<Client, "id" | "mrr" | "totalUsers" | "lastActive">): Promise<Client> => {
-    const created: Client = {
-      ...newClient,
-      id: `cl-${Date.now()}`,
-      mrr: newClient.plan === "Enterprise" ? 4500 : newClient.plan === "Pro" ? 1200 : newClient.plan === "Growth" ? 99 : 29,
-      totalUsers: 1,
-      lastActive: "Just now",
-    };
-    mockClients.unshift(created);
-    return created;
+    const res = await api.post("/tenants/clients", newClient);
+    return res.data?.data || res.data;
   },
   updateStatus: async (id: string, status: Client["status"]): Promise<Client | undefined> => {
-    const client = mockClients.find((c) => c.id === id);
-    if (client) {
-      client.status = status;
-    }
-    return client;
+    const res = await api.patch(`/tenants/clients/${id}/status`, { status });
+    return res.data?.data || res.data;
   },
   update: async (id: string, updatedData: Partial<Client>): Promise<Client | undefined> => {
-    const client = mockClients.find((c) => c.id === id);
-    if (client) {
-      Object.assign(client, updatedData);
-      if (updatedData.plan) {
-        client.mrr =
-          updatedData.plan === "Enterprise"
-            ? 4500
-            : updatedData.plan === "Pro"
-            ? 1200
-            : updatedData.plan === "Growth"
-            ? 99
-            : 29;
-      }
-    }
-    return client;
+    const res = await api.patch(`/tenants/clients/${id}`, updatedData);
+    return res.data?.data || res.data;
   },
   delete: async (id: string): Promise<boolean> => {
-    const index = mockClients.findIndex((c) => c.id === id);
-    if (index !== -1) {
-      mockClients.splice(index, 1);
-      return true;
-    }
-    return false;
+    await api.delete(`/tenants/clients/${id}`);
+    return true;
+  },
+  loginAsGuest: async (id: string): Promise<any> => {
+    const res = await api.post(`/tenants/clients/${id}/guest-login`);
+    return res.data?.data || res.data;
   },
 };
+
+export interface GuestLoginResult {
+  accessToken: string;
+  refreshToken: string;
+  impersonationToken?: string;
+  expiresIn?: string;
+  user: any;
+  client: any;
+}
+
+export async function executeGuestLogin(client: any, returnUrl: string): Promise<void> {
+  if (typeof window === "undefined") return;
+
+  // 1. Back up current administrative session credentials
+  const backup = {
+    authToken: localStorage.getItem(config.auth.tokenKey),
+    refreshToken: localStorage.getItem(config.auth.refreshTokenKey),
+    user: localStorage.getItem(config.auth.userKey),
+    adminToken: localStorage.getItem(config.auth.adminTokenKey) || localStorage.getItem("appnix_admin_token"),
+    adminRefreshToken: localStorage.getItem(config.auth.adminRefreshTokenKey) || localStorage.getItem("appnix_admin_refresh_token"),
+    adminUser: localStorage.getItem(config.auth.adminUserKey) || localStorage.getItem("appnix_admin_user"),
+    superAdminToken: localStorage.getItem(config.auth.superAdminTokenKey),
+    superAdminRefreshToken: localStorage.getItem(config.auth.superAdminRefreshTokenKey),
+    superAdminUser: localStorage.getItem(config.auth.superAdminUserKey),
+    returnUrl: returnUrl || "/admin/clients",
+  };
+  localStorage.setItem("appnix_guest_backup", JSON.stringify(backup));
+
+  // 2. Call backend guest login endpoint
+  const result: GuestLoginResult = await clientService.loginAsGuest(client.id);
+
+  if (!result?.accessToken) {
+    throw new Error("Failed to receive guest authentication credentials from server.");
+  }
+
+  // 3. Store active guest session info
+  const guestSession = {
+    isGuest: true,
+    clientId: client.id,
+    clientName: result.client?.name || client.name,
+    clientEmail: result.client?.email || client.email || result.user?.email,
+    ownerName: result.client?.ownerName || client.ownerName || result.user?.name,
+    plan: result.client?.plan || client.plan || "Pro",
+    walletBalance: result.client?.walletBalance ?? client.walletBalance ?? 0,
+    whatsappStatus: result.client?.whatsappStatus || client.whatsappStatus || "Active",
+    loginTime: new Date().toISOString(),
+    returnUrl: returnUrl || "/admin/clients",
+    impersonationToken: result.impersonationToken,
+  };
+  localStorage.setItem("appnix_guest_impersonation", JSON.stringify(guestSession));
+
+  // 4. Update access tokens for the guest session
+  localStorage.setItem(config.auth.tokenKey, result.accessToken);
+  if (result.refreshToken) {
+    localStorage.setItem(config.auth.refreshTokenKey, result.refreshToken);
+  }
+  if (result.user) {
+    localStorage.setItem(config.auth.userKey, JSON.stringify(result.user));
+  }
+  if (result.impersonationToken) {
+    sessionStorage.setItem("appnix_impersonation_token", result.impersonationToken);
+    localStorage.setItem("appnix_impersonation_token", result.impersonationToken);
+  }
+
+  // 5. Update auth cookie so Next.js Proxy allows dashboard navigation
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `appnix_access_token=${encodeURIComponent(result.accessToken)}; Path=/; SameSite=Lax${secure}`;
+
+  // 6. Hard redirect to load fresh client context and state
+  window.location.href = "/dashboard";
+}
 
 export const billingService = {
   getPlans: async (): Promise<PlanTier[]> => {

@@ -11,17 +11,26 @@ import { PartnerConfirmModal } from "@/super-admin/components/partners/PartnerCo
 import {
   ArrowLeft,
   Building2,
-  Users,
-  Shield,
   KeyRound,
   DollarSign,
-  Globe,
-  Palette,
   Layers,
   AlertCircle,
   Loader2,
   CheckCircle2,
+  Eye,
+  EyeOff,
+  Check,
+  X,
 } from "lucide-react";
+
+const PREDEFINED_SLUGS = [
+  { value: "partner", label: "partner (Default)" },
+  { value: "agency", label: "agency" },
+  { value: "reseller", label: "reseller" },
+  { value: "hub", label: "hub" },
+  { value: "portal", label: "portal" },
+  { value: "custom", label: "Custom Slug..." },
+];
 
 function UpdatePartnerForm() {
   const router = useRouter();
@@ -34,6 +43,26 @@ function UpdatePartnerForm() {
   const [error, setError] = useState<string | null>(null);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
+  // Password visibility toggle
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Initial slug to compare if changed
+  const [initialSlug, setInitialSlug] = useState("");
+
+  // Slug selector state (predefined vs custom)
+  const [slugOption, setSlugOption] = useState<string>("custom");
+
+  // Live slug uniqueness & format check
+  const [slugStatus, setSlugStatus] = useState<{
+    checking: boolean;
+    available: boolean | null;
+    message: string | null;
+  }>({
+    checking: false,
+    available: null,
+    message: null,
+  });
+
   // Form State
   const [form, setForm] = useState({
     name: "",
@@ -43,9 +72,9 @@ function UpdatePartnerForm() {
     adminPassword: "",
     adminPhone: "",
     wholesalePlanId: "",
-    setupFee: 49999,
+    setupFee: 0,
     setupFeePaid: true,
-    perClientRate: 499,
+    perClientRate: 0,
     clientLimit: 50,
     customDomain: "",
     primaryColor: "#0f172a",
@@ -93,17 +122,31 @@ function UpdatePartnerForm() {
         setWholesalePlans(plans);
 
         if (partner) {
+          const currentSlug = partner.slug || "";
+          setInitialSlug(currentSlug);
+
+          const matchingSlug = PREDEFINED_SLUGS.find(
+            (p) => p.value === currentSlug && p.value !== "custom"
+          );
+          setSlugOption(matchingSlug ? matchingSlug.value : "custom");
+
           setForm({
             name: partner.name || "",
-            slug: partner.slug || "",
+            slug: currentSlug,
             adminEmail: partner.adminUsers?.[0]?.email || "",
             adminName: partner.adminUsers?.[0]?.name || "",
             adminPassword: "",
             adminPhone: partner.adminUsers?.[0]?.phone || "",
             wholesalePlanId: partner.partnerConfig?.wholesalePlanId || "",
-            setupFee: Number(partner.partnerConfig?.setupFee ?? partner.metrics?.lifetimeFee ?? 0),
-            setupFeePaid: Boolean(partner.partnerConfig?.setupFeePaid ?? partner.metrics?.lifetimeFeePaid ?? true),
-            perClientRate: Number(partner.partnerConfig?.perClientRate ?? partner.metrics?.commissionPerClient ?? 499),
+            setupFee: Number(
+              partner.partnerConfig?.setupFee ?? partner.metrics?.lifetimeFee ?? 0
+            ),
+            setupFeePaid: Boolean(
+              partner.partnerConfig?.setupFeePaid ?? partner.metrics?.lifetimeFeePaid ?? true
+            ),
+            perClientRate: Number(
+              partner.partnerConfig?.perClientRate ?? partner.metrics?.commissionPerClient ?? 0
+            ),
             clientLimit: Number(partner.metrics?.maxClients ?? partner.maxEndClients ?? 50),
             customDomain: partner.customDomain || "",
             primaryColor: partner.branding?.primaryColor || partner.primaryColor || "#0f172a",
@@ -129,25 +172,99 @@ function UpdatePartnerForm() {
     loadData();
   }, [partnerId]);
 
-  const handlePlanSelect = (planId: string) => {
-    const chosen = wholesalePlans.find((p) => p.id === planId);
-    if (chosen) {
-      setForm((prev) => ({
-        ...prev,
-        wholesalePlanId: chosen.id,
-        perClientRate: chosen.perClientPrice,
-        setupFee: chosen.setupFee,
-        clientLimit: chosen.maxClients || 50,
-        featureAccess: chosen.featureAccess || prev.featureAccess,
-      }));
+  // Live slug validation (ignoring this partner's own current slug)
+  useEffect(() => {
+    const raw = (form.slug || "").toLowerCase().trim();
+    if (!raw) {
+      setSlugStatus({ checking: false, available: null, message: null });
+      return;
+    }
+
+    // If unchanged from original slug, it's valid
+    if (raw === initialSlug) {
+      setSlugStatus({ checking: false, available: true, message: "Current workspace slug" });
+      return;
+    }
+
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(raw)) {
+      setSlugStatus({
+        checking: false,
+        available: false,
+        message: "Slug must contain only lowercase letters, numbers, and hyphens.",
+      });
+      return;
+    }
+
+    setSlugStatus({ checking: true, available: null, message: null });
+    const timer = setTimeout(async () => {
+      try {
+        const res = await superAdminApi.checkPartnerSlug(raw, partnerId);
+        if (res.available) {
+          setSlugStatus({
+            checking: false,
+            available: true,
+            message: `✓ Slug "${res.slug}" is available`,
+          });
+        } else {
+          setSlugStatus({
+            checking: false,
+            available: false,
+            message: res.reason || `✗ Slug "${raw}" is already taken by another partner`,
+          });
+        }
+      } catch (err) {
+        setSlugStatus({ checking: false, available: null, message: null });
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [form.slug, initialSlug, partnerId]);
+
+  const handleSlugOptionChange = (option: string) => {
+    setSlugOption(option);
+    if (option !== "custom") {
+      setForm((prev) => ({ ...prev, slug: option }));
+    }
+  };
+
+  const handleSlugInputChange = (rawVal: string) => {
+    const clean = rawVal
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    setForm((prev) => ({ ...prev, slug: rawVal.toLowerCase() }));
+
+    const matching = PREDEFINED_SLUGS.find(
+      (p) => p.value === clean && p.value !== "custom"
+    );
+    if (matching) {
+      setSlugOption(matching.value);
     } else {
-      setForm((prev) => ({ ...prev, wholesalePlanId: planId }));
+      setSlugOption("custom");
     }
   };
 
   const handlePreSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!form.name.trim()) {
+      setError("Partner agency name is required.");
+      return;
+    }
+
+    const cleanSlug = (form.slug || "").toLowerCase().trim();
+    if (!cleanSlug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(cleanSlug)) {
+      setError("Invalid workspace slug format. Use lowercase letters, numbers, and hyphens.");
+      return;
+    }
+
+    if (cleanSlug !== initialSlug && slugStatus.available === false) {
+      setError(slugStatus.message || "The chosen workspace slug is already taken.");
+      return;
+    }
+
+    // Open small confirmation dialog
     setIsConfirmOpen(true);
   };
 
@@ -157,15 +274,21 @@ function UpdatePartnerForm() {
     setError(null);
 
     try {
+      const cleanSlug = (form.slug || "").toLowerCase().trim();
+
       const payload: any = {
-        name: form.name,
+        name: form.name.trim(),
+        slug: cleanSlug,
+        adminName: form.adminName.trim(),
+        adminEmail: form.adminEmail.trim(),
+        adminPhone: form.adminPhone.trim(),
         setupFee: Number(form.setupFee),
         lifetimeFee: Number(form.setupFee),
         setupFeePaid: Boolean(form.setupFeePaid),
         perClientRate: Number(form.perClientRate),
         commissionPerClient: Number(form.perClientRate),
         clientLimit: Number(form.clientLimit),
-        customDomain: form.customDomain,
+        customDomain: form.customDomain ? form.customDomain.trim() : "",
         primaryColor: form.primaryColor,
         logoUrl: form.logoUrl,
         featureAccess: form.featureAccess,
@@ -179,7 +302,6 @@ function UpdatePartnerForm() {
       await superAdminApi.updatePartner(partnerId, payload);
 
       setIsConfirmOpen(false);
-      // Redirect back to partners list on success
       router.push("/super-admin/partners");
     } catch (err: any) {
       setError(
@@ -245,7 +367,7 @@ function UpdatePartnerForm() {
               Update Partner: {form.name || "White-Label Partner"}
             </h1>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Modify reseller tenant settings, wholesale contract economics, quotas, and feature entitlements.
+              Modify reseller tenant settings, workspace slug, wholesale contract economics, quotas, and feature entitlements.
             </p>
           </div>
         </div>
@@ -271,7 +393,7 @@ function UpdatePartnerForm() {
                 Agency & Tenant Identity
               </h3>
               <p className="text-[11px] text-muted-foreground">
-                The white-label partner organization and tenant URL identifier
+                The white-label partner organization and workspace slug identifier
               </p>
             </div>
           </div>
@@ -290,18 +412,57 @@ function UpdatePartnerForm() {
               />
             </div>
 
+            {/* Workspace Slug with Predefined Dropdown + Custom Input */}
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Workspace Slug
+                Workspace Slug <span className="text-rose-500">*</span>
               </label>
-              <Input
-                disabled
-                value={form.slug}
-                className="h-10 text-xs font-mono bg-muted/50 cursor-not-allowed opacity-80"
-              />
-              <p className="text-[10px] text-muted-foreground mt-1 font-mono">
-                Workspace slug identifier cannot be modified once provisioned.
-              </p>
+              <div className="flex items-center gap-2">
+                <select
+                  value={slugOption}
+                  onChange={(e) => handleSlugOptionChange(e.target.value)}
+                  className="h-10 rounded-md border border-input bg-background px-3 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+                >
+                  {PREDEFINED_SLUGS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="relative flex-1">
+                  <Input
+                    required
+                    placeholder="e.g. apex-digital"
+                    value={form.slug}
+                    onChange={(e) => handleSlugInputChange(e.target.value)}
+                    className="h-10 text-xs font-mono pr-8"
+                  />
+                  <div className="absolute right-2.5 top-1/2 -translate-y-1/2">
+                    {slugStatus.checking && (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                    )}
+                    {!slugStatus.checking && slugStatus.available === true && (
+                      <Check className="h-3.5 w-3.5 text-emerald-600" />
+                    )}
+                    {!slugStatus.checking && slugStatus.available === false && (
+                      <X className="h-3.5 w-3.5 text-rose-600" />
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {slugStatus.message && (
+                <p
+                  className={`text-[11px] mt-1 font-mono ${
+                    slugStatus.available
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-rose-600 dark:text-rose-400"
+                  }`}
+                >
+                  {slugStatus.message}
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -317,7 +478,7 @@ function UpdatePartnerForm() {
                 Reseller Admin Account
               </h3>
               <p className="text-[11px] text-muted-foreground">
-                Primary credentials used by the partner to log into the Admin portal (/admin/login)
+                Administrator contact details and login credentials
               </p>
             </div>
           </div>
@@ -325,24 +486,24 @@ function UpdatePartnerForm() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Admin Email
+                Admin Email <span className="text-rose-500">*</span>
               </label>
               <Input
                 type="email"
-                disabled
+                required
+                placeholder="admin@apexdigital.com"
                 value={form.adminEmail}
-                className="h-10 text-xs font-mono bg-muted/50 cursor-not-allowed opacity-80"
+                onChange={(e) => setForm({ ...form, adminEmail: e.target.value })}
+                className="h-10 text-xs font-mono"
               />
-              <p className="text-[10px] text-muted-foreground mt-1">
-                Primary admin identity email
-              </p>
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1.5">
-                Administrator Full Name
+                Administrator Full Name <span className="text-rose-500">*</span>
               </label>
               <Input
+                required
                 placeholder="Alex Apex"
                 value={form.adminName}
                 onChange={(e) => setForm({ ...form, adminName: e.target.value })}
@@ -350,18 +511,34 @@ function UpdatePartnerForm() {
               />
             </div>
 
+            {/* Optional Password Update with Eye/EyeOff toggle */}
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1.5">
                 Update Password (Optional)
               </label>
-              <Input
-                type="password"
-                minLength={6}
-                placeholder="Leave blank to keep existing"
-                value={form.adminPassword}
-                onChange={(e) => setForm({ ...form, adminPassword: e.target.value })}
-                className="h-10 text-xs font-mono"
-              />
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  minLength={6}
+                  placeholder="Leave blank to keep existing"
+                  value={form.adminPassword}
+                  onChange={(e) => setForm({ ...form, adminPassword: e.target.value })}
+                  className="h-10 text-xs font-mono pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer focus:outline-none"
+                  tabIndex={-1}
+                  title={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
               <p className="text-[10px] text-muted-foreground mt-1">
                 Leave blank to keep existing password unchanged.
               </p>
@@ -402,7 +579,7 @@ function UpdatePartnerForm() {
           </div>
         </div>
 
-        {/* Section 3: Wholesale Pricing & Contract Economics */}
+        {/* Section 3: Wholesale Pricing & Lifetime License */}
         <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-6 shadow-xs space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-amber-500/20 pb-3.5">
             <div className="flex items-center gap-2.5">
@@ -424,8 +601,26 @@ function UpdatePartnerForm() {
             </Badge>
           </div>
 
- 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
+            {/* Custom Lifetime White-Label License Price Textbox */}
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
+                Lifetime White-Label License Price (₹) <span className="text-rose-500">*</span>
+              </label>
+              <Input
+                type="number"
+                required
+                min={0}
+                step="any"
+                value={form.setupFee}
+                onChange={(e) => setForm({ ...form, setupFee: Number(e.target.value) })}
+                className="h-10 text-xs font-mono font-bold text-amber-700 dark:text-amber-400"
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                One-time lifetime license fee (custom per partner contract)
+              </p>
+            </div>
+
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1.5">
                 Appnix Commission Per Active Client (₹/cl/mo) <span className="text-rose-500">*</span>
@@ -471,7 +666,7 @@ function UpdatePartnerForm() {
                 className="h-10 text-xs font-mono"
               />
               <p className="text-[10px] text-muted-foreground mt-1">
-                Vanity hostname for partner&apos;s clients (CNAME to cname.appnix.co.in)
+                CNAME target: cname.appnix.co.in
               </p>
             </div>
           </div>
@@ -479,10 +674,10 @@ function UpdatePartnerForm() {
           {/* Revenue Model Margin Note */}
           <div className="p-3 rounded-lg bg-background border text-xs text-muted-foreground flex items-center justify-between">
             <span className="text-[11px]">
-              <strong>Partner Retail Margin:</strong> Partner can set any retail price for their clients (e.g. ₹1,999/mo) and keeps 100% of their margin above Appnix commission (₹{form.perClientRate}/cl/mo).
+              <strong>Partner Economics:</strong> Partner provisions end-clients with customized retail pricing and retains full margin above the Appnix contracted commission (₹{form.perClientRate || 0}/client/month).
             </span>
             <Badge variant="outline" className="text-emerald-700 dark:text-emerald-400 font-mono text-[10px] shrink-0 ml-2">
-              Margin: ₹{Math.max(0, 1999 - Number(form.perClientRate))}/cl/mo
+              Appnix Commission: ₹{form.perClientRate || 0}/cl/mo
             </Badge>
           </div>
         </div>
@@ -556,39 +751,25 @@ function UpdatePartnerForm() {
             {submitting ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Saving Changes...</span>
+                <span>Updating Partner...</span>
               </>
             ) : (
               <>
                 <CheckCircle2 className="h-4 w-4" />
-                <span>Update Partner & Contract</span>
+                <span>Update Partner</span>
               </>
             )}
           </Button>
         </div>
       </form>
 
-      {/* Confirmation Dialog before updating */}
+      {/* Small Update Confirmation Dialog */}
       <PartnerConfirmModal
         isOpen={isConfirmOpen}
         onClose={() => setIsConfirmOpen(false)}
         onConfirm={handleConfirmUpdate}
         submitting={submitting}
         mode="update"
-        data={{
-          name: form.name,
-          slug: form.slug,
-          adminName: form.adminName,
-          adminEmail: form.adminEmail,
-          adminPhone: form.adminPhone,
-          primaryColor: form.primaryColor,
-          wholesalePlanName: wholesalePlans.find((p) => p.id === form.wholesalePlanId)?.name,
-          perClientRate: Number(form.perClientRate),
-          setupFee: Number(form.setupFee),
-          clientLimit: Number(form.clientLimit),
-          customDomain: form.customDomain,
-          featureAccess: form.featureAccess,
-        }}
       />
     </div>
   );
@@ -600,7 +781,7 @@ export default function UpdatePartnerPage() {
       fallback={
         <div className="py-24 text-center text-xs text-muted-foreground flex flex-col items-center gap-2">
           <Loader2 className="h-7 w-7 animate-spin text-amber-500" />
-          <span>Loading partner update view...</span>
+          <span>Loading partner update page...</span>
         </div>
       }
     >

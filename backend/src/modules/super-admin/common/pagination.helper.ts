@@ -11,6 +11,7 @@ export interface PaginatedResult<T> {
   totalPages: number;
   hasNext: boolean;
   hasPrevious: boolean;
+  summary?: any;
 }
 
 export interface ParsedPagination {
@@ -55,6 +56,7 @@ export function createPaginatedResponse<T>(
   total: number,
   page: number,
   limit: number,
+  summary?: any,
 ): PaginatedResult<T> {
   const totalPages = Math.max(1, Math.ceil(total / limit));
   return {
@@ -65,5 +67,6 @@ export function createPaginatedResponse<T>(
     totalPages,
     hasNext: page < totalPages,
     hasPrevious: page > 1,
+    summary,
   };
 }

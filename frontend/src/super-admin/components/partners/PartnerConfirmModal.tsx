@@ -10,22 +10,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, Mail, ShieldCheck } from "lucide-react";
-
-export interface PartnerConfirmData {
-  name?: string;
-  slug?: string;
-  adminName?: string;
-  adminEmail?: string;
-  adminPhone?: string;
-  primaryColor?: string;
-  wholesalePlanName?: string;
-  perClientRate?: number;
-  setupFee?: number;
-  clientLimit?: number;
-  customDomain?: string;
-  featureAccess?: string[];
-}
+import { Loader2 } from "lucide-react";
 
 export interface PartnerConfirmModalProps {
   isOpen: boolean;
@@ -33,7 +18,7 @@ export interface PartnerConfirmModalProps {
   onConfirm: () => void;
   submitting?: boolean;
   mode: "create" | "update";
-  data?: PartnerConfirmData;
+  data?: Record<string, unknown>;
 }
 
 export function PartnerConfirmModal({
@@ -42,58 +27,32 @@ export function PartnerConfirmModal({
   onConfirm,
   submitting = false,
   mode,
-  data,
 }: PartnerConfirmModalProps) {
   const isCreate = mode === "create";
-  const title = isCreate ? "Confirm Partner Provisioning" : "Confirm Partner Update";
+  const title = isCreate ? "Confirm Partner Creation" : "Confirm Partner Update";
+  const message = isCreate
+    ? "Are you sure you want to provision this White-Label Partner?"
+    : "Are you sure you want to update this White-Label Partner?";
+  const actionText = isCreate ? "Create Partner" : "Confirm Update";
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => { if (!open && !submitting) onClose(); }}>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open && !submitting) onClose();
+      }}
+    >
       <DialogContent className="max-w-md p-6 sm:rounded-xl border bg-card shadow-2xl z-[70]">
         <DialogHeader className="space-y-2">
-          <DialogTitle className="text-lg font-bold text-foreground">
+          <DialogTitle className="text-base font-bold text-foreground">
             {title}
           </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground leading-relaxed">
-            {isCreate
-              ? "Please verify the partner organization details below. Upon confirmation, the tenant workspace and reseller administrator account will be provisioned."
-              : "Are you sure you want to update this partner's wholesale configuration?"}
+            {message}
           </DialogDescription>
         </DialogHeader>
 
-        {isCreate && data && (
-          <div className="space-y-3 my-2 text-xs">
-            <div className="rounded-lg border bg-muted/40 p-3 space-y-1.5">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Partner Brand:</span>
-                <span className="font-semibold text-foreground">{data.name || "—"}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Administrator:</span>
-                <span className="font-medium text-foreground">{data.adminName || "—"}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Admin Email:</span>
-                <span className="font-mono text-foreground">{data.adminEmail || "—"}</span>
-              </div>
-              {data.customDomain && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Custom Domain:</span>
-                  <span className="font-mono text-foreground">{data.customDomain}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 flex items-start gap-2.5 text-amber-800 dark:text-amber-300">
-              <Mail className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
-              <div className="leading-snug">
-                <strong>Automatic Credentials Delivery:</strong> An email containing the Admin Panel URL, login email, and initial password will be automatically sent to <span className="font-mono underline">{data.adminEmail}</span>.
-              </div>
-            </div>
-          </div>
-        )}
-
-        <DialogFooter className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 pt-4 border-t mt-4">
+        <DialogFooter className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 pt-4 border-t mt-3">
           <Button
             type="button"
             variant="outline"
@@ -117,7 +76,7 @@ export function PartnerConfirmModal({
                 <span>Processing...</span>
               </>
             ) : (
-              <span>Confirm</span>
+              <span>{actionText}</span>
             )}
           </Button>
         </DialogFooter>

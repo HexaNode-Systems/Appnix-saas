@@ -98,7 +98,7 @@ backend/
 │   │   ├── team/                      # Staff team members & invitations
 │   │   ├── tenants/                   # Multi-tenant hierarchy & white-label branding
 │   │   ├── users/                     # User management within tenant
-│   │   ├── webhooks/                  # Meta, Cashfree, Razorpay, Stripe webhooks
+│   │   ├── webhooks/                  # Meta and Cashfree payment webhooks
 │   │   ├── whatsapp-templates/        # Meta templates sync & review simulator
 │   │   ├── workflows/                 # Visual drag-and-drop automation workflows
 │   │   └── workspace/                 # Workspace settings, API keys, wallet
@@ -178,7 +178,7 @@ The system organizes organizations in a **Materialized Path Tree**:
 ### Key-Value DataStore & Credential Vault
 
 - **DataStore**: Dynamic document storage for workflows. Supports string/numeric lookup keys, structured JSON values, and automatic TTL expiration.
-- **Credential Encryption**: Encrypts 3rd-party tokens (Shopify, OpenAI, Stripe, HubSpot) at rest using AES-256-GCM.
+- **Credential Encryption**: Encrypts 3rd-party tokens (Shopify, OpenAI, Cashfree, HubSpot) at rest using AES-256-GCM.
 
 ### Billing, Cashfree Orders & Wallet Ledger
 
@@ -201,7 +201,7 @@ The system organizes organizations in a **Materialized Path Tree**:
 ### Webhooks Ingestion & Signature Verification
 
 - **Meta Hub Challenge**: Handles `GET /api/v1/webhooks/meta` verification challenge (`hub.mode`, `hub.verify_token`, `hub.challenge`).
-- **Signature Security**: Verifies `x-hub-signature-256` for Meta, `x-razorpay-signature` for Razorpay, and `stripe-signature` for Stripe.
+- **Signature Security**: Verifies `x-hub-signature-256` for Meta and `x-webhook-signature` for Cashfree.
 - **Idempotency**: Every event is stored in `webhook_events` with unique `eventId`. Duplicate deliveries return `200 OK` without duplicate processing.
 
 ### Super Admin Governance & Audit Logging
@@ -465,8 +465,7 @@ Media                - Uploaded assets in Cloudflare R2 / S3 storage
 |--------|----------|-------------|---------------|
 | `GET`  | `/meta` | Meta Webhook Challenge verification | No |
 | `POST` | `/meta` | Meta Inbound messages & delivery status | HMAC Signature |
-| `POST` | `/razorpay` | Razorpay auto-recharge payment webhook | Signature |
-| `POST` | `/stripe` | Stripe subscription events webhook | Signature |
+| `POST` | `/cashfree` | Cashfree payment webhook | Signature |
 
 ### Super Admin (`/api/v1/super-admin`)
 | Method | Endpoint | Description | Auth Required |

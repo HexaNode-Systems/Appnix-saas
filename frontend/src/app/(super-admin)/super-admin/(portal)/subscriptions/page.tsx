@@ -126,7 +126,7 @@ export default function SuperAdminSubscriptionsPage() {
           <p className="text-2xl font-black text-foreground font-mono mt-2">
             {loading ? "..." : data?.overview?.paymentOrdersCount || 0}
           </p>
-          <p className="text-xs text-muted-foreground mt-1">Cashfree & Razorpay webhooks</p>
+          <p className="text-xs text-muted-foreground mt-1">Cashfree payment webhooks</p>
         </div>
       </div>
 
@@ -235,7 +235,7 @@ export default function SuperAdminSubscriptionsPage() {
       <div className="rounded-xl border bg-card shadow-xs overflow-hidden">
         <div className="p-4 border-b bg-muted/20">
           <h3 className="text-sm font-bold text-foreground">Recent Payment Gateway Orders</h3>
-          <p className="text-xs text-muted-foreground">Order transactions recorded via Cashfree & Razorpay webhooks</p>
+          <p className="text-xs text-muted-foreground">Order transactions recorded via Cashfree payment webhooks</p>
         </div>
 
         {loading ? (

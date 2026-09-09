@@ -67,13 +67,14 @@ function AdminLoginForm() {
 
     try {
       // 1. Submit to dedicated admin auth endpoint
+      const cleanEmail = email ? email.toLowerCase().trim() : "";
       const response = await axios.post(
         "/api/admin/auth/login",
         {
-          email,
+          email: cleanEmail,
           password,
-          orgSlug: orgSlug || undefined,
-          mfaCode: mfaCode || undefined,
+          orgSlug: orgSlug ? orgSlug.trim() : undefined,
+          mfaCode: mfaCode ? mfaCode.trim() : undefined,
         },
         { withCredentials: true }
       );
@@ -110,10 +111,10 @@ function AdminLoginForm() {
       // 4. Navigate to admin dashboard
       router.replace(returnUrl);
     } catch (err: any) {
-      const msg =
-        err.response?.data?.message ||
-        err.message ||
-        "Invalid administrative credentials. Please verify your email and password.";
+      const rawMsg = err.response?.data?.message || err.message;
+      const msg = Array.isArray(rawMsg)
+        ? rawMsg.join(", ")
+        : rawMsg || "Invalid administrative credentials. Please verify your email and password.";
       setError(msg);
 
       // Check if MFA is required

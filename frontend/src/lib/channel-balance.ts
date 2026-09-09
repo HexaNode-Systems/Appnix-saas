@@ -169,7 +169,7 @@ export const INITIAL_CHANNEL_TRANSACTIONS: ChannelTransaction[] = [
   {
     id: 'TXN_WA_984096',
     timestamp: '2026-08-28T16:30:00Z',
-    description: 'Prepaid Wallet Top-up - Razorpay Corporate UPI Gateway',
+    description: 'Prepaid Wallet Top-up - Cashfree Corporate UPI Gateway',
     recipientPhone: '+91 98765 00000',
     channel: 'wallet',
     category: 'TOPUP',
@@ -179,7 +179,7 @@ export const INITIAL_CHANNEL_TRANSACTIONS: ChannelTransaction[] = [
     amount: 5000.0000,
     closingBalance: 40.4000,
     deliveryStatus: 'COMPLETED',
-    metaBillingId: 'pay_Rzp_9918290124',
+    metaBillingId: 'pay_CF_9918290124',
     wabaId: 'waba_984102910842',
     messagePayloadSnippet: 'Prepaid wallet credit added via UPI ID appnix@hdfcbank. GST Invoice: INV-2026-08-091.',
   },

@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { superAdminApi } from "@/super-admin/services/superAdminApi";
 import { SuperAdminPagination } from "@/super-admin/components/common/SuperAdminPagination";
+import { SuperAdminClientDetailsModal } from "@/super-admin/components/clients/SuperAdminClientDetailsModal";
+import { executeGuestLogin } from "@/super-admin/services";
 import {
   Users,
   Search,
@@ -14,9 +16,10 @@ import {
   Building2,
   AlertCircle,
   CheckCircle2,
-  XCircle,
   Loader2,
-  ExternalLink,
+  Eye,
+  Calendar,
+  LogIn,
 } from "lucide-react";
 
 export default function SuperAdminClientsPage() {
@@ -26,7 +29,12 @@ export default function SuperAdminClientsPage() {
   const [search, setSearch] = useState("");
   const [partnerFilter, setPartnerFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [planFilter, setPlanFilter] = useState("ALL");
   const [error, setError] = useState<string | null>(null);
+
+  // Client Details Modal state
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
   // Common Pagination State
   const [page, setPage] = useState(1);
@@ -35,6 +43,7 @@ export default function SuperAdminClientsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [hasNext, setHasNext] = useState(false);
   const [hasPrevious, setHasPrevious] = useState(false);
+  const [summary, setSummary] = useState<{ total: number; active: number; suspended: number } | null>(null);
 
   const loadData = async (targetPage = page, targetLimit = limit) => {
     setLoading(true);
@@ -43,8 +52,9 @@ export default function SuperAdminClientsPage() {
       const [clientsData, partnersData] = await Promise.all([
         superAdminApi.getClients({
           partnerId: partnerFilter || undefined,
-          status: statusFilter,
-          search,
+          status: statusFilter !== "ALL" ? statusFilter : undefined,
+          plan: planFilter !== "ALL" ? planFilter : undefined,
+          search: search.trim() || undefined,
           page: targetPage,
           limit: targetLimit,
         }),
@@ -59,6 +69,9 @@ export default function SuperAdminClientsPage() {
         setTotalPages(clientsData.totalPages || 1);
         setHasNext(Boolean(clientsData.hasNext));
         setHasPrevious(Boolean(clientsData.hasPrevious));
+        if (clientsData.summary) {
+          setSummary(clientsData.summary);
+        }
       } else {
         setClients(Array.isArray(clientsData) ? clientsData : []);
       }
@@ -75,7 +88,7 @@ export default function SuperAdminClientsPage() {
   useEffect(() => {
     setPage(1);
     loadData(1, limit);
-  }, [partnerFilter, statusFilter]);
+  }, [partnerFilter, statusFilter, planFilter]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,6 +116,24 @@ export default function SuperAdminClientsPage() {
       loadData();
     } catch (err: any) {
       alert(err.response?.data?.message || err.message || "Action failed");
+    }
+  };
+
+  const handleOpenDetails = (client: any) => {
+    setSelectedClientId(client.id);
+    setIsDetailsOpen(true);
+  };
+
+  const [guestLoadingId, setGuestLoadingId] = useState<string | null>(null);
+
+  const handleLoginAsGuest = async (client: any) => {
+    setGuestLoadingId(client.id);
+    try {
+      await executeGuestLogin(client, "/super-admin/clients");
+    } catch (err: any) {
+      console.error("Guest login failed:", err);
+      alert(err.response?.data?.message || err.message || "Failed to log in as guest");
+      setGuestLoadingId(null);
     }
   };
 
@@ -143,32 +174,106 @@ export default function SuperAdminClientsPage() {
         </div>
       )}
 
+      {/* Real Statistics Overview */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="rounded-xl border bg-card p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+              Total End Clients
+            </span>
+            <Building2 className="h-4 w-4 text-emerald-600" />
+          </div>
+          <div className="mt-2 text-2xl font-extrabold text-foreground font-mono">
+            {loading ? "..." : (summary?.total ?? total).toLocaleString()}
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-0.5">Across all White-Label partners</p>
+        </div>
+
+        <div className="rounded-xl border bg-card p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+              Active End Clients
+            </span>
+            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+          </div>
+          <div className="mt-2 text-2xl font-extrabold text-emerald-700 dark:text-emerald-400 font-mono">
+            {loading ? "..." : (summary?.active ?? clients.filter((c) => c.status === "ACTIVE").length).toLocaleString()}
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-0.5">Operational active accounts</p>
+        </div>
+
+        <div className="rounded-xl border bg-card p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-400">
+              Suspended Accounts
+            </span>
+            <AlertCircle className="h-4 w-4 text-rose-600" />
+          </div>
+          <div className="mt-2 text-2xl font-extrabold text-rose-700 dark:text-rose-400 font-mono">
+            {loading ? "..." : (summary?.suspended ?? clients.filter((c) => c.status === "SUSPENDED").length).toLocaleString()}
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-0.5">Restricted or delinquent</p>
+        </div>
+
+        <div className="rounded-xl border bg-card p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+              Active Resellers
+            </span>
+            <Users className="h-4 w-4 text-amber-600" />
+          </div>
+          <div className="mt-2 text-2xl font-extrabold text-amber-700 dark:text-amber-400 font-mono">
+            {loading ? "..." : partners.length.toLocaleString()}
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-0.5">White-Label distributor network</p>
+        </div>
+      </div>
+
       {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-card p-3.5 rounded-xl border shadow-xs">
-        <form onSubmit={handleSearchSubmit} className="relative w-full sm:w-80">
+      <div className="flex flex-col lg:flex-row gap-3 items-center justify-between bg-card p-3.5 rounded-xl border shadow-xs">
+        <form onSubmit={handleSearchSubmit} className="relative w-full lg:w-96">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
-            placeholder="Search client business name or slug..."
+            placeholder="Search by client name, slug, owner, email, phone, or partner..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-8 h-9 text-xs"
           />
         </form>
 
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
           {/* Partner Filter */}
-          <select
-            value={partnerFilter}
-            onChange={(e) => setPartnerFilter(e.target.value)}
-            className="h-9 rounded-lg border bg-background px-2.5 text-xs font-medium"
-          >
-            <option value="">All Partners</option>
-            {partners.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="text-muted-foreground font-medium hidden sm:inline">Partner:</span>
+            <select
+              value={partnerFilter}
+              onChange={(e) => setPartnerFilter(e.target.value)}
+              className="h-9 rounded-lg border bg-background px-2.5 text-xs font-medium max-w-[180px] truncate"
+            >
+              <option value="">All Partners</option>
+              {partners.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Plan Filter */}
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="text-muted-foreground font-medium hidden sm:inline">Plan:</span>
+            <select
+              value={planFilter}
+              onChange={(e) => setPlanFilter(e.target.value)}
+              className="h-9 rounded-lg border bg-background px-2.5 text-xs font-medium"
+            >
+              <option value="ALL">All Plans</option>
+              <option value="Starter">Starter</option>
+              <option value="Growth">Growth</option>
+              <option value="Pro">Pro</option>
+              <option value="Enterprise">Enterprise</option>
+            </select>
+          </div>
 
           {/* Status Filter */}
           <div className="flex rounded-lg border bg-muted/30 p-0.5 text-xs">
@@ -210,24 +315,27 @@ export default function SuperAdminClientsPage() {
             <table className="w-full text-left text-xs">
               <thead className="bg-muted/30 border-b text-muted-foreground font-semibold">
                 <tr>
-                  <th className="py-3 px-4">Client Business</th>
-                  <th className="py-3 px-4">Parent White-Label Partner</th>
-                  <th className="py-3 px-4">Admin Email</th>
-                  <th className="py-3 px-4">Subscribed Tier</th>
-                  <th className="py-3 px-4">Users / Contacts</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
+                  <th className="py-3 px-3.5">Client Organization</th>
+                  <th className="py-3 px-3.5">Parent White-Label Partner</th>
+                  <th className="py-3 px-3.5">Owner / Contact</th>
+                  <th className="py-3 px-3.5">Subscribed Plan</th>
+                  <th className="py-3 px-3.5">Usage</th>
+                  <th className="py-3 px-3.5">Status</th>
+                  <th className="py-3 px-3.5">Created Date</th>
+                  <th className="py-3 px-3.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {clients.map((c) => (
                   <tr key={c.id} className="hover:bg-muted/20 transition-colors">
-                    <td className="py-3.5 px-4">
+                    {/* 1. Client Org */}
+                    <td className="py-3.5 px-3.5">
                       <div className="font-bold text-foreground text-xs">{c.name}</div>
                       <div className="text-[11px] text-muted-foreground font-mono">slug: {c.slug}</div>
                     </td>
 
-                    <td className="py-3.5 px-4">
+                    {/* 2. Parent Partner */}
+                    <td className="py-3.5 px-3.5">
                       {c.partner ? (
                         <Link
                           href={`/super-admin/partners/${c.partner.id}`}
@@ -241,49 +349,104 @@ export default function SuperAdminClientsPage() {
                       )}
                     </td>
 
-                    <td className="py-3.5 px-4 font-mono text-[11px] text-muted-foreground">
-                      {c.adminUser?.email || "N/A"}
-                    </td>
-
-                    <td className="py-3.5 px-4">
-                      {c.subscription ? (
-                        <span className="font-medium text-xs text-foreground">
-                          {c.subscription.planName}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground text-xs">Standard</span>
+                    {/* 3. Owner / Contact */}
+                    <td className="py-3.5 px-3.5">
+                      <div className="font-medium text-foreground">
+                        {c.ownerName || c.adminUser?.name || "Account Admin"}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground font-mono">
+                        {c.ownerEmail || c.adminUser?.email || "No email"}
+                      </div>
+                      {(c.ownerPhone || c.adminUser?.phone) && (
+                        <div className="text-[10px] text-muted-foreground font-mono">
+                          {c.ownerPhone || c.adminUser?.phone}
+                        </div>
                       )}
                     </td>
 
-                    <td className="py-3.5 px-4 font-mono text-[11px]">
-                      {c.stats?.users || 0} users • {c.stats?.contacts || 0} contacts
+                    {/* 4. Plan */}
+                    <td className="py-3.5 px-3.5">
+                      <Badge variant="outline" className="text-xs font-semibold bg-primary/5 text-primary border-primary/20">
+                        {c.plan || c.subscription?.planName || "Standard"}
+                      </Badge>
+                      {c.subscription?.price && (
+                        <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                          {c.subscription.price}
+                        </div>
+                      )}
                     </td>
 
-                    <td className="py-3.5 px-4">
+                    {/* 5. Usage */}
+                    <td className="py-3.5 px-3.5 font-mono text-[11px]">
+                      <div>{c.stats?.users || 1} users</div>
+                      <div className="text-muted-foreground">{c.stats?.contacts || 0} contacts</div>
+                    </td>
+
+                    {/* 6. Status */}
+                    <td className="py-3.5 px-3.5">
                       <Badge
                         className={
                           c.status === "ACTIVE"
-                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-semibold"
-                            : "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 font-semibold"
+                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-semibold text-[10px]"
+                            : "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 font-semibold text-[10px]"
                         }
                       >
                         {c.status}
                       </Badge>
                     </td>
 
-                    <td className="py-3.5 px-4 text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleToggleStatus(c)}
-                        className={`h-7 px-2.5 text-xs font-semibold ${
-                          c.status === "ACTIVE"
-                            ? "text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                            : "text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
-                        }`}
-                      >
-                        {c.status === "ACTIVE" ? "Suspend" : "Activate"}
-                      </Button>
+                    {/* 7. Created Date */}
+                    <td className="py-3.5 px-3.5 text-muted-foreground font-mono text-[11px]">
+                      {c.createdAt ? new Date(c.createdAt).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      }) : "N/A"}
+                    </td>
+
+                    {/* 8. Actions */}
+                    <td className="py-3.5 px-3.5 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleLoginAsGuest(c)}
+                          disabled={guestLoadingId === c.id}
+                          title={`Login as Guest to ${c.name}`}
+                          className="h-7 px-2 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 hover:text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 cursor-pointer gap-1"
+                        >
+                          {guestLoadingId === c.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin text-emerald-600" />
+                          ) : (
+                            <LogIn className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                          )}
+                          <span className="hidden sm:inline">Guest Login</span>
+                        </Button>
+
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleOpenDetails(c)}
+                          title="Inspect Client Details"
+                          className="h-7 px-2 text-xs font-semibold text-foreground hover:bg-muted cursor-pointer gap-1"
+                        >
+                          <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="hidden sm:inline">Details</span>
+                        </Button>
+
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleToggleStatus(c)}
+                          className={`h-7 px-2.5 text-xs font-semibold cursor-pointer ${
+                            c.status === "ACTIVE"
+                              ? "text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                              : "text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                          }`}
+                        >
+                          {c.status === "ACTIVE" ? "Suspend" : "Activate"}
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -304,6 +467,17 @@ export default function SuperAdminClientsPage() {
           loading={loading}
         />
       </div>
+
+      {/* Client Details Modal */}
+      <SuperAdminClientDetailsModal
+        clientId={selectedClientId}
+        isOpen={isDetailsOpen}
+        onClose={() => {
+          setIsDetailsOpen(false);
+          setSelectedClientId(null);
+        }}
+        onStatusChanged={() => loadData()}
+      />
     </div>
   );
 }

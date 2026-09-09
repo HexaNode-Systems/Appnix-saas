@@ -62,24 +62,4 @@ export class WebhooksController {
     const signedRequest = body?.signed_request || (req as any)?.query?.signed_request;
     return this.webhooksService.handleMetaDataDeletion(signedRequest, body);
   }
-
-  @Post('razorpay')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Razorpay Auto-Recharge Payment Event Webhook' })
-  async handleRazorpayWebhook(
-    @Body() payload: any,
-    @Headers('x-razorpay-signature') signature?: string,
-  ) {
-    return this.webhooksService.handleRazorpayWebhook(payload, signature);
-  }
-
-  @Post('stripe')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Stripe Invoice & Subscription Webhook' })
-  async handleStripeWebhook(
-    @Body() payload: any,
-    @Headers('stripe-signature') signature?: string,
-  ) {
-    return this.webhooksService.handleStripeWebhook(payload, signature);
-  }
 }

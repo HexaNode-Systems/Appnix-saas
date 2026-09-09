@@ -240,16 +240,10 @@ export class SettingsService {
           connectedAccounts: credentials.filter((c) => c.appName === 'OPENAI').length || 1,
         },
         {
-          id: 'razorpay',
-          name: 'Razorpay Auto-Payout & UPI',
+          id: 'cashfree',
+          name: 'Cashfree Payment Gateway & Subscriptions',
           status: 'Connected',
-          connectedAccounts: credentials.filter((c) => c.appName === 'RAZORPAY').length || 1,
-        },
-        {
-          id: 'stripe',
-          name: 'Stripe International Billing',
-          status: 'Connected',
-          connectedAccounts: credentials.filter((c) => c.appName === 'STRIPE').length || 1,
+          connectedAccounts: credentials.filter((c) => c.appName === 'CASHFREE').length || 1,
         },
       ],
     };

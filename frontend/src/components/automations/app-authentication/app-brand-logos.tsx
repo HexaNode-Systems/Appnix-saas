@@ -7,19 +7,16 @@ import {
   Sparkles,
   Zap,
   Bot,
-  Mail,
   Send,
   Users,
   Smartphone,
   CreditCard,
   Wallet,
-  ShoppingBag,
   ShoppingCart,
   Search,
   Table,
   PhoneCall,
   KeyRound,
-  ShieldAlert,
   Globe,
 } from 'lucide-react';
 
@@ -77,26 +74,14 @@ export function AppBrandLogo({ appName, className = '', size = 'md' }: BrandLogo
         </div>
       );
 
-    case 'RAZORPAY':
+    case 'CASHFREE':
       return (
         <div
-          className={`flex items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white border border-blue-500/40 shadow-sm shrink-0 ${sizeClasses} ${className}`}
-          title="Razorpay"
+          className={`flex items-center justify-center rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white border border-emerald-500/40 shadow-sm shrink-0 ${sizeClasses} ${className}`}
+          title="Cashfree Payments"
         >
-          <svg viewBox="0 0 24 24" fill="currentColor" className="w-full h-full">
-            <path d="M22.436 0l-11.91 7.773-1.164 4.28 7.034-4.59-4.873 16.537L2.7 15.65l-1.136 4.18L8.6 24l13.836-24z" />
-          </svg>
-        </div>
-      );
-
-    case 'STRIPE':
-      return (
-        <div
-          className={`flex items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 via-purple-600 to-blue-700 text-white border border-indigo-400/40 shadow-sm shrink-0 ${sizeClasses} ${className}`}
-          title="Stripe"
-        >
-          <span className="font-extrabold tracking-tighter lowercase font-serif text-lg leading-none">
-            S
+          <span className="font-extrabold tracking-tighter uppercase font-sans text-xs leading-none">
+            CF
           </span>
         </div>
       );

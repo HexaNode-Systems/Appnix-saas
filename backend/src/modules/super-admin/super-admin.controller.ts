@@ -130,6 +130,18 @@ export class SuperAdminController {
     return { success: true, data, message: 'Partner created successfully' };
   }
 
+  @Get('partners/check-slug')
+  @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Check if a partner workspace slug is available' })
+  async checkPartnerSlug(
+    @Query('slug') slug: string,
+    @Query('excludeId') excludeId?: string,
+  ) {
+    const result = await this.service.checkSlugAvailability(slug, excludeId);
+    return { success: true, ...result };
+  }
+
   @Get('partners/:id')
   @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
   @ApiBearerAuth()
@@ -192,19 +204,20 @@ export class SuperAdminController {
     @Param('id') id: string,
     @CurrentUser() actor: AuthUser,
   ) {
-    const data = await this.service.beginWorkspaceInspection({ userId: actor.userId }, id);
+    const data = await this.service.beginWorkspaceInspection(actor, id);
     return { success: true, data };
   }
 
-  // Preserved backwards compatibility
+  // Preserved backwards compatibility / delegated inspection
   @Post('impersonation')
-  @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
+  @UseGuards(JwtAccessGuard)
   @ApiBearerAuth()
+  @ApiOperation({ summary: 'Generate short-lived delegated inspection token for workspace' })
   beginWorkspaceInspection(
     @CurrentUser() actor: AuthUser,
     @Body('workspaceId') workspaceId: string,
   ) {
-    return this.service.beginWorkspaceInspection({ userId: actor.userId }, workspaceId);
+    return this.service.beginWorkspaceInspection(actor, workspaceId);
   }
 
   // ==========================================
@@ -217,11 +230,21 @@ export class SuperAdminController {
   async getClients(
     @Query('partnerId') partnerId?: string,
     @Query('status') status?: string,
+    @Query('plan') plan?: string,
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    const data = await this.service.getClients({ partnerId, status, search, page, limit });
+    const data = await this.service.getClients({ partnerId, status, plan, search, page, limit });
+    return { success: true, data };
+  }
+
+  @Get('clients/:id')
+  @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get full End-Client details for Super Admin inspection' })
+  async getClientById(@Param('id') id: string) {
+    const data = await this.service.getClientById(id);
     return { success: true, data };
   }
 

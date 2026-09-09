@@ -17,8 +17,14 @@ export class SubscriptionGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
-    // 1. Super Admin bypass: Super Admin has full administrative access across all tenants
-    if (user?.role === 'SUPER_ADMIN' || user?.role === 'owner') {
+    // 1. Super Admin and Reseller Admin inspection bypass
+    if (
+      user?.role === 'SUPER_ADMIN' ||
+      user?.role === 'owner' ||
+      user?.role === 'RESELLER_ADMIN' ||
+      user?.impersonatedWorkspaceId ||
+      request.headers?.['x-impersonation-token']
+    ) {
       return true;
     }
 
@@ -55,7 +61,10 @@ export class SubscriptionGuard implements CanActivate {
       where: {
         tenantId: String(tenantId),
         status: { in: ['ACTIVE', 'TRIALING'] },
-        currentPeriodEnd: { gt: now },
+        OR: [
+          { currentPeriodEnd: { gt: now } },
+          { remainingDays: { gt: 0 } },
+        ],
       },
       orderBy: { createdAt: 'desc' },
     });

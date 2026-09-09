@@ -14,9 +14,19 @@ const createAxiosInstance = (): AxiosInstance => {
   instance.interceptors.request.use(
     (requestConfig: InternalAxiosRequestConfig) => {
       if (typeof window !== "undefined") {
-        const token = localStorage.getItem(config.auth.tokenKey);
+        const token =
+          localStorage.getItem(config.auth.tokenKey) ||
+          localStorage.getItem(config.auth.adminTokenKey) ||
+          localStorage.getItem("appnix_admin_token");
         if (token && requestConfig.headers) {
           requestConfig.headers.Authorization = `Bearer ${token}`;
+        }
+
+        const impersonationToken =
+          sessionStorage.getItem("appnix_impersonation_token") ||
+          localStorage.getItem("appnix_impersonation_token");
+        if (impersonationToken && requestConfig.headers) {
+          requestConfig.headers["X-Impersonation-Token"] = impersonationToken;
         }
       }
       return requestConfig;

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { executeSuperAdminLogout } from "@/super-admin/services/superAdminApi";
+import { config } from "@/lib/config";
 import {
   LayoutDashboard,
   Building2,
@@ -23,8 +24,8 @@ import {
   Plus,
   Users,
   Layers,
-  Globe,
   Radio,
+  Palette,
 } from "lucide-react";
 
 interface SuperAdminSidebarProps {
@@ -65,6 +66,7 @@ const adminNavItems: NavItem[] = [
       },
     ],
   },
+  { id: "brand-settings", label: "Brand Settings", href: "/admin/brand-settings", icon: Palette },
   { id: "billing", label: "Billing & Plans", href: "/admin/billing", icon: CreditCard },
   { id: "feature-flags", label: "Feature Flags", href: "/admin/feature-flags", icon: Flag },
   { id: "support", label: "Support Tickets", href: "/admin/support", icon: LifeBuoy },
@@ -94,7 +96,6 @@ const superAdminNavItems: NavItem[] = [
   { id: "clients", label: "All Client Accounts", href: "/super-admin/clients", icon: Users },
   { id: "wholesale-plans", label: "Wholesale Plans", href: "/super-admin/wholesale-plans", icon: Layers },
   { id: "subscriptions", label: "Subscriptions & Rev", href: "/super-admin/subscriptions", icon: CreditCard },
-  { id: "domains", label: "Custom Domains (DNS)", href: "/super-admin/domains", icon: Globe },
   { id: "channels", label: "Channel Usage", href: "/super-admin/channels", icon: Radio },
   { id: "health", label: "System Health", href: "/super-admin/health", icon: Activity },
   { id: "audit-logs", label: "Audit Trail", href: "/super-admin/audit-logs", icon: History },
@@ -162,12 +163,21 @@ export function SuperAdminSidebar({ open, onClose, isSuperAdmin: propIsSuperAdmi
       if (isSuperAdmin) {
         await executeSuperAdminLogout();
       } else {
+        localStorage.removeItem(config.auth.adminTokenKey);
+        localStorage.removeItem(config.auth.adminUserKey);
+        localStorage.removeItem(config.auth.adminRefreshTokenKey);
+        localStorage.removeItem(config.auth.tokenKey);
+        localStorage.removeItem(config.auth.userKey);
+        localStorage.removeItem(config.auth.refreshTokenKey);
         localStorage.removeItem("appnix_admin_token");
         localStorage.removeItem("appnix_admin_user");
         localStorage.removeItem("appnix_auth_token");
         localStorage.removeItem("appnix_user");
+        localStorage.removeItem("appnix_admin_refresh_token");
+        localStorage.removeItem("appnix_refresh_token");
         document.cookie = "appnix_admin_token=; path=/; max-age=0";
         document.cookie = "appnix_access_token=; path=/; max-age=0";
+        document.cookie = "appnix_auth_token=; path=/; max-age=0";
         window.location.href = isSuperAdminSubdomain ? "/logout" : "/admin/logout";
       }
     }

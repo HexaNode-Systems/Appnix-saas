@@ -29,6 +29,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       return;
     }
 
+    // 0. Active guest impersonation session always has dashboard access
+    const isGuest = typeof window !== "undefined" && !!localStorage.getItem("appnix_guest_impersonation");
+    if (isGuest) {
+      setHasSubAccess(true);
+      setIsVerifyingSub(false);
+      return;
+    }
+
     // 1. Super Admin always has unrestricted panel access
     if (user.role === "owner" || (user as any).role === "SUPER_ADMIN") {
       setHasSubAccess(true);

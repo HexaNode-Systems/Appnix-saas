@@ -60,10 +60,18 @@ export class CreatePartnerDto {
   @IsOptional()
   adminPassword?: string;
 
-  @ApiPropertyOptional({ example: '+919876543210' })
+  @ApiProperty({ example: '+919876543210' })
   @IsString()
-  @IsOptional()
-  adminPhone?: string;
+  @IsNotEmpty()
+  adminPhone: string;
+
+  @ApiProperty({
+    example: 'eyJhbGciOiJSUzI1NiIsImtpZCI...',
+    description: 'Firebase Phone Auth ID token after SMS OTP verification',
+  })
+  @IsString()
+  @IsNotEmpty()
+  firebaseIdToken: string;
 
   @ApiPropertyOptional({ example: 'ws-plan-starter' })
   @IsString()
@@ -131,6 +139,32 @@ export class UpdatePartnerDto {
   @IsString()
   @IsOptional()
   name?: string;
+
+  @ApiPropertyOptional({ example: 'apex-agency' })
+  @IsString()
+  @IsOptional()
+  slug?: string;
+
+  @ApiPropertyOptional({ example: 'Alex Partner' })
+  @IsString()
+  @IsOptional()
+  adminName?: string;
+
+  @ApiPropertyOptional({ example: 'admin@apexdigital.com' })
+  @IsEmail()
+  @IsOptional()
+  adminEmail?: string;
+
+  @ApiPropertyOptional({ example: '+919876543210' })
+  @IsString()
+  @IsOptional()
+  adminPhone?: string;
+
+  @ApiPropertyOptional({ example: 'NewSecret123' })
+  @IsString()
+  @MinLength(6)
+  @IsOptional()
+  adminPassword?: string;
 
   @ApiPropertyOptional({ example: '#2563eb' })
   @IsString()

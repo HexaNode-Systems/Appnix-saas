@@ -10,7 +10,6 @@ import {
   Users,
   CreditCard,
   Layers,
-  Globe,
   Activity,
   Shield,
   ArrowUpRight,
@@ -214,9 +213,9 @@ export default function SuperAdminDashboardPage() {
               One-Time Lifetime White-Label License + Recurring Per-Client Commission
             </h3>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              White-Label Partners pay a <strong>one-time lifetime White-Label fee</strong> (e.g. ₹49,999) for permanent platform access without any yearly or monthly renewal or expiry date.
-              Separately, Appnix earns a recurring commission for every active end-client onboarded (e.g. <strong>₹499/client/month</strong>).
-              Partners set their own retail prices and retain 100% of their margin.
+              White-Label Partners pay a <strong>one-time lifetime White-Label license fee</strong> for permanent platform access without any recurring license renewals or expiration.
+              Separately, Appnix earns a contracted recurring commission for active end-clients onboarded.
+              Partners configure their own retail packages and retain their full operating margins.
             </p>
           </div>
 
@@ -386,13 +385,6 @@ export default function SuperAdminDashboardPage() {
           <div className="rounded-xl border bg-card p-5 shadow-xs space-y-3">
             <h3 className="text-sm font-bold text-foreground border-b pb-2.5">Quick Actions</h3>
             <div className="grid grid-cols-1 gap-2">
-              <Link href="/super-admin/domains">
-                <Button variant="outline" className="w-full justify-start text-xs h-9 gap-2">
-                  <Globe className="h-4 w-4 text-blue-500" />
-                  <span>Verify Custom Domain DNS</span>
-                </Button>
-              </Link>
-
               <Link href="/super-admin/clients">
                 <Button variant="outline" className="w-full justify-start text-xs h-9 gap-2">
                   <Users className="h-4 w-4 text-emerald-500" />

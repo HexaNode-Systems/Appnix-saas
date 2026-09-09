@@ -16,6 +16,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { MailService } from '../mail/mail.service';
 import { SuperAdminDnsService } from './services/super-admin-dns.service';
+import { SuperAdminFirebaseService } from './services/super-admin-firebase.service';
 import {
   SuperAdminLoginDto,
   CreatePartnerDto,
@@ -41,6 +42,7 @@ export class SuperAdminService {
     private readonly authService: AuthService,
     private readonly dnsService: SuperAdminDnsService,
     private readonly mailService: MailService,
+    private readonly firebaseService: SuperAdminFirebaseService,
   ) {}
 
   // ==========================================
@@ -201,6 +203,13 @@ export class SuperAdminService {
           partnerConfig: true,
           users: { where: { role: Role.RESELLER_ADMIN }, take: 1 },
           _count: { select: { children: true } },
+          children: {
+            where: { tier: TenantTier.END_CLIENT },
+            select: {
+              id: true,
+              subscriptions: { where: { status: 'ACTIVE' }, include: { plan: true }, take: 1 },
+            },
+          },
         },
         orderBy: { createdAt: 'desc' },
         take: 5,
@@ -214,7 +223,10 @@ export class SuperAdminService {
         _count: { id: true },
         _sum: { amount: true },
       }),
-      this.prisma.plan.findMany({ select: { id: true, name: true, price: true } }),
+      this.prisma.subscription.findMany({
+        where: { status: 'ACTIVE' },
+        include: { plan: true },
+      }),
       this.prisma.partnerConfig.findMany({
         include: {
           tenant: {
@@ -234,7 +246,7 @@ export class SuperAdminService {
 
     for (const pc of partnerConfigs) {
       const clientCount = pc.tenant?._count?.children || 0;
-      const rate = Number(pc.perClientRate || 499);
+      const rate = Number(pc.perClientRate || 0);
       const monthlyCommission = clientCount * rate;
       totalMonthlyCommission += monthlyCommission;
       if (pc.setupFeePaid) {
@@ -250,11 +262,11 @@ export class SuperAdminService {
       totalCumulativeCommission += monthlyCommission * monthsActive;
     }
 
-    // Default estimate if early stage: count * base wholesale 499
-    if (totalMonthlyCommission === 0 && totalClients > 0) {
-      totalMonthlyCommission = totalClients * 499;
-      totalCumulativeCommission = totalMonthlyCommission;
-    }
+    const actualRetailMrr = (plans as any[]).reduce(
+      (sum, s) => sum + (s.plan?.price ? Number(s.plan.price) : 0),
+      0,
+    );
+    const estimatedPartnerMargin = Math.max(0, actualRetailMrr - totalMonthlyCommission);
 
     return {
       partners: {
@@ -278,8 +290,9 @@ export class SuperAdminService {
         currency: 'INR',
         setupFeesCollected: totalSetupFeesCollected,
         activeSubscriptions: totalSubscriptions,
-        estimatedRetailMrr: totalClients * 1999, // Typical selling price
-        estimatedPartnerMargin: Math.max(0, totalClients * 1999 - totalMonthlyCommission),
+        actualRetailMrr,
+        estimatedRetailMrr: actualRetailMrr,
+        estimatedPartnerMargin,
       },
       channels: channelStats.map((c) => ({
         channel: c.channel,
@@ -288,12 +301,15 @@ export class SuperAdminService {
       })),
       recentPartners: recentPartners.map((p) => {
         const clientCount = p._count.children;
-        const perClientRate = Number(p.partnerConfig?.perClientRate || 499);
+        const perClientRate = Number(p.partnerConfig?.perClientRate || 0);
         const setupFee = Number(p.partnerConfig?.setupFee || 0);
         const setupFeePaid = p.partnerConfig?.setupFeePaid ?? true;
         const monthlyCommission = clientCount * perClientRate;
-        const retailPrice = 1999;
-        const partnerMargin = Math.max(0, clientCount * retailPrice - monthlyCommission);
+        const retailRevenue = p.children.reduce(
+          (sum: number, c: any) => sum + (c.subscriptions[0]?.plan?.price ? Number(c.subscriptions[0].plan.price) : 0),
+          0,
+        );
+        const partnerMargin = Math.max(0, retailRevenue - monthlyCommission);
 
         return {
           id: p.id,
@@ -366,9 +382,16 @@ export class SuperAdminService {
             select: { id: true, name: true, email: true, phone: true, createdAt: true },
           },
           domainMappings: true,
+          children: {
+            where: { tier: TenantTier.END_CLIENT },
+            select: {
+              id: true,
+              status: true,
+              subscriptions: { where: { status: 'ACTIVE' }, include: { plan: true }, take: 1 },
+            },
+          },
           _count: {
             select: {
-              children: true, // End clients
               users: true,
             },
           },
@@ -379,8 +402,9 @@ export class SuperAdminService {
 
     const now = new Date();
     const formatted = partners.map((p) => {
-      const activeClientCount = p._count.children;
-      const perClientRate = Number(p.partnerConfig?.perClientRate || 499);
+      const totalClients = p.children.length;
+      const activeClientCount = p.children.filter((c) => c.status === TenantStatus.ACTIVE).length;
+      const perClientRate = Number(p.partnerConfig?.perClientRate || 0);
       const recurringWholesaleRevenue = activeClientCount * perClientRate;
       const setupFee = Number(p.partnerConfig?.setupFee || 0);
       const setupFeePaid = p.partnerConfig?.setupFeePaid ?? true;
@@ -395,12 +419,14 @@ export class SuperAdminService {
       );
       const totalCommissionRevenue = recurringWholesaleRevenue * monthsActive;
 
-      // Partner Retail Economics & Margin:
-      const retailPrice = 1999;
-      const monthlyRetailRevenue = activeClientCount * retailPrice;
+      // Real Partner Retail Economics & Margin from client subscriptions:
+      const monthlyRetailRevenue = p.children.reduce(
+        (sum, c) => sum + (c.subscriptions[0]?.plan?.price ? Number(c.subscriptions[0].plan.price) : 0),
+        0,
+      );
       const partnerMargin = Math.max(0, monthlyRetailRevenue - recurringWholesaleRevenue);
       const partnerMarginPercentage =
-        retailPrice > 0 ? Math.round(((retailPrice - perClientRate) / retailPrice) * 100) : 0;
+        monthlyRetailRevenue > 0 ? Math.round((partnerMargin / monthlyRetailRevenue) * 100) : 0;
 
       return {
         id: p.id,
@@ -417,6 +443,8 @@ export class SuperAdminService {
           faviconUrl: p.faviconUrl,
         },
         adminUser: p.users[0] || null,
+        totalClients,
+        activeClients: activeClientCount,
         clientCount: activeClientCount,
         maxClients: p.maxEndClients || p.partnerConfig?.clientLimit || 50,
         totalUsers: p._count.users,
@@ -434,7 +462,7 @@ export class SuperAdminService {
         totalCommissionRevenue,
 
         // Partner Margin:
-        retailPricePerClient: retailPrice,
+        retailPricePerClient: activeClientCount > 0 ? Math.round(monthlyRetailRevenue / activeClientCount) : 0,
         monthlyRetailRevenue,
         partnerMargin,
         partnerMarginPercentage,
@@ -461,7 +489,54 @@ export class SuperAdminService {
       };
     });
 
-    return createPaginatedResponse(formatted, total, page, limit);
+    // Global summary across all partners matching filter (not just this paginated page)
+    const allMatching = await this.prisma.tenant.findMany({
+      where,
+      include: {
+        partnerConfig: true,
+        children: {
+          where: { tier: TenantTier.END_CLIENT },
+          select: {
+            id: true,
+            status: true,
+            subscriptions: { where: { status: 'ACTIVE' }, include: { plan: true }, take: 1 },
+          },
+        },
+      },
+    });
+
+    let totalLifetimeFees = 0;
+    let totalMonthlyCommission = 0;
+    let totalActiveClients = 0;
+    let totalPartnerMargin = 0;
+
+    for (const p of allMatching) {
+      const isFeePaid = p.partnerConfig?.setupFeePaid ?? true;
+      if (isFeePaid) {
+        totalLifetimeFees += Number(p.partnerConfig?.setupFee || 0);
+      }
+      const activeCount = p.children.filter((c) => c.status === TenantStatus.ACTIVE).length;
+      totalActiveClients += activeCount;
+      const rate = Number(p.partnerConfig?.perClientRate || 0);
+      const comm = activeCount * rate;
+      totalMonthlyCommission += comm;
+      const retRev = p.children.reduce(
+        (sum, c) => sum + (c.subscriptions[0]?.plan?.price ? Number(c.subscriptions[0].plan.price) : 0),
+        0,
+      );
+      totalPartnerMargin += Math.max(0, retRev - comm);
+    }
+
+    return {
+      ...createPaginatedResponse(formatted, total, page, limit),
+      summary: {
+        totalPartners: total,
+        totalLifetimeFees,
+        totalMonthlyCommission,
+        totalActiveClients,
+        totalPartnerMargin,
+      },
+    };
   }
 
   async getPartnerById(
@@ -489,9 +564,12 @@ export class SuperAdminService {
 
     if (!partner) throw new NotFoundException('Partner not found');
 
-    const [totalClients, rawClients] = await Promise.all([
+    const [totalClients, activeClients, rawClients, activeSubs] = await Promise.all([
       this.prisma.tenant.count({
         where: { parentId: id, tier: TenantTier.END_CLIENT },
+      }),
+      this.prisma.tenant.count({
+        where: { parentId: id, tier: TenantTier.END_CLIENT, status: TenantStatus.ACTIVE },
       }),
       this.prisma.tenant.findMany({
         where: { parentId: id, tier: TenantTier.END_CLIENT },
@@ -507,10 +585,17 @@ export class SuperAdminService {
         },
         orderBy: { createdAt: 'desc' },
       }),
+      this.prisma.subscription.findMany({
+        where: {
+          tenant: { parentId: id, tier: TenantTier.END_CLIENT, status: TenantStatus.ACTIVE },
+          status: 'ACTIVE',
+        },
+        select: { price: true },
+      }),
     ]);
 
-    const perClientRate = Number(partner.partnerConfig?.perClientRate || 499);
-    const setupFee = Number(partner.partnerConfig?.setupFee || 0);
+    const perClientRate = Number(partner.partnerConfig?.perClientRate ?? 0);
+    const setupFee = Number(partner.partnerConfig?.setupFee ?? 0);
     const setupFeePaid = partner.partnerConfig?.setupFeePaid ?? true;
 
     const now = new Date();
@@ -522,19 +607,18 @@ export class SuperAdminService {
         1,
     );
 
-    const monthlyCommissionRevenue = totalClients * perClientRate;
+    const monthlyCommissionRevenue = activeClients * perClientRate;
     const totalCommissionRevenue = monthlyCommissionRevenue * monthsActive;
-    const retailPrice = 1999;
-    const monthlyRetailRevenue = totalClients * retailPrice;
+    const monthlyRetailRevenue = activeSubs.reduce((sum, s) => sum + (Number(s.price) || 0), 0);
     const partnerMargin = Math.max(0, monthlyRetailRevenue - monthlyCommissionRevenue);
     const partnerMarginPercentage =
-      retailPrice > 0 ? Math.round(((retailPrice - perClientRate) / retailPrice) * 100) : 0;
+      monthlyRetailRevenue > 0 ? Math.round((partnerMargin / monthlyRetailRevenue) * 100) : 0;
 
     const commissionHistory = await this.generateCommissionHistory(
       id,
       partner.createdAt,
       perClientRate,
-      totalClients,
+      activeClients,
     );
 
     const clientsPaginated = createPaginatedResponse(
@@ -568,7 +652,8 @@ export class SuperAdminService {
       adminUsers: partner.users,
       clients: clientsPaginated,
       metrics: {
-        activeClientCount: totalClients,
+        totalClients,
+        activeClientCount: activeClients,
         maxClients: partner.maxEndClients || partner.partnerConfig?.clientLimit || 50,
         // Lifetime White-Label License:
         lifetimeFee: setupFee,
@@ -583,7 +668,7 @@ export class SuperAdminService {
         totalCommissionRevenue,
 
         // Partner Margin:
-        retailPricePerClient: retailPrice,
+        retailPricePerClient: activeClients > 0 ? Math.round(monthlyRetailRevenue / activeClients) : 0,
         monthlyRetailRevenue,
         partnerMargin,
         partnerMarginPercentage,
@@ -605,10 +690,16 @@ export class SuperAdminService {
     perClientRate: number,
     activeClients: number,
   ) {
-    const clientTenants = await this.prisma.tenant.findMany({
-      where: { parentId: partnerId, tier: TenantTier.END_CLIENT },
-      select: { id: true, createdAt: true, status: true },
-    });
+    const [clientTenants, clientSubscriptions] = await Promise.all([
+      this.prisma.tenant.findMany({
+        where: { parentId: partnerId, tier: TenantTier.END_CLIENT },
+        select: { id: true, createdAt: true, status: true },
+      }),
+      this.prisma.subscription.findMany({
+        where: { tenant: { parentId: partnerId, tier: TenantTier.END_CLIENT } },
+        select: { tenantId: true, price: true, status: true, createdAt: true },
+      }),
+    ]);
 
     const monthNames = [
       'January',
@@ -632,23 +723,26 @@ export class SuperAdminService {
     const endYear = now.getFullYear();
     const endMonth = now.getMonth();
 
-    const retailRate = 1999;
     const history = [];
 
     while (curYear < endYear || (curYear === endYear && curMonth <= endMonth)) {
       const monthEnd = new Date(curYear, curMonth + 1, 0, 23, 59, 59, 999);
       const isCurrentMonth = curYear === endYear && curMonth === endMonth;
 
-      const clientsInMonth = clientTenants.filter(
-        (c) => new Date(c.createdAt) <= monthEnd && c.status === TenantStatus.ACTIVE,
-      ).length;
-      const clientCount = clientsInMonth > 0 ? clientsInMonth : (isCurrentMonth ? activeClients : 0);
+      const activeTenantIds = clientTenants
+        .filter((c) => new Date(c.createdAt) <= monthEnd && c.status === TenantStatus.ACTIVE)
+        .map((c) => c.id);
+
+      const clientCount =
+        activeTenantIds.length > 0 ? activeTenantIds.length : isCurrentMonth ? activeClients : 0;
 
       const commissionEarned = clientCount * perClientRate;
-      const retailRevenue = clientCount * retailRate;
+      const retailRevenue = clientSubscriptions
+        .filter((s) => activeTenantIds.includes(s.tenantId) && new Date(s.createdAt) <= monthEnd)
+        .reduce((acc, sub) => acc + (Number(sub.price) || 0), 0);
       const partnerMargin = Math.max(0, retailRevenue - commissionEarned);
       const marginPercentage =
-        retailRate > 0 ? Math.round(((retailRate - perClientRate) / retailRate) * 100) : 0;
+        retailRevenue > 0 ? Math.round((partnerMargin / retailRevenue) * 100) : 0;
 
       const periodKey = `${curYear}-${String(curMonth + 1).padStart(2, '0')}`;
       const label = `${monthNames[curMonth]} ${curYear}`;
@@ -662,7 +756,7 @@ export class SuperAdminService {
         retailRevenue,
         partnerMargin,
         marginPercentage,
-        status: isCurrentMonth ? 'CURRENT' : (commissionEarned > 0 ? 'SETTLED' : 'NO_ACTIVITY'),
+        status: isCurrentMonth ? 'CURRENT' : commissionEarned > 0 ? 'SETTLED' : 'NO_ACTIVITY',
         paidAt: isCurrentMonth ? null : monthEnd.toISOString(),
       });
 
@@ -683,17 +777,24 @@ export class SuperAdminService {
     });
     if (!partner) throw new NotFoundException('Partner not found');
 
-    const [activeClients, totalClients] = await Promise.all([
+    const [activeClients, totalClients, activeSubs] = await Promise.all([
       this.prisma.tenant.count({
         where: { parentId: id, tier: TenantTier.END_CLIENT, status: TenantStatus.ACTIVE },
       }),
       this.prisma.tenant.count({
         where: { parentId: id, tier: TenantTier.END_CLIENT },
       }),
+      this.prisma.subscription.findMany({
+        where: {
+          tenant: { parentId: id, tier: TenantTier.END_CLIENT, status: TenantStatus.ACTIVE },
+          status: 'ACTIVE',
+        },
+        select: { price: true },
+      }),
     ]);
 
-    const perClientRate = Number(partner.partnerConfig?.perClientRate || 499);
-    const setupFee = Number(partner.partnerConfig?.setupFee || 0);
+    const perClientRate = Number(partner.partnerConfig?.perClientRate ?? 0);
+    const setupFee = Number(partner.partnerConfig?.setupFee ?? 0);
     const setupFeePaid = partner.partnerConfig?.setupFeePaid ?? true;
 
     const now = new Date();
@@ -707,11 +808,10 @@ export class SuperAdminService {
 
     const monthlyCommission = activeClients * perClientRate;
     const totalCommission = monthlyCommission * monthsActive;
-    const retailPrice = 1999;
-    const monthlyRetailRevenue = activeClients * retailPrice;
+    const monthlyRetailRevenue = activeSubs.reduce((sum, s) => sum + (Number(s.price) || 0), 0);
     const partnerMargin = Math.max(0, monthlyRetailRevenue - monthlyCommission);
     const marginPercentage =
-      retailPrice > 0 ? Math.round(((retailPrice - perClientRate) / retailPrice) * 100) : 0;
+      monthlyRetailRevenue > 0 ? Math.round((partnerMargin / monthlyRetailRevenue) * 100) : 0;
 
     const history = await this.generateCommissionHistory(
       id,
@@ -740,7 +840,7 @@ export class SuperAdminService {
       monthlyCommissionRevenue: monthlyCommission,
       totalCommissionRevenue: totalCommission,
       // Partner Margin:
-      retailPricePerClient: retailPrice,
+      retailPricePerClient: activeClients > 0 ? Math.round(monthlyRetailRevenue / activeClients) : 0,
       monthlyRetailRevenue,
       partnerMargin,
       marginPercentage,
@@ -749,8 +849,50 @@ export class SuperAdminService {
     };
   }
 
+  async checkSlugAvailability(
+    rawSlug: string,
+    excludeId?: string,
+  ): Promise<{ available: boolean; slug: string; reason?: string }> {
+    if (!rawSlug || typeof rawSlug !== 'string' || !rawSlug.trim()) {
+      return { available: false, slug: '', reason: 'Slug is required' };
+    }
+
+    const formattedSlug = rawSlug
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    if (!formattedSlug) {
+      return { available: false, slug: '', reason: 'Slug must contain alphanumeric characters' };
+    }
+
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(formattedSlug)) {
+      return {
+        available: false,
+        slug: formattedSlug,
+        reason: 'Invalid slug format (lowercase letters, numbers, and hyphens only)',
+      };
+    }
+
+    const where: any = { slug: formattedSlug };
+    if (excludeId) {
+      where.NOT = { id: excludeId };
+    }
+
+    const existing = await this.prisma.tenant.findFirst({ where });
+    if (existing) {
+      return { available: false, slug: formattedSlug, reason: `Slug "${formattedSlug}" is already taken` };
+    }
+
+    return { available: true, slug: formattedSlug };
+  }
+
   async createPartner(dto: CreatePartnerDto, actorId: string, actorEmail?: string) {
-    // Check if email already exists
+    // 1. Verify Phone OTP via Firebase
+    await this.firebaseService.verifyPhoneToken(dto.firebaseIdToken, dto.adminPhone);
+
+    // 2. Check if email already exists
     const existingUser = await this.prisma.user.findUnique({
       where: { email: dto.adminEmail.toLowerCase().trim() },
     });
@@ -758,13 +900,27 @@ export class SuperAdminService {
       throw new ConflictException(`User with email ${dto.adminEmail} already exists`);
     }
 
-    // Generate unique slug
-    const baseSlug = (dto.slug || dto.name)
+    // 3. Validate and resolve workspace slug
+    const chosenSlug = (dto.slug || 'partner')
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 25);
-    const uniqueSlug = `${baseSlug || 'partner'}-${Math.random().toString(36).substring(2, 6)}`;
+      .trim()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    if (!chosenSlug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(chosenSlug)) {
+      throw new BadRequestException(
+        'Invalid workspace slug format. Must contain only lowercase alphanumeric characters and hyphens.',
+      );
+    }
+
+    const existingTenant = await this.prisma.tenant.findUnique({
+      where: { slug: chosenSlug },
+    });
+    if (existingTenant) {
+      throw new ConflictException(
+        `Workspace slug "${chosenSlug}" is already taken. Please enter a different slug.`,
+      );
+    }
 
     // Root tenant for parent reference
     const rootTenant = await this.prisma.tenant.findFirst({
@@ -788,7 +944,7 @@ export class SuperAdminService {
       data: {
         id: tenantId,
         name: dto.name,
-        slug: uniqueSlug,
+        slug: chosenSlug,
         tier: TenantTier.PRIMARY_RESELLER,
         status: TenantStatus.ACTIVE,
         path: cleanPath,
@@ -815,25 +971,38 @@ export class SuperAdminService {
       },
     });
 
-    // Resolve Lifetime Fee & Commission Rate:
+    // Resolve Lifetime Fee & Commission Rate from selected wholesale plan or DTO (no fake numbers):
+    let defaultSetupFee = 0;
+    let defaultPerClient = 0;
+
+    if (dto.wholesalePlanId) {
+      const selectedPlan = await this.prisma.wholesalePlan.findUnique({
+        where: { id: dto.wholesalePlanId },
+      });
+      if (selectedPlan) {
+        defaultSetupFee = Number(selectedPlan.setupFee || 0);
+        defaultPerClient = Number(selectedPlan.perClientPrice || 0);
+      }
+    }
+
     const lifetimeFee =
       dto.lifetimeFee !== undefined
-        ? dto.lifetimeFee
+        ? Number(dto.lifetimeFee)
         : dto.setupFee !== undefined
-          ? dto.setupFee
-          : 49999;
+          ? Number(dto.setupFee)
+          : defaultSetupFee;
     const isFeePaid =
       dto.setupFeePaid !== undefined
-        ? dto.setupFeePaid
+        ? Boolean(dto.setupFeePaid)
         : dto.paymentStatus
           ? dto.paymentStatus === 'PAID'
           : true;
     const commissionRate =
       dto.commissionPerClient !== undefined
-        ? dto.commissionPerClient
+        ? Number(dto.commissionPerClient)
         : dto.perClientRate !== undefined
-          ? dto.perClientRate
-          : 499;
+          ? Number(dto.perClientRate)
+          : defaultPerClient;
 
     // 3. Create Partner Wholesale Config
     const partnerConfig = await this.prisma.partnerConfig.create({
@@ -973,7 +1142,7 @@ export class SuperAdminService {
   async updatePartner(id: string, dto: UpdatePartnerDto, actorId: string, actorEmail?: string) {
     const partner = await this.prisma.tenant.findUnique({
       where: { id },
-      include: { partnerConfig: true },
+      include: { partnerConfig: true, users: true },
     });
     if (!partner) throw new NotFoundException('Partner not found');
 
@@ -984,16 +1153,88 @@ export class SuperAdminService {
     if (dto.faviconUrl !== undefined) updateTenantData.faviconUrl = dto.faviconUrl;
     if (dto.clientLimit) updateTenantData.maxEndClients = dto.clientLimit;
     if (dto.status) updateTenantData.status = dto.status as TenantStatus;
-    if (dto.customDomain) updateTenantData.customDomain = dto.customDomain.toLowerCase().trim();
+    if (dto.customDomain !== undefined) {
+      updateTenantData.customDomain = dto.customDomain ? dto.customDomain.toLowerCase().trim() : null;
+    }
 
-    const updatedTenant = await this.prisma.tenant.update({
-      where: { id },
-      data: updateTenantData,
-    });
+    // Slug update with uniqueness check (ignoring current partner's own id)
+    if (dto.slug) {
+      const cleanSlug = dto.slug
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9-]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+
+      if (!cleanSlug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(cleanSlug)) {
+        throw new BadRequestException(
+          'Invalid workspace slug format. Must contain only lowercase alphanumeric characters and hyphens.',
+        );
+      }
+
+      const duplicateSlug = await this.prisma.tenant.findFirst({
+        where: {
+          slug: cleanSlug,
+          NOT: { id },
+        },
+      });
+      if (duplicateSlug) {
+        throw new ConflictException(
+          `Workspace slug "${cleanSlug}" is already taken by another workspace.`,
+        );
+      }
+      updateTenantData.slug = cleanSlug;
+    }
+
+    if (Object.keys(updateTenantData).length > 0) {
+      await this.prisma.tenant.update({
+        where: { id },
+        data: updateTenantData,
+      });
+    }
+
+    // Update Administrator User Details
+    if (dto.adminName || dto.adminEmail || dto.adminPhone !== undefined || dto.adminPassword) {
+      const adminUser =
+        partner.users.find((u) => u.role === Role.RESELLER_ADMIN) || partner.users[0];
+
+      if (adminUser) {
+        const updateUserData: any = {};
+        if (dto.adminName) updateUserData.name = dto.adminName.trim();
+        if (dto.adminPhone !== undefined) updateUserData.phone = dto.adminPhone.trim();
+
+        if (
+          dto.adminEmail &&
+          dto.adminEmail.toLowerCase().trim() !== adminUser.email.toLowerCase().trim()
+        ) {
+          const cleanEmail = dto.adminEmail.toLowerCase().trim();
+          const duplicateEmail = await this.prisma.user.findFirst({
+            where: {
+              email: cleanEmail,
+              NOT: { id: adminUser.id },
+            },
+          });
+          if (duplicateEmail) {
+            throw new ConflictException(`User with email "${cleanEmail}" already exists.`);
+          }
+          updateUserData.email = cleanEmail;
+        }
+
+        if (dto.adminPassword && dto.adminPassword.trim().length >= 6) {
+          updateUserData.passwordHash = await bcrypt.hash(dto.adminPassword.trim(), 12);
+        }
+
+        if (Object.keys(updateUserData).length > 0) {
+          await this.prisma.user.update({
+            where: { id: adminUser.id },
+            data: updateUserData,
+          });
+        }
+      }
+    }
 
     // Update partnerConfig
     const updateConfigData: any = {};
-    if (dto.wholesalePlanId !== undefined) updateConfigData.wholesalePlanId = dto.wholesalePlanId;
+    if (dto.wholesalePlanId !== undefined) updateConfigData.wholesalePlanId = dto.wholesalePlanId || null;
     if (dto.setupFee !== undefined) updateConfigData.setupFee = dto.setupFee;
     if (dto.lifetimeFee !== undefined) updateConfigData.setupFee = dto.lifetimeFee;
     if (dto.setupFeePaid !== undefined) updateConfigData.setupFeePaid = dto.setupFeePaid;
@@ -1002,7 +1243,9 @@ export class SuperAdminService {
     if (dto.commissionPerClient !== undefined) updateConfigData.perClientRate = dto.commissionPerClient;
     if (dto.clientLimit !== undefined) updateConfigData.clientLimit = dto.clientLimit;
     if (dto.featureAccess) updateConfigData.featureAccess = dto.featureAccess;
-    if (dto.customDomain !== undefined) updateConfigData.customDomain = dto.customDomain;
+    if (dto.customDomain !== undefined) {
+      updateConfigData.customDomain = dto.customDomain ? dto.customDomain.toLowerCase().trim() : null;
+    }
 
     if (Object.keys(updateConfigData).length > 0) {
       await this.prisma.partnerConfig.upsert({
@@ -1016,6 +1259,10 @@ export class SuperAdminService {
       });
     }
 
+    // Never log passwords in audit log
+    const sanitizedAudit = { ...dto };
+    delete sanitizedAudit.adminPassword;
+
     await this.audit(
       actorId,
       id,
@@ -1023,7 +1270,7 @@ export class SuperAdminService {
       `PATCH /super-admin/partners/${id}`,
       actorEmail,
       undefined,
-      dto,
+      sanitizedAudit,
     );
 
     return this.getPartnerById(id);
@@ -1063,6 +1310,7 @@ export class SuperAdminService {
   async getClients(params?: {
     partnerId?: string;
     status?: string;
+    plan?: string;
     search?: string;
     page?: string | number;
     limit?: string | number;
@@ -1072,22 +1320,53 @@ export class SuperAdminService {
       tier: TenantTier.END_CLIENT,
     };
 
-    if (params?.partnerId) {
+    if (params?.partnerId && params.partnerId !== 'ALL' && params.partnerId !== 'All') {
       where.parentId = params.partnerId;
     }
 
-    if (params?.status && params.status !== 'ALL') {
+    if (params?.status && params.status !== 'ALL' && params.status !== 'All') {
       where.status = params.status as TenantStatus;
     }
 
-    if (params?.search) {
-      where.OR = [
-        { name: { contains: params.search, mode: 'insensitive' } },
-        { slug: { contains: params.search, mode: 'insensitive' } },
-      ];
+    if (params?.plan && params.plan !== 'ALL' && params.plan !== 'All') {
+      where.subscriptions = {
+        some: {
+          OR: [
+            { planName: { contains: params.plan, mode: 'insensitive' } },
+            { planId: { contains: params.plan, mode: 'insensitive' } },
+          ],
+        },
+      };
     }
 
-    const [total, clients] = await Promise.all([
+    if (params?.search && params.search.trim()) {
+      const q = params.search.trim();
+      where.AND = where.AND || [];
+      where.AND.push({
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { slug: { contains: q, mode: 'insensitive' } },
+          {
+            users: {
+              some: {
+                OR: [
+                  { name: { contains: q, mode: 'insensitive' } },
+                  { email: { contains: q, mode: 'insensitive' } },
+                  { phone: { contains: q, mode: 'insensitive' } },
+                ],
+              },
+            },
+          },
+          {
+            parent: {
+              name: { contains: q, mode: 'insensitive' },
+            },
+          },
+        ],
+      });
+    }
+
+    const [total, clients, activeCount, suspendedCount] = await Promise.all([
       this.prisma.tenant.count({ where }),
       this.prisma.tenant.findMany({
         where,
@@ -1095,16 +1374,19 @@ export class SuperAdminService {
         take,
         include: {
           parent: {
-            select: { id: true, name: true, slug: true },
+            select: { id: true, name: true, slug: true, primaryColor: true, logoUrl: true },
           },
           users: {
             where: { role: Role.TENANT_ADMIN },
-            select: { id: true, name: true, email: true, createdAt: true },
+            select: { id: true, name: true, email: true, phone: true, createdAt: true },
             take: 1,
           },
           subscriptions: {
-            where: { status: 'ACTIVE' },
+            orderBy: { createdAt: 'desc' },
             take: 1,
+          },
+          wallet: {
+            select: { balance: true, currency: true },
           },
           _count: {
             select: {
@@ -1117,32 +1399,149 @@ export class SuperAdminService {
         },
         orderBy: { createdAt: 'desc' },
       }),
+      this.prisma.tenant.count({ where: { ...where, status: TenantStatus.ACTIVE } }),
+      this.prisma.tenant.count({ where: { ...where, status: TenantStatus.SUSPENDED } }),
     ]);
 
-    const formatted = clients.map((c) => ({
-      id: c.id,
-      name: c.name,
-      slug: c.slug,
-      status: c.status,
-      partner: c.parent ? { id: c.parent.id, name: c.parent.name, slug: c.parent.slug } : null,
-      adminUser: c.users[0] || null,
-      subscription: c.subscriptions[0]
+    const formatted = clients.map((c) => {
+      const adminUser = c.users[0] || null;
+      const sub = c.subscriptions[0] || null;
+      return {
+        id: c.id,
+        name: c.name,
+        slug: c.slug,
+        status: c.status,
+        partner: c.parent ? { id: c.parent.id, name: c.parent.name, slug: c.parent.slug } : null,
+        ownerName: adminUser?.name || 'Account Admin',
+        ownerEmail: adminUser?.email || '',
+        ownerPhone: adminUser?.phone || '',
+        adminUser: adminUser,
+        plan: sub?.planName || 'Standard',
+        subscription: sub
+          ? {
+              id: sub.id,
+              planName: sub.planName,
+              planId: sub.planId,
+              price: sub.price,
+              status: sub.status,
+              currentPeriodEnd: sub.currentPeriodEnd,
+            }
+          : null,
+        wallet: c.wallet ? { balance: c.wallet.balance, currency: c.wallet.currency } : { balance: 0, currency: 'INR' },
+        stats: {
+          users: c._count.users,
+          campaigns: c._count.campaigns,
+          contacts: c._count.crmContacts,
+          channels: c._count.channelConfigs,
+        },
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+      };
+    });
+
+    return createPaginatedResponse(formatted, total, page, limit, {
+      total,
+      active: activeCount,
+      suspended: suspendedCount,
+    });
+  }
+
+  async getClientById(id: string) {
+    const client = await this.prisma.tenant.findUnique({
+      where: { id },
+      include: {
+        parent: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            primaryColor: true,
+            logoUrl: true,
+            customDomain: true,
+            users: {
+              where: { role: Role.RESELLER_ADMIN },
+              select: { id: true, name: true, email: true, phone: true },
+              take: 1,
+            },
+          },
+        },
+        users: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            role: true,
+            createdAt: true,
+            theme: true,
+          },
+        },
+        subscriptions: {
+          orderBy: { createdAt: 'desc' },
+        },
+        wallet: true,
+        channelConfigs: {
+          select: {
+            id: true,
+            channel: true,
+            isConnected: true,
+            connectedAt: true,
+            createdAt: true,
+          },
+        },
+        _count: {
+          select: {
+            users: true,
+            campaigns: true,
+            crmContacts: true,
+            channelConfigs: true,
+            workflows: true,
+            conversations: true,
+          },
+        },
+      },
+    });
+
+    if (!client) throw new NotFoundException('Client not found');
+
+    const adminUser = client.users.find((u) => u.role === Role.TENANT_ADMIN) || client.users[0] || null;
+    const activeSub = client.subscriptions.find((s) => s.status === 'ACTIVE') || client.subscriptions[0] || null;
+
+    return {
+      id: client.id,
+      name: client.name,
+      slug: client.slug,
+      tier: client.tier,
+      status: client.status,
+      customDomain: client.customDomain,
+      primaryColor: client.primaryColor,
+      logoUrl: client.logoUrl,
+      createdAt: client.createdAt,
+      updatedAt: client.updatedAt,
+      partner: client.parent
         ? {
-            planName: c.subscriptions[0].planName,
-            price: c.subscriptions[0].price,
-            status: c.subscriptions[0].status,
+            id: client.parent.id,
+            name: client.parent.name,
+            slug: client.parent.slug,
+            customDomain: client.parent.customDomain,
+            adminUser: client.parent.users[0] || null,
           }
         : null,
-      stats: {
-        users: c._count.users,
-        campaigns: c._count.campaigns,
-        contacts: c._count.crmContacts,
-        channels: c._count.channelConfigs,
+      adminUser,
+      allUsers: client.users,
+      subscription: activeSub,
+      allSubscriptions: client.subscriptions,
+      wallet: client.wallet,
+      channels: client.channelConfigs,
+      metrics: {
+        totalUsers: client._count.users,
+        totalCampaigns: client._count.campaigns,
+        totalContacts: client._count.crmContacts,
+        totalChannels: client._count.channelConfigs,
+        totalWorkflows: client._count.workflows,
+        totalConversations: client._count.conversations,
       },
-      createdAt: c.createdAt,
-    }));
-
-    return createPaginatedResponse(formatted, total, page, limit);
+    };
   }
 
   async updateClientStatus(
@@ -1363,7 +1762,15 @@ export class SuperAdminService {
       }),
       this.prisma.paymentOrder.count(),
       this.prisma.paymentOrder.count({ where: { status: 'SUCCESS' } }),
-      this.prisma.plan.findMany(),
+      this.prisma.plan.findMany({
+        include: {
+          _count: {
+            select: {
+              subscriptions: { where: { status: 'ACTIVE' } },
+            },
+          },
+        },
+      }),
       this.prisma.subscription.count({ where: subWhere }),
       this.prisma.subscription.findMany({
         where: subWhere,
@@ -1392,14 +1799,14 @@ export class SuperAdminService {
         paymentOrdersCount: totalPaymentOrdersCount,
         successOrdersCount: successPaymentOrdersCount,
       },
-      plans: plans.map((p) => ({
+      plans: plans.map((p: any) => ({
         id: p.id,
         name: p.name,
         slug: p.slug,
         price: Number(p.price),
         currency: p.currency,
         billingCycle: p.billingCycle,
-        activeSubscribers: activeSubscriptionsCount,
+        activeSubscribers: p._count?.subscriptions ?? 0,
       })),
       subscriptions: createPaginatedResponse(
         subscriptions.map((s) => ({
@@ -1653,7 +2060,7 @@ export class SuperAdminService {
       transactionsByStatus.find((s) => s.deliveryStatus === 'FAILED')?._count.id || 0;
 
     const deliveryRate =
-      totalVolume > 0 ? Math.round(((deliveredCount + sentCount) / totalVolume) * 100) : 99.4;
+      totalVolume > 0 ? Math.round(((deliveredCount + sentCount) / totalVolume) * 100) : null;
 
     return {
       overview: {
@@ -1696,11 +2103,11 @@ export class SuperAdminService {
   }
 
   // ==========================================
-  // REAL SYSTEM / API / WEBHOOK HEALTH
+  // 9. SYSTEM HEALTH
   // ==========================================
   async getSystemHealth() {
     const startTime = Date.now();
-    let dbStatus: 'Operational' | 'Degraded' | 'Down' = 'Operational';
+    let dbStatus = 'Operational';
     let dbLatencyMs = 0;
 
     try {
@@ -1723,41 +2130,33 @@ export class SuperAdminService {
           name: 'PostgreSQL Database Engine',
           status: dbStatus,
           responseTimeMs: dbLatencyMs,
-          uptimePercentage: 99.98,
           category: 'Database',
-          details: `Connected to Render Postgres. Query latency: ${dbLatencyMs}ms.`,
+          details: dbStatus === 'Operational' ? `Database responsive (${dbLatencyMs}ms query latency).` : 'Database connection error.',
         },
         {
           name: 'Core NestJS REST API Gateway',
           status: 'Operational',
-          responseTimeMs: 12,
-          uptimePercentage: 99.99,
+          responseTimeMs: Math.max(1, Math.round(Date.now() - startTime)),
           category: 'Core API',
           details: `Global prefix /api/v1. Node ${process.version} on ${process.platform}.`,
         },
         {
           name: 'Omnichannel Webhook Ingestion Engine',
           status: 'Operational',
-          responseTimeMs: 25,
-          uptimePercentage: 99.95,
           category: 'Channel Gateway',
-          details: 'Meta WABA, Instagram Graph & RCS ingress routes listening.',
+          details: 'Meta WABA, Instagram Graph & RCS ingress routes active.',
         },
         {
-          name: 'Cloudflare R2 Storage S3 Vault',
+          name: 'Cloudflare R2 Media Storage',
           status: 'Operational',
-          responseTimeMs: 48,
-          uptimePercentage: 99.99,
           category: 'Storage',
-          details: 'Bucket appnix-saas-media active and accessible.',
+          details: 'Distributed media bucket active and accessible.',
         },
         {
           name: 'Campaign Broadcast Queue Worker',
           status: 'Operational',
-          responseTimeMs: 18,
-          uptimePercentage: 99.92,
           category: 'Workers',
-          details: 'Cron and background worker loops healthy.',
+          details: 'Background worker loops active.',
         },
       ],
       systemMetrics: {
@@ -1819,21 +2218,49 @@ export class SuperAdminService {
   // ==========================================
   // WORKSPACE IMPERSONATION (Preserved from original)
   // ==========================================
-  async beginWorkspaceInspection(actor: { userId: string }, targetWorkspaceId: string) {
+  async beginWorkspaceInspection(
+    actor: { userId: string; email?: string; role?: Role | string; tenantId?: string; orgPath?: string },
+    targetWorkspaceId: string,
+  ) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: targetWorkspaceId },
-      select: { id: true, path: true, tier: true },
+      select: { id: true, name: true, path: true, tier: true, parentId: true },
     });
     if (!tenant) throw new NotFoundException('Workspace not found');
+
+    const isSuper =
+      actor.role === Role.SUPER_ADMIN ||
+      actor.role === 'SUPER_ADMIN' ||
+      (actor as any).role === 'owner';
+
+    if (isSuper) {
+      // Super Admin: platform-wide access
+    } else if (actor.role === Role.RESELLER_ADMIN || actor.role === 'RESELLER_ADMIN') {
+      // Reseller Admin: only within their hierarchy tree
+      const callerPath = actor.orgPath || 'root';
+      const isDirectChild = tenant.parentId === actor.tenantId;
+      const isDescendant = callerPath && tenant.path && tenant.path.startsWith(callerPath + '.');
+
+      if (!isDirectChild && !isDescendant) {
+        throw new ForbiddenException(
+          'Cross-hierarchy violation: Cannot inspect workspace outside your reseller tree',
+        );
+      }
+    } else {
+      throw new ForbiddenException('Only Super Admins and Reseller Admins may use delegated inspection');
+    }
+
+    const tokenRole = isSuper ? Role.SUPER_ADMIN : Role.RESELLER_ADMIN;
+    const tokenPurpose = isSuper ? 'super_admin_impersonation' : 'reseller_impersonation';
 
     const token = await this.jwt.signAsync(
       {
         sub: actor.userId,
-        role: Role.SUPER_ADMIN,
+        role: tokenRole,
         targetWorkspaceId,
         targetOrgPath: tenant.path,
         targetTier: tenant.tier,
-        purpose: 'super_admin_impersonation',
+        purpose: tokenPurpose,
       },
       {
         secret:
@@ -1848,7 +2275,14 @@ export class SuperAdminService {
       actor.userId,
       targetWorkspaceId,
       'IMPERSONATION_STARTED',
-      'POST /super-admin/partners/impersonate',
+      'POST /super-admin/impersonation',
+      actor.email,
+      undefined,
+      {
+        actorRole: actor.role,
+        targetWorkspaceId,
+        targetWorkspaceName: tenant.name,
+      },
     );
 
     return {

@@ -27,7 +27,7 @@ export class AppCredentialsController {
   constructor(private readonly appCredentialsService: AppCredentialsService) {}
 
   @Get('catalog')
-  @ApiOperation({ summary: 'Get catalog of 3rd party apps (Shopify, OpenAI, Stripe, Google Sheets, Razorpay)' })
+  @ApiOperation({ summary: 'Get catalog of 3rd party apps (Shopify, OpenAI, Cashfree, Google Sheets)' })
   getAvailableApps() {
     return this.appCredentialsService.getAvailableApps();
   }

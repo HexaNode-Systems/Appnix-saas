@@ -1,5 +1,5 @@
 import { IsEmail, IsString, MinLength, IsOptional, IsEnum, Length, Matches } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 // ─── Shared Enum ────────────────────────────────────────────────────────────
 
@@ -105,6 +105,24 @@ export class LoginDto {
   @IsOptional()
   @IsString()
   recaptchaToken?: string;
+}
+
+export class AdminLoginDto extends LoginDto {
+  @ApiPropertyOptional({
+    description: 'Optional reseller workspace slug for tenant identification',
+    example: 'acme-agency',
+  })
+  @IsOptional()
+  @IsString()
+  orgSlug?: string;
+
+  @ApiPropertyOptional({
+    description: 'Two-factor authenticator code (TOTP)',
+    example: '123456',
+  })
+  @IsOptional()
+  @IsString()
+  mfaCode?: string;
 }
 
 // ─── Password Reset DTOs ────────────────────────────────────────────────────

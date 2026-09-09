@@ -692,7 +692,7 @@ model WorkflowTemplate {
 model AppCredential {
   id                   String    @id @default(uuid())
   tenantId             String
-  appName              String    // SHOPIFY, OPENAI, RAZORPAY, CUSTOM_WEBHOOK, STRIPE, HUBSPOT, etc.
+  appName              String    // SHOPIFY, OPENAI, CASHFREE, CUSTOM_WEBHOOK, HUBSPOT, etc.
   accountName          String    // User label: e.g., "Production Shopify"
   authType             AuthType
   credentials          Json      // Encrypted credentials payload (API keys, secret tokens)
@@ -823,7 +823,7 @@ model Bot {
 model WebhookEvent {
   id          String    @id @default(uuid())
   tenantId    String?
-  provider    String    // META, RAZORPAY, STRIPE, SHOPIFY, RCS
+  provider    String    // META, CASHFREE, SHOPIFY, RCS
   eventId     String    @unique
   eventType   String
   payload     Json

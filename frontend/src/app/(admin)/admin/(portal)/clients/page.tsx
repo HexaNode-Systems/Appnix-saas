@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { Client } from "@/super-admin/types";
-import { clientService } from "@/super-admin/services";
+import { clientService, executeGuestLogin } from "@/super-admin/services";
 import { AddClientModal } from "@/super-admin/components/clients/AddClientModal";
 import { UpdateClientModal } from "@/super-admin/components/clients/UpdateClientModal";
 import {
@@ -35,6 +35,7 @@ import {
   LogIn,
   KeyRound,
   Sparkles,
+  Loader2,
 } from "lucide-react";
 
 function SuperAdminClientsContent() {
@@ -54,13 +55,25 @@ function SuperAdminClientsContent() {
   // Success toast message
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 4000);
   };
 
-  const fetchClients = () => {
-    clientService.getAll().then(setClients);
+  const fetchClients = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await clientService.getAll();
+      setClients(data);
+    } catch (err: any) {
+      setError(err.response?.data?.message || err.message || "Failed to load clients");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -77,7 +90,7 @@ function SuperAdminClientsContent() {
   const handleCloseAddModal = () => {
     setIsAddClientOpen(false);
     if (searchParams.get("action") === "add") {
-      router.replace("/super-admin/clients");
+      router.replace("/admin/clients");
     }
   };
 
@@ -113,44 +126,20 @@ function SuperAdminClientsContent() {
     });
   };
 
-  const handleLoginAsGuest = (client: Client) => {
-    // 1. Store guest session in localStorage
-    const guestSession = {
-      isGuest: true,
-      clientId: client.id,
-      clientName: client.name,
-      clientEmail: client.email,
-      ownerName: client.ownerName,
-      plan: client.plan,
-      walletBalance: client.walletBalance,
-      whatsappStatus: client.whatsappStatus,
-      loginTime: new Date().toISOString(),
-      returnUrl: "/super-admin/clients",
-    };
-    localStorage.setItem("appnix_guest_impersonation", JSON.stringify(guestSession));
+  // Guest login loading state
+  const [guestLoginLoadingId, setGuestLoginLoadingId] = useState<string | null>(null);
 
-    // 2. Set tenant workspace credentials in localStorage so dashboard matches client
-    const tenantUser = {
-      id: client.id,
-      email: client.email,
-      name: client.ownerName,
-      role: "owner",
-      workspaceId: client.id,
-      workspaceName: client.name,
-      permissions: ["*"],
-      emailVerified: true,
-      twoFactorEnabled: false,
-      createdAt: client.signupDate,
-      updatedAt: new Date().toISOString(),
-    };
-    localStorage.setItem("appnix_user", JSON.stringify(tenantUser));
-    localStorage.setItem("appnix_token", `guest_session_${client.id}_${Date.now()}`);
-
-    // 3. Inform user & navigate
-    showToast(`Redirecting as Guest to ${client.name}...`);
-    setTimeout(() => {
-      router.push("/dashboard");
-    }, 600);
+  const handleLoginAsGuest = async (client: Client) => {
+    setGuestLoginLoadingId(client.id);
+    showToast(`Initiating secure guest session for ${client.name}...`);
+    try {
+      await executeGuestLogin(client, "/admin/clients");
+    } catch (err: any) {
+      console.error("Guest login failed:", err);
+      const errMsg = err.response?.data?.message || err.message || "Failed to log in as guest";
+      showToast(`Error: ${errMsg}`);
+      setGuestLoginLoadingId(null);
+    }
   };
 
   const filteredClients = clients.filter((client) => {
@@ -184,11 +173,11 @@ function SuperAdminClientsContent() {
       {/* Breadcrumb Back Navigation */}
       <div className="flex items-center text-xs text-muted-foreground gap-1.5">
         <Link
-          href="/super-admin/dashboard"
+          href="/admin/dashboard"
           className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          <span>Super Admin</span>
+          <span>Dashboard</span>
         </Link>
         <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
         <span className="font-semibold text-foreground">Clients</span>
@@ -285,7 +274,16 @@ function SuperAdminClientsContent() {
               </tr>
             </thead>
             <tbody>
-              {filteredClients.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="p-12 text-center text-muted-foreground text-xs">
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
+                      <span>Loading client organizations from database...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredClients.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="p-8 text-center text-muted-foreground text-xs">
                     No client organizations found matching your search.
@@ -391,11 +389,16 @@ function SuperAdminClientsContent() {
                             size="sm"
                             variant="outline"
                             onClick={() => handleLoginAsGuest(client)}
+                            disabled={guestLoginLoadingId === client.id}
                             className="h-7.5 px-2.5 text-[11px] font-semibold gap-1 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 hover:text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 dark:hover:bg-emerald-900/60 transition-colors shadow-2xs cursor-pointer"
                             title={`Login as Guest to ${client.name}`}
                           >
-                            <LogIn className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                            <span>Login as Guest</span>
+                            {guestLoginLoadingId === client.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-600" />
+                            ) : (
+                              <LogIn className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                            )}
+                            <span>{guestLoginLoadingId === client.id ? "Connecting..." : "Login as Guest"}</span>
                           </Button>
 
                           {/* Option: Update Client in table */}
@@ -460,11 +463,10 @@ function SuperAdminClientsContent() {
       <AddClientModal
         isOpen={isAddClientOpen}
         onClose={handleCloseAddModal}
-        onClientAdded={(newClient) => {
-          clientService.create(newClient).then(() => {
-            fetchClients();
-            showToast(`Organization "${newClient.name}" successfully created!`);
-          });
+        onClientAdded={async (newClient) => {
+          await clientService.create(newClient);
+          await fetchClients();
+          showToast(`Organization "${newClient.name}" successfully created!`);
         }}
       />
 
@@ -544,15 +546,19 @@ function SuperAdminClientsContent() {
                 </Button>
                 <Button
                   size="sm"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-1.5 text-xs"
+                  disabled={guestLoginLoadingId === selectedClient.id}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-1.5 text-xs cursor-pointer"
                   onClick={() => {
                     const client = selectedClient;
-                    setSelectedClient(null);
                     handleLoginAsGuest(client);
                   }}
                 >
-                  <LogIn className="h-3.5 w-3.5" />
-                  Login as Guest →
+                  {guestLoginLoadingId === selectedClient.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-white" />
+                  ) : (
+                    <LogIn className="h-3.5 w-3.5" />
+                  )}
+                  <span>{guestLoginLoadingId === selectedClient.id ? "Connecting..." : "Login as Guest →"}</span>
                 </Button>
               </div>
             </div>

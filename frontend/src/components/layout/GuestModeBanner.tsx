@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { ShieldAlert, ArrowLeft, LogOut, ExternalLink, Sparkles } from "lucide-react";
+import { Sparkles, ArrowLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { config } from "@/lib/config";
 
 interface GuestSession {
   isGuest: boolean;
@@ -16,8 +16,8 @@ interface GuestSession {
 }
 
 export function GuestModeBanner() {
-  const router = useRouter();
   const [guestSession, setGuestSession] = useState<GuestSession | null>(null);
+  const [isExiting, setIsExiting] = useState(false);
 
   useEffect(() => {
     try {
@@ -36,9 +36,79 @@ export function GuestModeBanner() {
   if (!guestSession) return null;
 
   const handleExitGuestMode = () => {
-    localStorage.removeItem("appnix_guest_impersonation");
-    router.push(guestSession.returnUrl || "/super-admin/clients");
+    setIsExiting(true);
+    try {
+      const rawBackup = localStorage.getItem("appnix_guest_backup");
+      if (rawBackup) {
+        const backup = JSON.parse(rawBackup);
+
+        // Restore auth tokens
+        if (backup.authToken) {
+          localStorage.setItem(config.auth.tokenKey, backup.authToken);
+        } else {
+          localStorage.removeItem(config.auth.tokenKey);
+        }
+
+        if (backup.refreshToken) {
+          localStorage.setItem(config.auth.refreshTokenKey, backup.refreshToken);
+        } else {
+          localStorage.removeItem(config.auth.refreshTokenKey);
+        }
+
+        if (backup.user) {
+          localStorage.setItem(config.auth.userKey, backup.user);
+        } else {
+          localStorage.removeItem(config.auth.userKey);
+        }
+
+        // Restore admin credentials
+        if (backup.adminToken) {
+          localStorage.setItem(config.auth.adminTokenKey, backup.adminToken);
+          localStorage.setItem("appnix_admin_token", backup.adminToken);
+        }
+        if (backup.adminRefreshToken) {
+          localStorage.setItem(config.auth.adminRefreshTokenKey, backup.adminRefreshToken);
+        }
+        if (backup.adminUser) {
+          localStorage.setItem(config.auth.adminUserKey, backup.adminUser);
+          localStorage.setItem("appnix_admin_user", backup.adminUser);
+        }
+
+        // Restore super-admin credentials if applicable
+        if (backup.superAdminToken) {
+          localStorage.setItem(config.auth.superAdminTokenKey, backup.superAdminToken);
+        }
+        if (backup.superAdminRefreshToken) {
+          localStorage.setItem(config.auth.superAdminRefreshTokenKey, backup.superAdminRefreshToken);
+        }
+        if (backup.superAdminUser) {
+          localStorage.setItem(config.auth.superAdminUserKey, backup.superAdminUser);
+        }
+
+        // Update cookie with active admin token
+        const activeToken =
+          backup.adminToken || backup.superAdminToken || backup.authToken;
+        if (activeToken) {
+          const secure = window.location.protocol === "https:" ? "; Secure" : "";
+          document.cookie = `appnix_access_token=${encodeURIComponent(activeToken)}; Path=/; SameSite=Lax${secure}`;
+        }
+      }
+    } catch (e) {
+      console.error("Failed to restore admin credentials upon exiting guest mode:", e);
+    } finally {
+      // Clear all guest session and impersonation keys
+      localStorage.removeItem("appnix_guest_impersonation");
+      localStorage.removeItem("appnix_guest_backup");
+      localStorage.removeItem("appnix_impersonation_token");
+      sessionStorage.removeItem("appnix_impersonation_token");
+
+      const targetUrl = guestSession.returnUrl || "/admin/clients";
+      window.location.href = targetUrl;
+    }
   };
+
+  const isSuperAdminReturn = guestSession.returnUrl?.includes("super-admin");
+  const exitLabel = isSuperAdminReturn ? "Exit to Super Admin" : "Exit to Partner Portal";
 
   return (
     <div className="sticky top-0 z-50 flex items-center justify-between border-b border-emerald-500/30 bg-gradient-to-r from-emerald-700 via-teal-700 to-emerald-800 px-4 py-2 text-white shadow-md text-xs">
@@ -67,10 +137,15 @@ export function GuestModeBanner() {
         <Button
           size="sm"
           onClick={handleExitGuestMode}
+          disabled={isExiting}
           className="h-7 bg-white text-emerald-900 hover:bg-emerald-50 font-bold text-xs gap-1.5 shadow-xs cursor-pointer"
         >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          <span>Exit to Super Admin</span>
+          {isExiting ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-900" />
+          ) : (
+            <ArrowLeft className="h-3.5 w-3.5" />
+          )}
+          <span>{exitLabel}</span>
         </Button>
       </div>
     </div>

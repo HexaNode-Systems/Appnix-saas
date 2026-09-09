@@ -16,7 +16,10 @@ export interface User {
   email: string;
   name: string;
   avatar?: string;
-  role: "owner" | "admin" | "member" | "viewer";
+  role: "owner" | "admin" | "member" | "viewer" | string;
+  rawRole?: string;
+  systemRole?: string;
+  tenantId?: string;
   workspaceId: string;
   workspaceName: string;
   permissions: string[];
@@ -118,6 +121,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (userData && userData.id) {
         setAuth(userData);
         localStorage.setItem(config.auth.userKey, JSON.stringify(userData));
+        if (
+          !localStorage.getItem("appnix_guest_impersonation") &&
+          (localStorage.getItem(config.auth.adminTokenKey) ||
+          localStorage.getItem(config.auth.adminUserKey) ||
+          localStorage.getItem("appnix_admin_token"))
+        ) {
+          localStorage.setItem(config.auth.adminUserKey, JSON.stringify(userData));
+        }
       } else {
         setAuth(null);
       }
@@ -128,8 +139,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const initAuth = async () => {
-      const token = localStorage.getItem(config.auth.tokenKey);
-      const storedUser = localStorage.getItem(config.auth.userKey);
+      const isGuest = typeof window !== "undefined" && !!localStorage.getItem("appnix_guest_impersonation");
+      const token = isGuest
+        ? localStorage.getItem(config.auth.tokenKey)
+        : localStorage.getItem(config.auth.tokenKey) ||
+          localStorage.getItem(config.auth.adminTokenKey) ||
+          localStorage.getItem("appnix_admin_token");
+      const storedUser = isGuest
+        ? localStorage.getItem(config.auth.userKey)
+        : localStorage.getItem(config.auth.adminUserKey) ||
+          localStorage.getItem(config.auth.userKey) ||
+          localStorage.getItem("appnix_admin_user");
 
       if (token) {
         if (storedUser) {
@@ -153,8 +173,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState((prev) => ({ ...prev, isLoading: true, error: null }));
     try {
       const recaptchaToken = await getRecaptchaToken("login");
+      const cleanEmail = email ? email.toLowerCase().trim() : "";
       const response = await api.post(apiEndpoints.auth.login, {
-        email,
+        email: cleanEmail,
         password,
         recaptchaToken,
       });
@@ -280,6 +301,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearAccessToken();
       localStorage.removeItem(config.auth.refreshTokenKey);
       localStorage.removeItem(config.auth.userKey);
+      localStorage.removeItem(config.auth.adminTokenKey);
+      localStorage.removeItem(config.auth.adminUserKey);
+      localStorage.removeItem(config.auth.adminRefreshTokenKey);
+      localStorage.removeItem("appnix_admin_token");
+      localStorage.removeItem("appnix_admin_user");
+      localStorage.removeItem("appnix_admin_refresh_token");
+      localStorage.removeItem("appnix_auth_token");
+      localStorage.removeItem("appnix_user");
+      localStorage.removeItem("appnix_refresh_token");
+      localStorage.removeItem("appnix_guest_impersonation");
+      localStorage.removeItem("appnix_guest_backup");
+      localStorage.removeItem("appnix_impersonation_token");
+      sessionStorage.removeItem("appnix_impersonation_token");
       setAuth(null);
     }
   };

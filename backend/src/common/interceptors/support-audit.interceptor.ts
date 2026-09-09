@@ -10,7 +10,10 @@ export class SupportAuditInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const request = context.switchToHttp().getRequest();
     const actor = request.user;
-    if (actor?.role === 'SUPER_ADMIN' && actor?.impersonatedWorkspaceId) {
+    if (
+      (actor?.role === 'SUPER_ADMIN' || actor?.role === 'RESELLER_ADMIN') &&
+      actor?.impersonatedWorkspaceId
+    ) {
       // Persist before dispatch so both successful and rejected support actions
       // remain auditable. No request body is stored, avoiding secret leakage.
       const action = `${request.method} ${request.route?.path || request.path}`;

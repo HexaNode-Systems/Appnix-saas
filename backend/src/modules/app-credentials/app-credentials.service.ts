@@ -61,34 +61,18 @@ export class AppCredentialsService {
       docsUrl: 'https://platform.openai.com/docs/api-reference',
     },
     {
-      id: 'RAZORPAY',
-      name: 'Razorpay',
+      id: 'CASHFREE',
+      name: 'Cashfree Payments',
       category: 'Payment Gateways',
-      authTypes: [AuthType.BASIC_AUTH, AuthType.API_KEY],
-      description: 'Trigger WhatsApp payment links, capture refunds, and verify UPI/card transactions.',
-      icon: 'razorpay',
+      authTypes: [AuthType.API_KEY],
+      description: 'Accept UPI, NetBanking, Cards, and verify Cashfree payment orders and refunds.',
+      icon: 'cashfree',
       oauthSupported: false,
       fields: [
-        { key: 'keyId', label: 'Key ID', type: 'text', placeholder: 'rzp_live_xxxxxxxxxxxx', required: true, helpText: 'Your live or test Razorpay Key ID' },
-        { key: 'keySecret', label: 'Key Secret', type: 'password', placeholder: 'xxxxxxxxxxxxxxxxxxxxxxxx', required: true, helpText: 'Generated in Razorpay API Keys dashboard' },
-        { key: 'webhookSecret', label: 'Webhook Signature Secret (Optional)', type: 'password', placeholder: 'whsec_xxxxxxxxxxxxxxxx', required: false },
+        { key: 'appId', label: 'Cashfree App ID', type: 'text', placeholder: 'your_cashfree_app_id', required: true, helpText: 'Your live or sandbox Cashfree App ID' },
+        { key: 'secretKey', label: 'Cashfree Secret Key', type: 'password', placeholder: 'your_cashfree_secret_key', required: true, helpText: 'Generated in Cashfree Merchant Dashboard' },
       ],
-      docsUrl: 'https://razorpay.com/docs/api/',
-    },
-    {
-      id: 'STRIPE',
-      name: 'Stripe Payments',
-      category: 'Payment Gateways',
-      authTypes: [AuthType.BEARER_TOKEN, AuthType.API_KEY, AuthType.OAUTH2],
-      description: 'Global payment gateway for credit cards, subscriptions, invoices, and payouts.',
-      icon: 'stripe',
-      oauthSupported: true,
-      fields: [
-        { key: 'secretKey', label: 'Stripe Secret Key', type: 'password', placeholder: 'sk_live_xxxxxxxxxxxxxxxxxxxxxxxx', required: true, helpText: 'Restricted or full Secret Key starting with sk_live_ or sk_test_' },
-        { key: 'publishableKey', label: 'Publishable Key (Optional)', type: 'text', placeholder: 'pk_live_xxxxxxxxxxxxxxxxxxxxxxxx', required: false },
-        { key: 'webhookSigningSecret', label: 'Webhook Endpoint Signing Secret', type: 'password', placeholder: 'whsec_xxxxxxxxxxxxxxxxxxxxxxxx', required: false },
-      ],
-      docsUrl: 'https://stripe.com/docs/api',
+      docsUrl: 'https://www.cashfree.com/docs',
     },
     {
       id: 'GOOGLE_SHEETS',
@@ -435,38 +419,21 @@ export class AppCredentialsService {
       };
     }
 
-    if (appUpper === 'RAZORPAY') {
-      const keyId = credentials.keyId || credentials.apiKey;
-      const keySecret = credentials.keySecret || credentials.secret;
-      if (!keyId || !keySecret) {
+    if (appUpper === 'CASHFREE') {
+      const appId = credentials.appId || credentials.keyId;
+      const secretKey = credentials.secretKey || credentials.keySecret;
+      if (!appId || !secretKey) {
         return {
           success: false,
           latencyMs: latency,
-          message: 'Both Razorpay Key ID and Key Secret are required.',
+          message: 'Both Cashfree App ID and Secret Key are required.',
         };
       }
       return {
         success: true,
         latencyMs: latency,
-        message: 'Razorpay Payment Gateway credentials authenticated successfully.',
-        scopes: ['payments.read', 'payment_links.write', 'refunds.write', 'webhooks.verify'],
-      };
-    }
-
-    if (appUpper === 'STRIPE') {
-      const key = credentials.secretKey || credentials.apiKey;
-      if (!key || (!String(key).startsWith('sk_live_') && !String(key).startsWith('sk_test_') && !String(key).startsWith('rk_'))) {
-        return {
-          success: false,
-          latencyMs: latency,
-          message: 'Invalid Stripe Key. Must start with sk_live_, sk_test_, or rk_live_.',
-        };
-      }
-      return {
-        success: true,
-        latencyMs: latency,
-        message: 'Stripe API live connection test passed with full charge & invoice capabilities.',
-        scopes: ['charges:write', 'customers:write', 'payment_intents:write', 'invoices:write'],
+        message: 'Cashfree Payment Gateway credentials authenticated successfully.',
+        scopes: ['orders:read', 'orders:write', 'payments:verify', 'refunds:write'],
       };
     }
 

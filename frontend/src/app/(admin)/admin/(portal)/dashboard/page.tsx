@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { clientService, analyticsService } from "@/super-admin/services";
 import { AddClientModal } from "@/super-admin/components/clients/AddClientModal";
+import { useAuth } from "@/lib/auth/auth-context";
+import { config } from "@/lib/config";
 import {
   Users,
   TrendingUp,
@@ -38,11 +40,26 @@ import {
 } from "recharts";
 
 export default function SuperAdminDashboardPage() {
+  const { user: authUser } = useAuth();
+  const [adminName, setAdminName] = useState<string>("");
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
   const [chartData, setChartData] = useState<any[]>([]);
   const [totalClientsCount, setTotalClientsCount] = useState(2481);
 
   useEffect(() => {
+    try {
+      const rawUser =
+        localStorage.getItem(config.auth.adminUserKey) ||
+        localStorage.getItem(config.auth.userKey) ||
+        localStorage.getItem("appnix_admin_user");
+      if (rawUser) {
+        const u = JSON.parse(rawUser);
+        if (u?.name) {
+          setAdminName(u.name);
+        }
+      }
+    } catch {}
+
     analyticsService.getGrowthChartData().then(setChartData);
     clientService.getAll().then((clients) => {
       if (clients.length > 0) {
@@ -51,13 +68,18 @@ export default function SuperAdminDashboardPage() {
     });
   }, []);
 
+  const displayName =
+    authUser?.name ||
+    adminName ||
+    (authUser?.email ? authUser.email.split("@")[0] : "Admin");
+
   return (
     <div className="space-y-6">
       {/* Super Admin Welcome Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-5">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
-            Hey Sarah, here&apos;s your platform today.
+            Hey {displayName}, here&apos;s your platform today.
           </h1>
           <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
             Real-time multi-tenant analytics, infrastructure utilization, and client operations.
@@ -68,19 +90,19 @@ export default function SuperAdminDashboardPage() {
           {/* Quick Sub-Navigation Tabs */}
           <div className="inline-flex items-center gap-1 bg-muted/60 p-1 rounded-lg border text-xs font-semibold">
             <Link
-              href="/super-admin/dashboard"
+              href="/admin/dashboard"
               className="bg-card text-foreground px-3 py-1.5 rounded-md shadow-xs"
             >
               Dashboard
             </Link>
             <Link
-              href="/super-admin/clients"
+              href="/admin/clients"
               className="text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md transition-colors"
             >
               Clients
             </Link>
             <Link
-              href="/super-admin/billing"
+              href="/admin/billing"
               className="text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md transition-colors"
             >
               Billing
@@ -249,7 +271,7 @@ export default function SuperAdminDashboardPage() {
             <h2 className="text-base font-bold text-foreground mb-1">Quick Actions</h2>
 
             <Link
-              href="/super-admin/clients"
+              href="/admin/clients"
               className="flex items-center justify-between p-3 rounded-xl border bg-muted/20 hover:bg-muted/50 transition-colors group text-xs font-semibold text-foreground"
             >
               <div className="flex items-center gap-2.5">
@@ -262,7 +284,7 @@ export default function SuperAdminDashboardPage() {
             </Link>
 
             <Link
-              href="/super-admin/billing"
+              href="/admin/billing"
               className="flex items-center justify-between p-3 rounded-xl border bg-muted/20 hover:bg-muted/50 transition-colors group text-xs font-semibold text-foreground"
             >
               <div className="flex items-center gap-2.5">
@@ -275,7 +297,7 @@ export default function SuperAdminDashboardPage() {
             </Link>
 
             <Link
-              href="/super-admin/support"
+              href="/admin/support"
               className="flex items-center justify-between p-3 rounded-xl border bg-muted/20 hover:bg-muted/50 transition-colors group text-xs font-semibold text-foreground"
             >
               <div className="flex items-center gap-2.5">

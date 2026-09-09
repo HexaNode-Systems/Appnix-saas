@@ -181,6 +181,7 @@ export interface PaginatedResult<T> {
   totalPages: number;
   hasNext: boolean;
   hasPrevious: boolean;
+  summary?: any;
 }
 
 export const superAdminApi = {
@@ -229,6 +230,14 @@ export const superAdminApi = {
     return res.data?.data || res.data;
   },
 
+  checkPartnerSlug: async (
+    slug: string,
+    excludeId?: string
+  ): Promise<{ available: boolean; slug: string; reason?: string }> => {
+    const res = await api.get("/partners/check-slug", { params: { slug, excludeId } });
+    return res.data;
+  },
+
   createPartner: async (data: any) => {
     const res = await api.post("/partners", data);
     return res.data?.data || res.data;
@@ -253,11 +262,17 @@ export const superAdminApi = {
   getClients: async (params?: {
     partnerId?: string;
     status?: string;
+    plan?: string;
     search?: string;
     page?: number;
     limit?: number;
   }): Promise<PaginatedResult<any>> => {
     const res = await api.get("/clients", { params });
+    return res.data?.data || res.data;
+  },
+
+  getClientById: async (id: string) => {
+    const res = await api.get(`/clients/${id}`);
     return res.data?.data || res.data;
   },
 
@@ -300,31 +315,6 @@ export const superAdminApi = {
     search?: string;
   }) => {
     const res = await api.get("/subscriptions", { params });
-    return res.data?.data || res.data;
-  },
-
-  // Custom Domains
-  getDomains: async (params?: {
-    search?: string;
-    page?: number;
-    limit?: number;
-  }): Promise<PaginatedResult<any>> => {
-    const res = await api.get("/domains", { params });
-    return res.data?.data || res.data;
-  },
-
-  addDomain: async (data: { tenantId: string; domain: string; dnsRecordType?: string }) => {
-    const res = await api.post("/domains", data);
-    return res.data?.data || res.data;
-  },
-
-  verifyDomain: async (domainId: string) => {
-    const res = await api.post(`/domains/${domainId}/verify`);
-    return res.data?.data || res.data;
-  },
-
-  deleteDomain: async (domainId: string) => {
-    const res = await api.delete(`/domains/${domainId}`);
     return res.data?.data || res.data;
   },
 

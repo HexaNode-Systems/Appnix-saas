@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   AlertCircle,
   ExternalLink,
-  Lock,
   Eye,
   EyeOff,
   Sparkles,
@@ -14,7 +13,6 @@ import {
   ShieldCheck,
   Loader2,
   ChevronRight,
-  Info,
   KeyRound,
   Check,
 } from 'lucide-react';
@@ -261,7 +259,7 @@ export function ConnectAppModal({
                 <div className="relative">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search 30+ apps (Shopify, OpenAI, Razorpay, Google Sheets, Stripe...)"
+                    placeholder="Search 30+ apps (Shopify, OpenAI, Cashfree, Google Sheets...)"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10 h-10 text-sm bg-muted/30 focus-visible:bg-background"
@@ -344,7 +342,7 @@ export function ConnectAppModal({
               {filteredCatalog.length === 0 && (
                 <div className="py-12 text-center text-muted-foreground space-y-2">
                   <KeyRound className="h-10 w-10 mx-auto text-muted-foreground/50" />
-                  <p className="font-medium text-sm">No integrations found matching "{searchQuery}".</p>
+                  <p className="font-medium text-sm">No integrations found matching &quot;{searchQuery}&quot;.</p>
                   <p className="text-xs">Try searching for a different keyword or connect a Custom Webhook / Bearer endpoint.</p>
                 </div>
               )}

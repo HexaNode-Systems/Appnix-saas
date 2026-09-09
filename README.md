@@ -46,7 +46,7 @@ flowchart TB
     subgraph Clients["Client Layer"]
         Web[Web Browsers / Next.js 16 SPA]
         Mobile[Mobile Browsers]
-        WebhookSenders[Meta / Cashfree / Stripe Webhooks]
+        WebhookSenders[Meta / Cashfree Webhooks]
         ChatWidget[Embedded Web Chat Widgets]
     end
 
@@ -166,7 +166,7 @@ appnix-saas/
 - **Object Storage**: Cloudflare R2 (S3-compatible API via `@aws-sdk/client-s3`)
 - **Authentication**: Passport.js, `@nestjs/jwt`, `passport-jwt`, `passport-google-oauth20`, `bcryptjs`
 - **Security & Cryptography**: Native Node.js `crypto` with `AES-256-GCM` encryption for credentials at rest
-- **Payment Processing**: Cashfree Payments SDK (`@cashfreepayments/cashfree-js`), Razorpay, Stripe
+- **Payment Processing**: Cashfree Payments SDK (`@cashfreepayments/cashfree-js`)
 - **Email Delivery**: Brevo (formerly Sendinblue) Transactional API / SMTP
 - **API Documentation**: OpenAPI / Swagger 7.4.0 (`/api/docs`)
 
@@ -320,7 +320,7 @@ flowchart LR
 
 - **Trigger Engine**: Supports `INBOUND_MESSAGE`, `WEBHOOK_EVENT`, `SCHEDULED_CRON`, and `FORM_SUBMISSION`.
 - **Key-Value DataStore**: Workflows can read, update, and persist contextual JSON records keyed by phone number or user ID with configurable Time-To-Live (TTL).
-- **App Credentials Vault**: Credentials for Shopify, OpenAI, Stripe, HubSpot, and Webhooks are securely encrypted at rest using AES-256-GCM.
+- **App Credentials Vault**: Credentials for Shopify, OpenAI, Cashfree, HubSpot, and Webhooks are securely encrypted at rest using AES-256-GCM.
 
 ---
 
@@ -660,8 +660,7 @@ All backend endpoints are prefixed with `/api/v1` and documented via OpenAPI / S
 ├── webhooks/                     # Inbound Provider Webhooks
 │   ├── GET  /meta                # Meta Webhook Challenge verification
 │   ├── POST /meta                # Meta Inbound messages & delivery receipts
-│   ├── POST /razorpay            # Razorpay auto-recharge events
-│   └── POST /stripe              # Stripe subscription events
+│   └── POST /cashfree            # Cashfree payment webhooks
 │
 ├── super-admin/                  # Super Admin Operations
 │   └── POST /impersonation       # Issue short-lived support token for workspace

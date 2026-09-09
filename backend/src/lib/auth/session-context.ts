@@ -89,6 +89,17 @@ export class SessionContextResolver {
       });
 
       if (claims.sub !== context.userId) {
+        // If the bearer token is a workspace token issued during guest-login,
+        // verify that the impersonation token targets this exact workspace and was
+        // signed by an authorized Super Admin or Reseller Admin.
+        if (
+          claims.targetWorkspaceId === context.tenantId &&
+          (claims.role === Role.SUPER_ADMIN || claims.role === Role.RESELLER_ADMIN)
+        ) {
+          context.impersonatedWorkspaceId = claims.targetWorkspaceId;
+          this.tenantContextStore.enter(context);
+          return context;
+        }
         throw new Error('Impersonation token actor does not match active session');
       }
 

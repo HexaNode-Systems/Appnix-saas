@@ -264,7 +264,7 @@ export default function PartnerDetailsPage({
             <DollarSign className="h-4 w-4 text-emerald-600" />
           </div>
           <p className="text-2xl font-black text-emerald-700 dark:text-emerald-400 font-mono mt-2">
-            ₹{partner.metrics?.commissionPerClient ?? partner.metrics?.perClientRate ?? 499}
+            ₹{partner.metrics?.commissionPerClient ?? partner.metrics?.perClientRate ?? partner.partnerConfig?.perClientRate ?? 0}
             <span className="text-xs font-normal text-muted-foreground">/cl/mo</span>
           </p>
           <p className="text-[11px] text-muted-foreground mt-1.5">Super Admin controlled</p>
@@ -300,7 +300,9 @@ export default function PartnerDetailsPage({
             <span className="text-xs font-normal text-muted-foreground">/mo</span>
           </p>
           <p className="text-[11px] text-muted-foreground mt-1.5 font-medium">
-            {partner.metrics?.partnerMarginPercentage || 75}% margin retained
+            {partner.metrics?.partnerMarginPercentage !== undefined && partner.metrics?.partnerMarginPercentage !== null
+              ? `${partner.metrics.partnerMarginPercentage}% margin retained`
+              : "Margin retained by partner"}
           </p>
         </div>
       </div>
@@ -330,11 +332,6 @@ export default function PartnerDetailsPage({
                     Points to: <strong className="font-mono">cname.appnix.co.in</strong>
                   </p>
                 </div>
-                <Link href="/super-admin/domains">
-                  <Button variant="outline" size="sm" className="w-full text-xs h-8">
-                    Inspect Real DNS Verification →
-                  </Button>
-                </Link>
               </div>
             ) : (
               <div className="p-3 rounded-lg bg-muted/20 text-xs text-muted-foreground">
@@ -470,7 +467,7 @@ export default function PartnerDetailsPage({
               </strong>{" "}
               giving them permanent White-Label platform access with no annual renewal or expiration date. Appnix separately earns a monthly recurring commission of{" "}
               <strong className="font-mono text-emerald-700 dark:text-emerald-400">
-                ₹{partner.metrics?.commissionPerClient ?? partner.metrics?.perClientRate ?? 499}/client/month
+                ₹{partner.metrics?.commissionPerClient ?? partner.metrics?.perClientRate ?? partner.partnerConfig?.perClientRate ?? 0}/client/month
               </strong>{" "}
               for each active end-client. The partner sets their own retail pricing and retains 100% of their margin.
             </p>

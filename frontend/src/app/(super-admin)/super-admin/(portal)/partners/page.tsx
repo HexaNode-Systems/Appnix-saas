@@ -50,6 +50,7 @@ export default function SuperAdminPartnersPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [error, setError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<any>(null);
 
   // Common Pagination State
   const [page, setPage] = useState(1);
@@ -93,7 +94,7 @@ export default function SuperAdminPartnersPage() {
   // Edit Form State
   const [editForm, setEditForm] = useState({
     name: "",
-    perClientRate: 499,
+    perClientRate: 0,
     setupFee: 0,
     clientLimit: 50,
     primaryColor: "#0f172a",
@@ -121,6 +122,9 @@ export default function SuperAdminPartnersPage() {
         setTotalPages(res.totalPages || 1);
         setHasNext(Boolean(res.hasNext));
         setHasPrevious(Boolean(res.hasPrevious));
+        if (res.summary) {
+          setSummary(res.summary);
+        }
       } else {
         setPartners(Array.isArray(res) ? res : []);
       }
@@ -157,8 +161,8 @@ export default function SuperAdminPartnersPage() {
     setSelectedPartner(p);
     setEditForm({
       name: p.name,
-      perClientRate: p.pricing?.perClientRate || 499,
-      setupFee: p.pricing?.setupFee || 0,
+      perClientRate: p.pricing?.perClientRate || p.commissionPerClient || 0,
+      setupFee: p.pricing?.setupFee || p.lifetimeFee || 0,
       clientLimit: p.maxClients || 50,
       primaryColor: p.branding?.primaryColor || "#0f172a",
       logoUrl: p.branding?.logoUrl || "",
@@ -292,12 +296,9 @@ export default function SuperAdminPartnersPage() {
           </div>
           <div className="mt-2.5">
             <p className="text-2xl font-black text-foreground font-mono">
-              ₹{partners
-                .reduce((acc, p) => {
-                  const isPaid = p.lifetimeFeePaid ?? (p.paymentStatus === "PAID");
-                  return isPaid ? acc + Number(p.lifetimeFee ?? p.pricing?.setupFee ?? 0) : acc;
-                }, 0)
-                .toLocaleString("en-IN")}
+              {loading && !summary
+                ? "..."
+                : `₹${Number(summary?.totalLifetimeFees || 0).toLocaleString("en-IN")}`}
             </p>
             <p className="text-[11px] text-muted-foreground mt-1">
               One-Time License • Permanent / No Expiry
@@ -317,7 +318,7 @@ export default function SuperAdminPartnersPage() {
           </div>
           <div className="mt-2.5">
             <p className="text-2xl font-black text-foreground font-mono">
-              {partners.reduce((acc, p) => acc + Number(p.clientCount || 0), 0)}
+              {loading && !summary ? "..." : summary?.totalActiveClients ?? 0}
             </p>
             <p className="text-[11px] text-muted-foreground mt-1">
               Onboarded across all White-Label partners
@@ -337,13 +338,9 @@ export default function SuperAdminPartnersPage() {
           </div>
           <div className="mt-2.5">
             <p className="text-2xl font-black text-emerald-700 dark:text-emerald-400 font-mono">
-              ₹{partners
-                .reduce((acc, p) => {
-                  const rate = Number(p.commissionPerClient ?? p.pricing?.perClientRate ?? 499);
-                  const count = Number(p.clientCount || 0);
-                  return acc + (p.monthlyCommissionRevenue ?? (count * rate));
-                }, 0)
-                .toLocaleString("en-IN")}
+              {loading && !summary
+                ? "..."
+                : `₹${Number(summary?.totalMonthlyCommission || 0).toLocaleString("en-IN")}`}
               <span className="text-xs font-normal text-muted-foreground">/mo</span>
             </p>
             <p className="text-[11px] text-muted-foreground mt-1">
@@ -364,14 +361,9 @@ export default function SuperAdminPartnersPage() {
           </div>
           <div className="mt-2.5">
             <p className="text-2xl font-black text-amber-700 dark:text-amber-300 font-mono">
-              ₹{partners
-                .reduce((acc, p) => {
-                  const count = Number(p.clientCount || 0);
-                  const rate = Number(p.commissionPerClient ?? p.pricing?.perClientRate ?? 499);
-                  const margin = p.partnerMargin ?? Math.max(0, (count * 1999) - (count * rate));
-                  return acc + margin;
-                }, 0)
-                .toLocaleString("en-IN")}
+              {loading && !summary
+                ? "..."
+                : `₹${Number(summary?.totalPartnerMargin || 0).toLocaleString("en-IN")}`}
               <span className="text-xs font-normal text-muted-foreground">/mo</span>
             </p>
             <p className="text-[11px] text-muted-foreground mt-1">
@@ -463,13 +455,18 @@ export default function SuperAdminPartnersPage() {
                     ? p.paymentStatus === "PAID"
                     : (p.pricing?.setupFeePaid ?? true);
                   const paymentStatus = isPaid ? "PAID" : "PENDING";
-                  const clientCount = p.clientCount || 0;
-                  const maxClients = p.maxClients || 50;
-                  const commissionPerClient = p.commissionPerClient ?? p.pricing?.perClientRate ?? 499;
-                  const monthlyCommission = p.monthlyCommissionRevenue ?? (clientCount * commissionPerClient);
+                  const totalClients = p.totalClients ?? p.clientCount ?? 0;
+                  const activeClients = p.activeClients ?? p.clientCount ?? 0;
+                  const maxClients = p.maxClients || p.pricing?.clientLimit || 50;
+                  const commissionPerClient = p.commissionPerClient ?? p.pricing?.perClientRate ?? 0;
+                  const monthlyCommission = p.monthlyCommissionRevenue ?? (activeClients * commissionPerClient);
                   const totalCommission = p.totalCommissionRevenue ?? monthlyCommission;
-                  const partnerMargin = p.partnerMargin ?? Math.max(0, (clientCount * 1999) - monthlyCommission);
-                  const marginPct = p.partnerMarginPercentage ?? 75;
+                  const partnerMargin = p.partnerMargin ?? 0;
+                  const marginPct = p.partnerMarginPercentage !== undefined && p.partnerMarginPercentage !== null
+                    ? p.partnerMarginPercentage
+                    : partnerMargin > 0 && monthlyCommission > 0
+                    ? Math.round((partnerMargin / (partnerMargin + monthlyCommission)) * 100)
+                    : null;
 
                   return (
                     <tr key={p.id} className="hover:bg-muted/20 transition-colors">
@@ -530,14 +527,16 @@ export default function SuperAdminPartnersPage() {
                       {/* 4. Total / Active Clients */}
                       <td className="py-3.5 px-3.5">
                         <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-foreground">
-                          <span>{clientCount}</span>
-                          <span className="text-muted-foreground font-normal">/ {maxClients}</span>
+                          <span>{totalClients} / {activeClients}</span>
+                          <span className="text-[10px] text-muted-foreground font-sans font-normal">
+                            (max {maxClients})
+                          </span>
                         </div>
                         <div className="w-20 bg-muted h-1.5 rounded-full overflow-hidden mt-1">
                           <div
                             className="bg-amber-500 h-full rounded-full"
                             style={{
-                              width: `${Math.min(100, Math.round((clientCount / (maxClients || 1)) * 100))}%`,
+                              width: `${Math.min(100, Math.round((totalClients / (maxClients || 1)) * 100))}%`,
                             }}
                           />
                         </div>
@@ -579,7 +578,7 @@ export default function SuperAdminPartnersPage() {
                           ₹{Number(partnerMargin).toLocaleString("en-IN")}
                         </div>
                         <div className="text-[10px] text-muted-foreground font-sans">
-                          {marginPct}% retained
+                          {marginPct !== null ? `${marginPct}% retained` : "Margin retained"}
                         </div>
                       </td>
 

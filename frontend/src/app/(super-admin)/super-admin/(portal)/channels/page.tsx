@@ -109,7 +109,12 @@ export default function SuperAdminChannelsPage() {
             Average Delivery Rate
           </span>
           <p className="text-2xl font-black text-emerald-700 dark:text-emerald-400 font-mono mt-2">
-            {loading ? "..." : `${data?.overview?.deliveryRatePercentage || 99.4}%`}
+            {loading
+              ? "..."
+              : data?.overview?.deliveryRatePercentage !== null &&
+                data?.overview?.deliveryRatePercentage !== undefined
+              ? `${data.overview.deliveryRatePercentage}%`
+              : "N/A"}
           </p>
           <p className="text-xs text-emerald-600 font-medium mt-1">
             Delivered & Read across carriers

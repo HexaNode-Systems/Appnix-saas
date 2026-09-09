@@ -268,7 +268,7 @@ frontend/
 
 - **Routes**: `/automations/data-store`, `/automations/app-authentications`
 - **DataStore**: Create key-value document stores for workflows with optional TTL expiration.
-- **App Credentials**: Connect and test live credentials for Shopify, OpenAI, Stripe, HubSpot, and Webhooks.
+- **App Credentials**: Connect and test live credentials for Shopify, OpenAI, Cashfree, HubSpot, and Webhooks.
 
 ---
 

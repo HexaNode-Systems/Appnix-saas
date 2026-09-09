@@ -242,7 +242,7 @@ export const STARTER_TEMPLATES: FlowTemplate[] = [
               { id: "whatsapp_flows", title: "WhatsApp Mini-App Flows" },
               { id: "ai_agents", title: "Voice AI & LLM Agent Integration" },
               { id: "crm_sync", title: "Salesforce / HubSpot CRM Two-Way Sync" },
-              { id: "payment_links", title: "Razorpay / Stripe Native Payments" },
+              { id: "payment_links", title: "Cashfree Native Payments" },
             ],
           },
           {

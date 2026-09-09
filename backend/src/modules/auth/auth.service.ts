@@ -31,7 +31,10 @@ export interface UserResponse {
   email: string;
   name: string;
   avatar?: string;
-  role: 'owner' | 'admin' | 'member' | 'viewer';
+  role: 'owner' | 'admin' | 'member' | 'viewer' | string;
+  rawRole?: string;
+  systemRole?: string;
+  tenantId?: string;
   workspaceId: string;
   workspaceName: string;
   permissions: string[];
@@ -69,6 +72,9 @@ export class AuthService {
       name: user.name || user.email.split('@')[0],
       avatar: user.avatar || undefined,
       role: roleMap[user.role] || 'member',
+      rawRole: user.role,
+      systemRole: user.role,
+      tenantId: user.tenantId,
       workspaceId: user.tenantId,
       workspaceName: tenantName || user.tenant?.name || 'Workspace',
       permissions: ['*'],
@@ -235,11 +241,23 @@ export class AuthService {
       await this.recaptchaService.verifyToken(recaptchaToken, 'login');
     }
 
-    const user = await this.usersService.findByEmail(email);
+    const cleanEmail = email ? email.toLowerCase().trim() : '';
+    const user = await this.usersService.findByEmail(cleanEmail);
     if (!user) throw new UnauthorizedException('Invalid credentials');
+
+    if (!user.passwordHash) {
+      throw new UnauthorizedException('Account uses external/social authentication. Please sign in with Google.');
+    }
 
     const passwordMatches = await bcrypt.compare(password, user.passwordHash);
     if (!passwordMatches) throw new UnauthorizedException('Invalid credentials');
+
+    if (user.tenant?.status === 'SUSPENDED') {
+      throw new ForbiddenException('Your organization account has been suspended. Please contact support.');
+    }
+    if (user.tenant?.status === 'CANCELLED') {
+      throw new ForbiddenException('Your organization account has been cancelled.');
+    }
 
     const orgPath = user.role === 'SUPER_ADMIN' ? 'root' : (user.tenant?.path || 'root');
     const tier = user.role === 'SUPER_ADMIN' ? 'PLATFORM_ROOT' : (user.tenant?.tier || 'END_CLIENT');
@@ -253,19 +271,52 @@ export class AuthService {
     };
   }
 
-  async adminLogin(email: string, password: string, recaptchaToken?: string) {
+  async adminLogin(
+    email: string,
+    password: string,
+    recaptchaToken?: string,
+    orgSlug?: string,
+    mfaCode?: string,
+  ) {
     if (recaptchaToken) {
       await this.recaptchaService.verifyToken(recaptchaToken, 'admin_login');
     }
 
-    const user = await this.usersService.findByEmail(email);
+    const cleanEmail = email ? email.toLowerCase().trim() : '';
+    const user = await this.usersService.findByEmail(cleanEmail);
     if (!user) throw new UnauthorizedException('Invalid credentials');
+
+    if (!user.passwordHash) {
+      throw new UnauthorizedException('Account does not have password authentication enabled.');
+    }
 
     const passwordMatches = await bcrypt.compare(password, user.passwordHash);
     if (!passwordMatches) throw new UnauthorizedException('Invalid credentials');
 
-    if (user.role !== Role.SUPER_ADMIN && user.role !== Role.RESELLER_ADMIN) {
+    if (
+      user.role !== Role.SUPER_ADMIN &&
+      user.role !== Role.RESELLER_ADMIN &&
+      user.role !== Role.TENANT_ADMIN
+    ) {
       throw new ForbiddenException('Access denied: account does not have Admin or Reseller privileges');
+    }
+
+    // Tenant / White-Label identification: verify organization slug if provided
+    if (orgSlug && orgSlug.trim()) {
+      const cleanSlug = orgSlug.toLowerCase().trim();
+      const userTenantSlug = user.tenant?.slug?.toLowerCase();
+      // Super admin can access any organization; partner admin must match tenant slug
+      if (user.role !== Role.SUPER_ADMIN && userTenantSlug !== cleanSlug) {
+        throw new UnauthorizedException(`Account does not belong to the workspace organization "${orgSlug}"`);
+      }
+    }
+
+    // Check organization account status
+    if (user.tenant?.status === 'SUSPENDED') {
+      throw new ForbiddenException('Your reseller organization has been suspended. Please contact platform support.');
+    }
+    if (user.tenant?.status === 'CANCELLED') {
+      throw new ForbiddenException('Your reseller organization has been cancelled.');
     }
 
     const orgPath = user.role === 'SUPER_ADMIN' ? 'root' : (user.tenant?.path || 'root');
@@ -476,9 +527,26 @@ export class AuthService {
     };
   }
 
-  async getMe(userId: string) {
+  async getMe(userId: string, targetTenantId?: string) {
     const user = await this.usersService.findById(userId);
     if (!user) throw new NotFoundException('User not found');
+
+    if (targetTenantId && targetTenantId !== user.tenantId) {
+      const targetTenant = await this.usersService['prisma'].tenant.findUnique({
+        where: { id: targetTenantId },
+        select: { id: true, name: true, slug: true, path: true, tier: true },
+      });
+      if (targetTenant) {
+        const formatted = this.formatUser(user, targetTenant.name);
+        formatted.tenantId = targetTenant.id;
+        formatted.workspaceId = targetTenant.id;
+        formatted.workspaceName = targetTenant.name;
+        if (targetTenant.path) formatted.orgPath = targetTenant.path;
+        if (targetTenant.tier) formatted.tier = targetTenant.tier;
+        return formatted;
+      }
+    }
+
     return this.formatUser(user);
   }
 }

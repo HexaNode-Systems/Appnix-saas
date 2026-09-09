@@ -8,8 +8,15 @@ export class UsersService {
   constructor(private prisma: PrismaService) {}
 
   findByEmail(email: string) {
-    return this.prisma.user.findUnique({
-      where: { email },
+    if (!email) return null;
+    const clean = email.toLowerCase().trim();
+    return this.prisma.user.findFirst({
+      where: {
+        email: {
+          equals: clean,
+          mode: 'insensitive',
+        },
+      },
       include: { tenant: true },
     });
   }
