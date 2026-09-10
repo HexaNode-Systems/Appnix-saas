@@ -65,13 +65,20 @@ export class CreatePartnerDto {
   @IsNotEmpty()
   adminPhone: string;
 
-  @ApiProperty({
-    example: 'eyJhbGciOiJSUzI1NiIsImtpZCI...',
-    description: 'Firebase Phone Auth ID token after SMS OTP verification',
+  @ApiPropertyOptional({
+    example: 'email-verified:...',
+    description: 'Email verification token from partner email OTP verification',
   })
   @IsString()
-  @IsNotEmpty()
-  firebaseIdToken: string;
+  @IsOptional()
+  verificationToken?: string;
+
+  @ApiPropertyOptional({
+    description: 'Legacy verification token kept for backward compatibility',
+  })
+  @IsString()
+  @IsOptional()
+  firebaseIdToken?: string;
 
   @ApiPropertyOptional({ example: 'ws-plan-starter' })
   @IsString()

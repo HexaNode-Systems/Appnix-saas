@@ -9,7 +9,6 @@ import { Badge } from "@/components/ui/badge";
 import { superAdminApi } from "@/super-admin/services/superAdminApi";
 import { PartnerConfirmModal } from "@/super-admin/components/partners/PartnerConfirmModal";
 import { PartnerOtpVerificationModal } from "@/super-admin/components/partners/PartnerOtpVerificationModal";
-import { sendFirebasePhoneOtp } from "@/lib/firebasePhoneAuth";
 import {
   ArrowLeft,
   Building2,
@@ -254,23 +253,23 @@ export default function CreatePartnerPage() {
       return;
     }
 
-    // Trigger Firebase Phone OTP
+    // Trigger Email OTP
     setSendingOtp(true);
     try {
-      await sendFirebasePhoneOtp(form.adminPhone.trim());
+      await superAdminApi.sendPartnerEmailOtp(form.adminEmail.trim());
       setIsOtpOpen(true);
     } catch (otpErr: any) {
-      setError(otpErr.message || "Failed to send Firebase Phone OTP. Please verify phone number.");
+      setError(otpErr.message || "Failed to send verification Email OTP. Please verify email address.");
     } finally {
       setSendingOtp(false);
     }
   };
 
   /**
-   * Step 2: OTP successfully verified by Firebase
+   * Step 2: OTP successfully verified
    */
-  const handleOtpVerified = (firebaseIdToken: string) => {
-    setVerifiedFirebaseToken(firebaseIdToken);
+  const handleOtpVerified = (token: string) => {
+    setVerifiedFirebaseToken(token);
     setIsOtpOpen(false);
     // Proceed to Step 3: Small confirmation dialog
     setIsConfirmOpen(true);
@@ -281,7 +280,7 @@ export default function CreatePartnerPage() {
    */
   const handleFinalConfirmCreate = async () => {
     if (!verifiedFirebaseToken) {
-      setError("Phone OTP must be verified before partner creation.");
+      setError("Email OTP must be verified before partner creation.");
       setIsConfirmOpen(false);
       return;
     }
@@ -305,6 +304,7 @@ export default function CreatePartnerPage() {
         perClientRate: Number(form.perClientRate),
         commissionPerClient: Number(form.perClientRate),
         clientLimit: Number(form.clientLimit),
+        verificationToken: verifiedFirebaseToken,
         firebaseIdToken: verifiedFirebaseToken,
       });
 
@@ -735,7 +735,7 @@ export default function CreatePartnerPage() {
             {sendingOtp ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Sending Firebase Phone OTP...</span>
+                <span>Sending Email OTP...</span>
               </>
             ) : submitting ? (
               <>
@@ -756,6 +756,7 @@ export default function CreatePartnerPage() {
       <PartnerOtpVerificationModal
         isOpen={isOtpOpen}
         onClose={() => setIsOtpOpen(false)}
+        email={form.adminEmail}
         phone={form.adminPhone}
         onVerified={handleOtpVerified}
       />

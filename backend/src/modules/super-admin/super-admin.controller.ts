@@ -118,6 +118,27 @@ export class SuperAdminController {
     return { success: true, data };
   }
 
+  @Post('partners/send-otp')
+  @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Send email verification OTP for partner provisioning' })
+  async sendPartnerEmailOtp(@Body('email') email: string) {
+    const result = await this.service.sendPartnerEmailOtp(email);
+    return { success: true, ...result };
+  }
+
+  @Post('partners/verify-otp')
+  @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Verify email OTP for partner provisioning' })
+  async verifyPartnerEmailOtp(
+    @Body('email') email: string,
+    @Body('otp') otp: string,
+  ) {
+    const result = await this.service.verifyPartnerEmailOtp(email, otp);
+    return { success: true, ...result };
+  }
+
   @Post('partners')
   @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
   @ApiBearerAuth()

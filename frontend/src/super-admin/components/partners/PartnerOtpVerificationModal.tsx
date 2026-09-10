@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useState, useEffect } from "react";
 import {
@@ -11,30 +11,27 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, ShieldCheck, RefreshCw, AlertCircle } from "lucide-react";
-import {
-  sendFirebasePhoneOtp,
-  confirmFirebasePhoneOtp,
-  getOtpMode,
-} from "@/lib/firebasePhoneAuth";
+import { Loader2, MailCheck, RefreshCw, AlertCircle } from "lucide-react";
+import { superAdminApi } from "@/super-admin/services/superAdminApi";
 
 export interface PartnerOtpVerificationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  phone: string;
-  onVerified: (firebaseIdToken: string) => void;
+  email: string;
+  phone?: string;
+  onVerified: (token: string) => void;
 }
 
 const COOLDOWN_SECONDS = 60;
 
 function OtpDialogForm({
-  phone,
+  email,
   onClose,
   onVerified,
 }: {
-  phone: string;
+  email: string;
   onClose: () => void;
-  onVerified: (firebaseIdToken: string) => void;
+  onVerified: (token: string) => void;
 }) {
   const [otp, setOtp] = useState("");
   const [verifying, setVerifying] = useState(false);
@@ -42,7 +39,7 @@ function OtpDialogForm({
   const [error, setError] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(COOLDOWN_SECONDS);
   const [statusMessage, setStatusMessage] = useState<string | null>(
-    `Verification code sent to ${phone}`
+    `Verification code sent to ${email}`
   );
 
   // Cooldown countdown
@@ -65,14 +62,14 @@ function OtpDialogForm({
     setError(null);
 
     try {
-      const result = await confirmFirebasePhoneOtp(otp.trim());
-      if (result.success && result.idToken) {
-        onVerified(result.idToken);
+      const result = await superAdminApi.verifyPartnerEmailOtp(email, otp.trim());
+      if (result.success && result.token) {
+        onVerified(result.token);
       } else {
-        throw new Error("Phone verification failed. Please try again.");
+        throw new Error(result.message || "Email OTP verification failed. Please try again.");
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed to verify code. Please check and try again.";
+      const msg = err instanceof Error ? err.message : "Failed to verify code. Please check your email and try again.";
       setError(msg);
     } finally {
       setVerifying(false);
@@ -85,8 +82,8 @@ function OtpDialogForm({
     setError(null);
 
     try {
-      const res = await sendFirebasePhoneOtp(phone);
-      setStatusMessage(res.message || `New code sent to ${phone}`);
+      const res = await superAdminApi.sendPartnerEmailOtp(email);
+      setStatusMessage(res.message || `New code sent to ${email}`);
       setCooldown(COOLDOWN_SECONDS);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to resend verification code.";
@@ -113,14 +110,14 @@ function OtpDialogForm({
 
       <div className="space-y-2">
         <label className="block text-xs font-semibold text-foreground">
-          Enter 6-Digit Verification Code <span className="text-rose-500">*</span>
+          Enter 6-Digit Email Verification Code <span className="text-rose-500">*</span>
         </label>
         <Input
           type="text"
           autoFocus
           inputMode="numeric"
           maxLength={6}
-          placeholder="111111"
+          placeholder="123456"
           value={otp}
           onChange={(e) => {
             const val = e.target.value.replace(/\D/g, "").slice(0, 6);
@@ -130,12 +127,7 @@ function OtpDialogForm({
           className="h-11 text-center font-mono text-lg tracking-widest font-bold"
         />
         <p className="text-[11px] text-muted-foreground text-center">
-          Target Phone: <strong className="font-mono text-foreground">{phone}</strong>
-          {getOtpMode() === "development" && (
-            <span className="block text-[10px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5">
-              Testing Mode: Enter 111111
-            </span>
-          )}
+          Target Email: <strong className="font-mono text-foreground">{email}</strong>
         </p>
       </div>
 
@@ -160,9 +152,6 @@ function OtpDialogForm({
           </span>
         </button>
       </div>
-
-      {/* Invisible container for Firebase reCAPTCHA */}
-      <div id="firebase-recaptcha-container" />
 
       <DialogFooter className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 pt-4 border-t mt-3">
         <Button
@@ -198,7 +187,7 @@ function OtpDialogForm({
 export function PartnerOtpVerificationModal({
   isOpen,
   onClose,
-  phone,
+  email,
   onVerified,
 }: PartnerOtpVerificationModalProps) {
   return (
@@ -207,14 +196,14 @@ export function PartnerOtpVerificationModal({
         <DialogHeader className="space-y-2">
           <div className="flex items-center gap-2">
             <div className="rounded-lg bg-amber-500/10 p-2 text-amber-600 dark:text-amber-400">
-              <ShieldCheck className="h-5 w-5" />
+              <MailCheck className="h-5 w-5" />
             </div>
             <div>
               <DialogTitle className="text-base font-bold text-foreground">
-                Verify Contact Phone / WhatsApp
+                Verify Administrator Email
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                Firebase Phone Authentication OTP
+                Appnix Email Verification OTP
               </DialogDescription>
             </div>
           </div>
@@ -222,8 +211,8 @@ export function PartnerOtpVerificationModal({
 
         {isOpen && (
           <OtpDialogForm
-            key={phone}
-            phone={phone}
+            key={email}
+            email={email}
             onClose={onClose}
             onVerified={onVerified}
           />

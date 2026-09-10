@@ -238,6 +238,16 @@ export const superAdminApi = {
     return res.data;
   },
 
+  sendPartnerEmailOtp: async (email: string) => {
+    const res = await api.post("/partners/send-otp", { email });
+    return res.data?.data || res.data;
+  },
+
+  verifyPartnerEmailOtp: async (email: string, otp: string) => {
+    const res = await api.post("/partners/verify-otp", { email, otp });
+    return res.data?.data || res.data;
+  },
+
   createPartner: async (data: any) => {
     const res = await api.post("/partners", data);
     return res.data?.data || res.data;

@@ -16,7 +16,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { MailService } from '../mail/mail.service';
 import { SuperAdminDnsService } from './services/super-admin-dns.service';
-import { SuperAdminFirebaseService } from './services/super-admin-firebase.service';
+import { SuperAdminEmailOtpService } from './services/super-admin-email-otp.service';
 import {
   SuperAdminLoginDto,
   CreatePartnerDto,
@@ -42,7 +42,7 @@ export class SuperAdminService {
     private readonly authService: AuthService,
     private readonly dnsService: SuperAdminDnsService,
     private readonly mailService: MailService,
-    private readonly firebaseService: SuperAdminFirebaseService,
+    private readonly emailOtpService: SuperAdminEmailOtpService,
   ) {}
 
   // ==========================================
@@ -888,9 +888,20 @@ export class SuperAdminService {
     return { available: true, slug: formattedSlug };
   }
 
+  async sendPartnerEmailOtp(email: string) {
+    return this.emailOtpService.sendOtp(email);
+  }
+
+  async verifyPartnerEmailOtp(email: string, otp: string) {
+    return this.emailOtpService.verifyOtp(email, otp);
+  }
+
   async createPartner(dto: CreatePartnerDto, actorId: string, actorEmail?: string) {
-    // 1. Verify Phone OTP via Firebase
-    await this.firebaseService.verifyPhoneToken(dto.firebaseIdToken, dto.adminPhone);
+    // 1. Verify Administrator Email OTP
+    await this.emailOtpService.assertEmailVerified(
+      dto.adminEmail,
+      dto.verificationToken || dto.firebaseIdToken,
+    );
 
     // 2. Check if email already exists
     const existingUser = await this.prisma.user.findUnique({
