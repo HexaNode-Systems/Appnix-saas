@@ -1,4 +1,4 @@
-﻿-- CreateEnum
+-- CreateEnum
 CREATE TYPE "AuthType" AS ENUM ('API_KEY', 'BEARER_TOKEN', 'OAUTH2', 'BASIC_AUTH');
 
 -- CreateEnum
