@@ -28,7 +28,8 @@ jobs:
             cd /var/www/appnix-saas
 
             echo "📥 Pulling latest code..."
-            git fetch origin master
+            rm -f .git/index.lock .git/refs/remotes/origin/master.lock
+            git fetch --prune origin master || (sleep 3 && git fetch --prune origin master)
             git reset --hard origin/master
 
             echo "📦 Installing backend dependencies..."
@@ -51,6 +52,7 @@ jobs:
             pm2 save
 
             echo "🏥 Checking backend health..."
+            sleep 3
 
             for i in {1..12}; do
               if curl -fsS https://api.appnix.co.in/api/v1/health; then
