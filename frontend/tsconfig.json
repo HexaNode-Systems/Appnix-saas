@@ -51,8 +51,7 @@
         "./src/constants/*",
         "./constants/*"
       ]
-    },
-    "baseUrl": "."
+    }
   },
   "include": [
     "next-env.d.ts",

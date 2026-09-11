@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
     // 3. Construct Return URL
     const appUrl =
       process.env.APP_URL ||
-      process.env.NEXT_PUBLIC_APP_URL ||
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
       "http://localhost:3000";
     const resolvedReturnUrl =
       returnUrl ||

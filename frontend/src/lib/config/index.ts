@@ -7,7 +7,7 @@ export const config = {
   app: {
     name: "Appnix",
     description: "Unified Business Messaging & Marketing Platform",
-    url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+    url: process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000",
     domains: {
       root: process.env.NEXT_PUBLIC_ROOT_DOMAIN || "appnix.co.in",
       app: process.env.NEXT_PUBLIC_APP_DOMAIN || "app.appnix.co.in",
