@@ -12,6 +12,7 @@ export async function getAuthenticatedWorkspace(request: NextRequest): Promise<{
   let authorization = request.headers.get("authorization");
   if (!authorization?.startsWith("Bearer ")) {
     const cookieToken =
+      request.cookies.get("appnix_access_token")?.value ||
       request.cookies.get("appnix_auth_token")?.value ||
       request.cookies.get("token")?.value ||
       request.cookies.get("access_token")?.value;

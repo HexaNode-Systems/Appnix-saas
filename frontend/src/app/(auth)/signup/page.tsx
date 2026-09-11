@@ -398,7 +398,16 @@ function SignUpContent() {
                 type="button"
                 variant="outline"
                 className="w-full h-11 text-sm font-medium border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 hover:border-slate-300 shadow-sm transition-all duration-150 flex items-center justify-center cursor-pointer"
-                onClick={() => (window.location.href = config.auth.googleOAuthUrl || "/api/proxy/auth/google")}
+                onClick={() => {
+                  const baseGoogleUrl = config.auth.googleOAuthUrl || "/api/proxy/auth/google";
+                  try {
+                    const url = new URL(baseGoogleUrl, window.location.origin);
+                    url.searchParams.set("origin", window.location.origin);
+                    window.location.href = url.toString();
+                  } catch {
+                    window.location.href = baseGoogleUrl;
+                  }
+                }}
                 disabled={isLoading}
               >
                 <svg className="mr-3 h-5 w-5 shrink-0" viewBox="0 0 24 24">

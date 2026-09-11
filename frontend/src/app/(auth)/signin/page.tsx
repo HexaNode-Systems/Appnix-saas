@@ -174,8 +174,14 @@ function SignInContent() {
 
   const handleGoogleSignIn = () => {
     setIsGoogleLoading(true);
-    const googleUrl = config.auth.googleOAuthUrl || "/api/proxy/auth/google";
-    window.location.href = googleUrl;
+    const baseGoogleUrl = config.auth.googleOAuthUrl || "/api/proxy/auth/google";
+    try {
+      const url = new URL(baseGoogleUrl, window.location.origin);
+      url.searchParams.set("origin", window.location.origin);
+      window.location.href = url.toString();
+    } catch {
+      window.location.href = baseGoogleUrl;
+    }
   };
 
   return (

@@ -82,17 +82,29 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 function persistAccessToken(token: string) {
   localStorage.setItem(config.auth.tokenKey, token);
-  // This cookie lets Next.js Proxy block direct admin-page navigation. It is
-  // intentionally not used as an API credential; server-side API enforcement
-  // still validates the Authorization bearer token.
+  localStorage.setItem("appnix_access_token", token);
   const secure = window.location.protocol === "https:" ? "; Secure" : "";
-  document.cookie = `appnix_access_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax${secure}`;
+  const isProdDomain = typeof window !== "undefined" && window.location.hostname.endsWith("appnix.co.in");
+  const domainAttr = isProdDomain ? "; Domain=.appnix.co.in" : "";
+
+  document.cookie = `appnix_access_token=${encodeURIComponent(token)}; Path=/; Max-Age=900; SameSite=Lax${domainAttr}${secure}`;
+  document.cookie = `appnix_auth_token=${encodeURIComponent(token)}; Path=/; Max-Age=900; SameSite=Lax${domainAttr}${secure}`;
 }
 
 function clearAccessToken() {
   localStorage.removeItem(config.auth.tokenKey);
+  localStorage.removeItem("appnix_access_token");
+  localStorage.removeItem("token");
   const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  const isProdDomain = typeof window !== "undefined" && window.location.hostname.endsWith("appnix.co.in");
+  const domainAttr = isProdDomain ? "; Domain=.appnix.co.in" : "";
+
   document.cookie = `appnix_access_token=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+  document.cookie = `appnix_auth_token=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+  if (domainAttr) {
+    document.cookie = `appnix_access_token=; Path=/; Max-Age=0; SameSite=Lax${domainAttr}${secure}`;
+    document.cookie = `appnix_auth_token=; Path=/; Max-Age=0; SameSite=Lax${domainAttr}${secure}`;
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {

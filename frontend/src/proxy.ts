@@ -156,6 +156,8 @@ export function proxy(request: NextRequest) {
       pathname === "/login" ||
       pathname === "/signin" ||
       pathname === "/signup" ||
+      pathname === "/auth" ||
+      pathname.startsWith("/auth/") ||
       protectedClientPrefixes.some(
         (prefix) => pathname === prefix || pathname.startsWith(prefix + "/")
       );
@@ -430,7 +432,9 @@ export function proxy(request: NextRequest) {
 
   // --- Protected Client Application Routes ---
   const isOAuthCallback =
-    pathname.includes("/channels/") && pathname.endsWith("/callback");
+    (pathname.includes("/channels/") && pathname.endsWith("/callback")) ||
+    pathname === "/auth/callback" ||
+    pathname.startsWith("/auth/");
 
   const isProtectedClientRoute =
     !isOAuthCallback &&

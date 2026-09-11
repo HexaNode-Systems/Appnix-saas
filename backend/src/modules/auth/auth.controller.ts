@@ -52,13 +52,72 @@ export class AuthController {
     const googleUser = req.user as GoogleUserProfile;
     const result = await this.authService.validateOrCreateGoogleUser(googleUser);
 
-    const frontendUrl =
-      this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
-    const redirectTarget = `${frontendUrl}/auth/callback?token=${encodeURIComponent(
+    const clientPortalUrl = this.resolveClientPortalUrl(req);
+    const redirectTarget = `${clientPortalUrl}/auth/callback?token=${encodeURIComponent(
       result.accessToken,
     )}&refreshToken=${encodeURIComponent(result.refreshToken)}`;
 
+    this.setAuthCookies(res, result.accessToken, result.refreshToken);
+
     return res.redirect(redirectTarget);
+  }
+
+  private resolveClientPortalUrl(req: Request): string {
+    // 1. Explicit Client Portal URL configured in environment
+    const clientAppUrl =
+      this.configService.get<string>('CLIENT_APP_URL') ||
+      this.configService.get<string>('APP_URL');
+    if (clientAppUrl) {
+      return clientAppUrl.replace(/\/+$/, '');
+    }
+
+    // 2. Validate state param if passed during OAuth initiation
+    const stateParam = req.query?.state as string | undefined;
+    if (stateParam) {
+      try {
+        const parsed = new URL(stateParam);
+        const hostname = parsed.hostname.toLowerCase();
+        const isAllowedHost =
+          hostname === 'app.appnix.co.in' ||
+          hostname === 'appnix.co.in' ||
+          hostname === 'www.appnix.co.in' ||
+          hostname === 'localhost' ||
+          hostname === '127.0.0.1' ||
+          hostname.endsWith('.localhost');
+
+        if (isAllowedHost) {
+          // If state was on root or www landing alias, target the client portal subdomain directly
+          if (hostname === 'appnix.co.in' || hostname === 'www.appnix.co.in') {
+            return 'https://app.appnix.co.in';
+          }
+          return parsed.origin;
+        }
+      } catch {
+        // Invalid state URL format, fall through to default resolution
+      }
+    }
+
+    // 3. Inspect FRONTEND_URL and map landing domain to client portal subdomain
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || '';
+    if (frontendUrl) {
+      try {
+        const parsed = new URL(frontendUrl);
+        const hostname = parsed.hostname.toLowerCase();
+        if (hostname === 'appnix.co.in' || hostname === 'www.appnix.co.in') {
+          return 'https://app.appnix.co.in';
+        }
+        return frontendUrl.replace(/\/+$/, '');
+      } catch {
+        if (frontendUrl.includes('appnix.co.in')) {
+          return 'https://app.appnix.co.in';
+        }
+      }
+    }
+
+    // 4. Fallback defaults
+    return process.env.NODE_ENV === 'production'
+      ? 'https://app.appnix.co.in'
+      : 'http://localhost:3000';
   }
 
   @Post('google')
@@ -74,17 +133,29 @@ export class AuthController {
 
   private setAuthCookies(res: Response, accessToken: string, refreshToken: string) {
     const isProd = process.env.NODE_ENV === 'production';
+    const cookieDomain = isProd ? '.appnix.co.in' : undefined;
+
     res.cookie('appnix_access_token', accessToken, {
-      httpOnly: true,
+      httpOnly: false,
       secure: isProd,
       sameSite: 'lax',
+      domain: cookieDomain,
+      maxAge: 15 * 60 * 1000, // 15 mins
+      path: '/',
+    });
+    res.cookie('appnix_auth_token', accessToken, {
+      httpOnly: false,
+      secure: isProd,
+      sameSite: 'lax',
+      domain: cookieDomain,
       maxAge: 15 * 60 * 1000, // 15 mins
       path: '/',
     });
     res.cookie('appnix_refresh_token', refreshToken, {
-      httpOnly: true,
+      httpOnly: false,
       secure: isProd,
       sameSite: 'lax',
+      domain: cookieDomain,
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/',
     });

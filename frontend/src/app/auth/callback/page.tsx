@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { config } from "@/lib/config";
 import { useAuth } from "@/lib/auth/auth-context";
 import { Loader2, AlertCircle } from "lucide-react";
@@ -10,43 +10,87 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 
 function AuthCallbackContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { refreshUser } = useAuth();
-  const [error, setError] = useState<string | null>(null);
+
+  const token = searchParams.get("token");
+  const refreshToken = searchParams.get("refreshToken");
+  const authError = searchParams.get("error");
+
+  const initialError = authError
+    ? decodeURIComponent(authError)
+    : !token
+    ? "Authentication failed: No access token received."
+    : null;
+
+  const [error, setError] = useState<string | null>(initialError);
 
   useEffect(() => {
-    const token = searchParams.get("token");
-    const refreshToken = searchParams.get("refreshToken");
-    const authError = searchParams.get("error");
+    // 1. Guard against executing callback on root or alias domains (appnix.co.in / www.appnix.co.in)
+    // The authenticated session MUST be provisioned on the Client Portal origin (app.appnix.co.in)
+    const hostname = window.location.hostname.toLowerCase();
+    const isRootOrAliasDomain =
+      hostname === "appnix.co.in" ||
+      hostname === "www.appnix.co.in";
 
-    if (authError) {
-      setError(decodeURIComponent(authError));
+    if (isRootOrAliasDomain) {
+      const appDomain = config.app.domains.app || "app.appnix.co.in";
+      window.location.replace(`https://${appDomain}/auth/callback${window.location.search}`);
       return;
     }
 
-    if (!token) {
-      setError("Authentication failed: No access token received.");
+    if (!token || authError) {
       return;
     }
 
     const processAuth = async () => {
       try {
+        // 1. Persist tokens in localStorage on the client portal origin
         localStorage.setItem(config.auth.tokenKey, token);
-        const secure = window.location.protocol === "https:" ? "; Secure" : "";
-        document.cookie = `appnix_access_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax${secure}`;
+        localStorage.setItem("appnix_access_token", token);
+        localStorage.setItem("token", token);
+
         if (refreshToken) {
           localStorage.setItem(config.auth.refreshTokenKey, refreshToken);
+          localStorage.setItem("appnix_refresh_token", refreshToken);
+          localStorage.setItem("refreshToken", refreshToken);
         }
+
+        // 2. Set SameSite=Lax session cookies across the application domain
+        const secure = window.location.protocol === "https:" ? "; Secure" : "";
+        const isProdDomain = hostname.endsWith("appnix.co.in");
+        const domainAttr = isProdDomain ? "; Domain=.appnix.co.in" : "";
+
+        document.cookie = `appnix_access_token=${encodeURIComponent(token)}; Path=/; Max-Age=900; SameSite=Lax${domainAttr}${secure}`;
+        document.cookie = `appnix_auth_token=${encodeURIComponent(token)}; Path=/; Max-Age=900; SameSite=Lax${domainAttr}${secure}`;
+        if (refreshToken) {
+          document.cookie = `appnix_refresh_token=${encodeURIComponent(refreshToken)}; Path=/; Max-Age=604800; SameSite=Lax${domainAttr}${secure}`;
+        }
+
+        // 3. Clean sensitive token parameters from the URL address bar & history immediately
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+
+        // 4. Provision and sync authenticated user data with AuthContext
         await refreshUser();
-        router.replace("/dashboard");
-      } catch (err: any) {
-        setError(err.message || "Failed to finalize authentication session.");
+
+        // 5. DIRECT navigation to Client Portal dashboard
+        // Avoid router.replace client-side RSC fetching across domains or stale router caches
+        const targetDashboard =
+          hostname.includes("appnix.co.in") && !hostname.startsWith("app.")
+            ? `https://${config.app.domains.app}/dashboard`
+            : "/dashboard";
+
+        window.location.replace(targetDashboard);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Failed to finalize authentication session.";
+        setError(message);
       }
     };
 
     processAuth();
-  }, [searchParams, router, refreshUser]);
+  }, [token, refreshToken, authError, refreshUser]);
 
   if (error) {
     return (
