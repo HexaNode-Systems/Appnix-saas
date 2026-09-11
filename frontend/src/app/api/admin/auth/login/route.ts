@@ -81,6 +81,14 @@ export async function POST(request: NextRequest) {
     // Set secure HttpOnly cookies for admin session
     const isProd = process.env.NODE_ENV === "production";
     if (accessToken) {
+      response.cookies.set("appnix_admin_token", accessToken, {
+        httpOnly: true,
+        secure: isProd,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 15 * 60, // 15 mins
+      });
+
       response.cookies.set("appnix_access_token", accessToken, {
         httpOnly: true,
         secure: isProd,
@@ -100,6 +108,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (refreshToken) {
+      response.cookies.set("appnix_admin_refresh_token", refreshToken, {
+        httpOnly: true,
+        secure: isProd,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60, // 7 days
+      });
+
       response.cookies.set("appnix_refresh_token", refreshToken, {
         httpOnly: true,
         secure: isProd,

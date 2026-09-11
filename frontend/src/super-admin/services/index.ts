@@ -45,7 +45,8 @@ export const clientService = {
     }
   },
   create: async (newClient: Omit<Client, "id" | "mrr" | "totalUsers" | "lastActive">): Promise<Client> => {
-    const res = await api.post("/tenants/clients", newClient);
+    const { signupDate, mrr, totalUsers, lastActive, id, ...payload } = newClient as any;
+    const res = await api.post("/tenants/clients", payload);
     return res.data?.data || res.data;
   },
   updateStatus: async (id: string, status: Client["status"]): Promise<Client | undefined> => {
@@ -53,7 +54,8 @@ export const clientService = {
     return res.data?.data || res.data;
   },
   update: async (id: string, updatedData: Partial<Client>): Promise<Client | undefined> => {
-    const res = await api.patch(`/tenants/clients/${id}`, updatedData);
+    const { signupDate, mrr, totalUsers, lastActive, id: _id, ...payload } = updatedData as any;
+    const res = await api.patch(`/tenants/clients/${id}`, payload);
     return res.data?.data || res.data;
   },
   delete: async (id: string): Promise<boolean> => {

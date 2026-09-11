@@ -23,7 +23,10 @@ import { config } from "@/lib/config";
 function AdminLoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const returnUrl = searchParams.get("returnUrl") || "/admin/dashboard";
+  const rawReturn = searchParams.get("returnUrl");
+  const returnUrl = !rawReturn || rawReturn === "/" || rawReturn === "/login" || rawReturn === "/admin/login"
+    ? "/admin/dashboard"
+    : rawReturn;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -109,7 +112,7 @@ function AdminLoginForm() {
       }
 
       // 4. Navigate to admin dashboard
-      router.replace(returnUrl);
+      window.location.href = returnUrl;
     } catch (err: any) {
       const rawMsg = err.response?.data?.message || err.message;
       const msg = Array.isArray(rawMsg)

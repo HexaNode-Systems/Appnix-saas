@@ -57,6 +57,11 @@ export class CreateClientDto {
   @IsString()
   @IsOptional()
   partnerId?: string;
+
+  @ApiPropertyOptional({ description: 'Client display signup date' })
+  @IsString()
+  @IsOptional()
+  signupDate?: string;
 }
 
 export class UpdateClientDto {
@@ -89,6 +94,16 @@ export class UpdateClientDto {
   @IsString()
   @IsOptional()
   status?: string;
+
+  @ApiPropertyOptional({ description: 'WhatsApp BSP connection status' })
+  @IsString()
+  @IsOptional()
+  whatsappStatus?: string;
+
+  @ApiPropertyOptional({ description: 'Client display signup date' })
+  @IsString()
+  @IsOptional()
+  signupDate?: string;
 
   @ApiPropertyOptional({ description: 'Wallet balance in INR' })
   @IsNumber()
