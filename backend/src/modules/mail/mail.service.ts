@@ -190,7 +190,7 @@ export class MailService {
       Your workspace <strong>${workspace}</strong> has been successfully created. You can now start managing your team, contacts, and billing from your dashboard.
     </p>
     <div style="margin-top: 24px;">
-      <a href="${this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000'}/dashboard" style="background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">Go to Dashboard</a>
+      <a href="${this.configService.get<string>('FRONTEND_URL') || (process.env.NODE_ENV === 'production' ? 'https://app.appnix.co.in' : 'http://localhost:3000')}/dashboard" style="background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">Go to Dashboard</a>
     </div>
   </div>
 </body>

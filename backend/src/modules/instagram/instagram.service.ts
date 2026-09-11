@@ -64,7 +64,7 @@ export class InstagramService {
     const frontendUrl =
       this.configService.get<string>('FRONTEND_URL') ||
       process.env.FRONTEND_URL ||
-      'http://localhost:3000';
+      (process.env.NODE_ENV === 'production' ? 'https://app.appnix.co.in' : 'http://localhost:3000');
 
     const redirectUri =
       customRedirectUri || `${frontendUrl}/channels/instagram/callback`;

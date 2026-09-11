@@ -219,7 +219,8 @@ export default function SubscriptionSelectionPage() {
       try {
         let planRes = await fetch(`${getBackendUrl()}/billing/plans`);
         if (!planRes.ok && typeof window !== "undefined" && !window.location.hostname.includes("localhost")) {
-          planRes = await fetch("https://api.appnix.co.in/api/v1/billing/plans");
+          const directApiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.appnix.co.in/api/v1";
+          planRes = await fetch(`${directApiUrl}/billing/plans`);
         }
         if (planRes.ok) {
           const json = await planRes.json();

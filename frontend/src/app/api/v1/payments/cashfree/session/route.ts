@@ -64,8 +64,8 @@ export async function POST(req: NextRequest) {
     // 3. Construct Return URL
     const appUrl =
       process.env.APP_URL ||
-      process.env.NEXT_PUBLIC_API_BASE_URL ||
-      "http://localhost:3000";
+      process.env.NEXT_PUBLIC_APP_URL ||
+      (process.env.NODE_ENV === "production" ? "https://app.appnix.co.in" : "http://localhost:3000");
     const resolvedReturnUrl =
       returnUrl ||
       `${appUrl}/workspace/billing/status?order_id={order_id}&plan=${planId}&amount=${amount}`;

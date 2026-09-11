@@ -371,7 +371,7 @@ Create `.env.local` in the `frontend/` root directory:
 
 ```env
 # Public Website & Application Canonical URLs
-NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 
 # Backend NestJS Engine Base URL

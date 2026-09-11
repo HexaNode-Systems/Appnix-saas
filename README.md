@@ -748,7 +748,7 @@ GOOGLE_CALLBACK_URL=https://api.appnix.co.in/api/v1/auth/google/callback
 ### Frontend Configuration (`frontend/.env.local`)
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api/v1
 NEXT_PUBLIC_GOOGLE_CLIENT_ID=google_client_id.apps.googleusercontent.com
