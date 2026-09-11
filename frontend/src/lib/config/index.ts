@@ -1,6 +1,6 @@
 export const config = {
   api: {
-    baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000/api/v1",
+    baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.appnix.co.in/api/v1",
     proxyPrefix: "/api/proxy",
     timeout: 30000,
   },
@@ -25,7 +25,7 @@ export const config = {
     superAdminTokenKey: "appnix_superadmin_token",
     superAdminRefreshTokenKey: "appnix_superadmin_refresh_token",
     superAdminUserKey: "appnix_superadmin_user",
-    googleOAuthUrl: `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000/api/v1"}/auth/google`,
+    googleOAuthUrl: `${process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.appnix.co.in/api/v1"}/auth/google`,
     googleClientId: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "",
     recaptchaSiteKey: process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || "6LfVco0tAAAAAGeR2tdcUwtC_vJvXWV_cZ2ZPW8R",
   },

@@ -108,9 +108,7 @@ export async function verifySubscriptionStatus(
   const directApiUrl =
     process.env.NEXT_PUBLIC_API_BASE_URL ||
     process.env.NEXT_PUBLIC_API_URL ||
-    (isBrowser && !window.location.hostname.includes("localhost")
-      ? "https://api.appnix.co.in/api/v1"
-      : "http://localhost:4000/api/v1");
+    "https://api.appnix.co.in/api/v1";
 
   const backendUrl = isBrowser ? proxyPrefix : directApiUrl;
 

@@ -187,7 +187,7 @@ async function handleVerify(req: NextRequest) {
     const backendUrl =
       process.env.NEXT_PUBLIC_API_BASE_URL ||
       process.env.NEXT_PUBLIC_API_URL ||
-      "http://localhost:4000/api/v1";
+      "https://api.appnix.co.in/api/v1";
 
     let backendActivated = false;
     try {

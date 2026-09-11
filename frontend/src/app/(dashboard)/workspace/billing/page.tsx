@@ -97,12 +97,12 @@ interface InvoiceItem {
 }
 
 function getBackendUrl(): string {
+  if (typeof window !== "undefined") {
+    return "/api/proxy";
+  }
   if (process.env.NEXT_PUBLIC_API_BASE_URL) return process.env.NEXT_PUBLIC_API_BASE_URL;
   if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
-  if (typeof window !== "undefined" && !window.location.hostname.includes("localhost")) {
-    return "https://api.appnix.co.in/api/v1";
-  }
-  return "http://localhost:4000/api/v1";
+  return "https://api.appnix.co.in/api/v1";
 }
 
 export default function BillingPage() {

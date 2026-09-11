@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 
 const backendBaseUrl =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000/api/v1";
+  process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.appnix.co.in/api/v1";
 
 /** Resolves the workspace from the backend-verified bearer session. Never use a
  * request body or query parameter as a payment order's workspace identity. */
