@@ -119,7 +119,12 @@ export async function executeSuperAdminLogout(customReturnUrl?: string) {
   if (typeof window === "undefined") return;
 
   try {
-    await api.post("/auth/logout", {}, { withCredentials: true });
+    await fetch("/api/v1/auth/logout", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    }).catch(() => {});
+    await api.post("/auth/logout", {}, { withCredentials: true }).catch(() => {});
   } catch (err) {
     console.warn("Backend logout notification failed, proceeding with client cleanup:", err);
   } finally {

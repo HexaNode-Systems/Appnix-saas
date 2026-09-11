@@ -271,20 +271,56 @@ export class AuthController {
     return { success: true, data: user };
   }
 
-  @UseGuards(JwtAccessGuard)
   @Post('logout')
+  @Get('logout')
   @HttpCode(HttpStatus.OK)
-  @ApiBearerAuth()
   @ApiOperation({ summary: 'Invalidate the current refresh token and clear auth cookies' })
   @ApiResponse({ status: 200, description: 'Logged out successfully.' })
-  @ApiResponse({ status: 401, description: 'Unauthorized.' })
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const user = req.user as { userId?: string } | undefined;
-    if (user?.userId) {
-      await this.authService.logout(user.userId);
+    try {
+      let userId = (req.user as { userId?: string } | undefined)?.userId;
+      if (!userId) {
+        const authHeader = req.headers['authorization'] || req.headers['Authorization'];
+        const rawToken =
+          typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+            ? authHeader.slice(7).trim()
+            : (req.cookies?.['appnix_access_token'] || req.cookies?.['appnix_refresh_token']);
+
+        if (rawToken && typeof rawToken === 'string') {
+          const parts = rawToken.split('.');
+          if (parts.length >= 2) {
+            const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+            userId = payload.sub || payload.userId;
+          }
+        }
+      }
+
+      if (userId) {
+        await this.authService.logout(userId);
+      }
+    } catch {
+      // Invalidation is best-effort, always proceed to clear cookies
     }
-    res.clearCookie('appnix_access_token', { path: '/' });
-    res.clearCookie('appnix_refresh_token', { path: '/' });
+
+    const isProd = process.env.NODE_ENV === 'production';
+    const cookieDomains = isProd ? [undefined, '.appnix.co.in'] : [undefined];
+    const authCookieNames = [
+      'appnix_access_token',
+      'appnix_refresh_token',
+      'appnix_auth_token',
+      'appnix_admin_token',
+      'appnix_admin_refresh_token',
+      'appnix_superadmin_token',
+      'appnix_superadmin_refresh_token',
+    ];
+
+    for (const cookieName of authCookieNames) {
+      for (const domain of cookieDomains) {
+        res.clearCookie(cookieName, { path: '/', domain, httpOnly: true, secure: isProd, sameSite: 'lax' });
+        res.clearCookie(cookieName, { path: '/', domain, httpOnly: false, secure: isProd, sameSite: 'lax' });
+      }
+    }
+
     return { success: true, message: 'Logged out successfully' };
   }
 }
