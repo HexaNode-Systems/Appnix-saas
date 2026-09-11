@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Post, Delete, Param, Body, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { BillingService } from './billing.service';
 import { JwtAccessGuard } from '../auth/guards/jwt-access.guard';
@@ -14,6 +14,28 @@ export class BillingController {
   @ApiOperation({ summary: 'Get available subscription tiers and feature list' })
   getPlans() {
     return this.billingService.getPlans();
+  }
+
+  @Post('plans')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Create or update a subscription plan' })
+  savePlan(
+    @CurrentUser() user: AuthUser,
+    @Body() planData: any,
+  ) {
+    return this.billingService.savePlan(planData, user);
+  }
+
+  @Delete('plans/:id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Delete or deactivate a subscription plan' })
+  deletePlan(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.billingService.deletePlan(id, user);
   }
 
   @Get('subscription')

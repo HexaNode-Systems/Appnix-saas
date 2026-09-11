@@ -115,7 +115,7 @@ export function getSuperAdminLoginUrl(returnUrl?: string): string {
  * 2. Clears all client-side sessions and cookies.
  * 3. Navigates to proxy logout route to trigger server Set-Cookie: Max-Age=0 response headers.
  */
-export async function executeSuperAdminLogout(customReturnUrl?: string) {
+export async function executeAdminLogout(isSuperAdmin: boolean = false, customReturnUrl?: string) {
   if (typeof window === "undefined") return;
 
   try {
@@ -126,7 +126,7 @@ export async function executeSuperAdminLogout(customReturnUrl?: string) {
     }).catch(() => {});
     await api.post("/auth/logout", {}, { withCredentials: true }).catch(() => {});
   } catch (err) {
-    console.warn("Backend logout notification failed, proceeding with client cleanup:", err);
+    console.warn("Backend logout notification notice:", err);
   } finally {
     clearSuperAdminAuthSession();
 
@@ -135,14 +135,48 @@ export async function executeSuperAdminLogout(customReturnUrl?: string) {
       host.startsWith("superadmin.") ||
       host === "superadmin.local" ||
       host.includes("superadmin");
+    const isAdminSubdomain =
+      host.startsWith("admin.") ||
+      host === "admin.local" ||
+      host.includes("admin");
 
-    const logoutPath = isSuperAdminSubdomain ? "/logout" : "/super-admin/logout";
-    const targetUrl = customReturnUrl
-      ? `${logoutPath}?returnUrl=${encodeURIComponent(customReturnUrl)}`
-      : logoutPath;
+    const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || "appnix.co.in";
+    const domains = ["", `.${rootDomain}`, host];
 
-    window.location.href = targetUrl;
+    const cookiesToClear = [
+      "appnix_admin_token",
+      "appnix_admin_refresh_token",
+      "appnix_access_token",
+      "appnix_auth_token",
+      "appnix_refresh_token",
+      "appnix_superadmin_token",
+      "appnix_superadmin_refresh_token",
+    ];
+
+    cookiesToClear.forEach((c) => {
+      domains.forEach((d) => {
+        const domainAttr = d ? `; domain=${d}` : "";
+        document.cookie = `${c}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT${domainAttr}`;
+      });
+    });
+
+    if (customReturnUrl) {
+      window.location.href = customReturnUrl;
+      return;
+    }
+
+    if (isAdminSubdomain) {
+      window.location.href = "/login";
+    } else if (isSuperAdminSubdomain || isSuperAdmin) {
+      window.location.href = "/super-admin/login";
+    } else {
+      window.location.href = "/admin/login";
+    }
   }
+}
+
+export async function executeSuperAdminLogout(customReturnUrl?: string) {
+  return executeAdminLogout(true, customReturnUrl);
 }
 
 // Response interceptor for auth errors (401 Unauthorized / 403 Forbidden)

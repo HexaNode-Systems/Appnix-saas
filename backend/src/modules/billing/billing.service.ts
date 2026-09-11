@@ -12,21 +12,29 @@ export class BillingService {
    */
   async getPlans() {
     try {
-      const plans: any[] = await this.prisma.$queryRaw`
-        SELECT id, name, slug, description, "monthlyPrice", "yearlyPrice", currency, status,
-               "maxUsers", "maxContacts", "maxCampaigns", "maxBots", "maxMessages",
-               "apiQuota", "storageQuotaMb", "supportLevel", "trialDays", "isPopular",
-               features
-        FROM plans
-        WHERE status = 'ACTIVE'
-        ORDER BY "monthlyPrice" ASC;
-      `;
+      let plans: any[] = [];
+      try {
+        plans = await this.prisma.plan.findMany({
+          where: { status: 'ACTIVE' },
+          orderBy: { monthlyPrice: 'asc' },
+        });
+      } catch {
+        plans = await this.prisma.$queryRaw`
+          SELECT id, name, slug, description, "monthlyPrice", "yearlyPrice", currency, status,
+                 "maxUsers", "maxContacts", "maxCampaigns", "maxBots", "maxMessages",
+                 "apiQuota", "storageQuotaMb", "supportLevel", "trialDays", "isPopular",
+                 features
+          FROM plans
+          WHERE status = 'ACTIVE'
+          ORDER BY "monthlyPrice" ASC;
+        `;
+      }
 
       if (plans && plans.length > 0) {
         return {
           success: true,
           data: plans.map((p) => {
-            const mPrice = Number(p.monthlyPrice || 0);
+            const mPrice = Number(p.monthlyPrice || p.price || 0);
             const yPrice = Number(p.yearlyPrice || mPrice * 10);
             const trialDays = Number(p.trialDays || 0);
 
@@ -50,9 +58,9 @@ export class BillingService {
                 ? JSON.parse(p.features)
                 : [],
               limits: {
-                maxMessages: p.maxMessages || 2000,
-                maxBots: p.maxBots || 1,
-                maxUsers: p.maxUsers || 2,
+                maxMessages: p.maxMessages || p.monthlyMessages || 2000,
+                maxBots: p.maxBots || p.botflows || 1,
+                maxUsers: p.maxUsers || p.teamSeats || 2,
                 maxContacts: p.maxContacts || 500,
                 maxCampaigns: p.maxCampaigns || 5,
                 apiQuota: p.apiQuota || 10000,
@@ -138,6 +146,142 @@ export class BillingService {
         },
       ],
     };
+  }
+
+  /**
+   * Admin plan creation and modification. Persists plan into database.
+   */
+  async savePlan(planData: any, actor?: any) {
+    if (
+      actor &&
+      actor.role !== 'SUPER_ADMIN' &&
+      actor.role !== 'RESELLER_ADMIN' &&
+      actor.role !== 'owner' &&
+      actor.role !== 'admin'
+    ) {
+      throw new ForbiddenException('Only administrators can create or update pricing plans.');
+    }
+
+    const name = (planData.name || '').trim();
+    if (!name) {
+      throw new BadRequestException('Plan name is required.');
+    }
+
+    const slug = (planData.slug || planData.id || name)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    const monthlyPrice = Number(planData.monthlyPrice ?? planData.price ?? 0);
+    const yearlyPrice = Number(planData.yearlyPrice ?? Math.round(monthlyPrice * 10));
+    const userLimit = typeof planData.userLimit === 'number'
+      ? planData.userLimit
+      : typeof planData.limits?.maxUsers === 'number'
+      ? planData.limits.maxUsers
+      : 5;
+
+    const maxMessages = Number(planData.limits?.maxMessages ?? planData.monthlyMessages ?? planData.maxMessages ?? 10000);
+    const maxBots = Number(planData.limits?.maxBots ?? planData.botflows ?? planData.maxBots ?? 2);
+    const maxContacts = Number(planData.limits?.maxContacts ?? planData.maxContacts ?? 1000);
+    const trialDays = Number(planData.trialDays ?? 0);
+
+    const features = Array.isArray(planData.features)
+      ? planData.features
+      : typeof planData.features === 'string'
+      ? JSON.parse(planData.features)
+      : [];
+
+    const existingPlan = await this.prisma.plan.findFirst({
+      where: {
+        OR: [
+          { id: planData.id || '' },
+          { slug: slug },
+        ],
+      },
+    });
+
+    if (existingPlan) {
+      const updated = await this.prisma.plan.update({
+        where: { id: existingPlan.id },
+        data: {
+          name,
+          slug,
+          description: planData.description ?? existingPlan.description,
+          price: monthlyPrice,
+          monthlyPrice,
+          yearlyPrice,
+          currency: planData.currency || existingPlan.currency || 'INR',
+          isPopular: Boolean(planData.isPopular),
+          customDomain: Boolean(planData.customDomain ?? existingPlan.customDomain),
+          sso: Boolean(planData.sso ?? existingPlan.sso),
+          prioritySupport: Boolean(planData.prioritySupport ?? existingPlan.prioritySupport),
+          maxUsers: userLimit,
+          maxMessages,
+          maxBots,
+          maxContacts,
+          trialDays,
+          supportLevel: planData.supportSla || planData.limits?.supportLevel || existingPlan.supportLevel || 'Standard Support',
+          features: features.length > 0 ? features : existingPlan.features,
+          status: planData.status || 'ACTIVE',
+        },
+      });
+      return { success: true, data: updated };
+    }
+
+    const created = await this.prisma.plan.create({
+      data: {
+        name,
+        slug,
+        description: planData.description || '',
+        price: monthlyPrice,
+        monthlyPrice,
+        yearlyPrice,
+        currency: planData.currency || 'INR',
+        billingCycle: planData.billingCycle || 'monthly',
+        isPopular: Boolean(planData.isPopular),
+        customDomain: Boolean(planData.customDomain),
+        sso: Boolean(planData.sso),
+        prioritySupport: Boolean(planData.prioritySupport),
+        maxUsers: userLimit,
+        maxMessages,
+        maxBots,
+        maxContacts,
+        trialDays,
+        supportLevel: planData.supportSla || planData.limits?.supportLevel || 'Standard Support',
+        features,
+        status: planData.status || 'ACTIVE',
+      },
+    });
+    return { success: true, data: created };
+  }
+
+  async deletePlan(id: string, actor?: any) {
+    if (
+      actor &&
+      actor.role !== 'SUPER_ADMIN' &&
+      actor.role !== 'RESELLER_ADMIN' &&
+      actor.role !== 'owner' &&
+      actor.role !== 'admin'
+    ) {
+      throw new ForbiddenException('Only administrators can remove pricing plans.');
+    }
+
+    const existing = await this.prisma.plan.findFirst({
+      where: {
+        OR: [{ id }, { slug: id }],
+      },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Plan not found');
+    }
+
+    await this.prisma.plan.update({
+      where: { id: existing.id },
+      data: { status: 'INACTIVE' },
+    });
+
+    return { success: true, message: 'Plan deactivated successfully.' };
   }
 
   /**

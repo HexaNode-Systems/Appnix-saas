@@ -15,6 +15,7 @@ import {
   Plus,
   CheckCircle2,
   Edit2,
+  Trash2,
   TrendingUp,
   Shield,
   Zap,
@@ -119,12 +120,14 @@ export default function SuperAdminBillingPage() {
 
                 <div className="flex items-baseline gap-1 my-4">
                   <span className="text-3xl font-black text-foreground">
-                    ${plan.monthlyPrice}
+                    ₹{plan.monthlyPrice.toLocaleString("en-IN")}
                   </span>
                   <span className="text-xs text-muted-foreground font-medium">/mo</span>
-                  <span className="text-[10px] text-muted-foreground ml-2">
-                    (${plan.yearlyPrice}/yr)
-                  </span>
+                  {plan.yearlyPrice ? (
+                    <span className="text-[10px] text-muted-foreground ml-2">
+                      (₹{plan.yearlyPrice.toLocaleString("en-IN")}/yr)
+                    </span>
+                  ) : null}
                 </div>
 
                 <div className="space-y-2.5 my-6 text-xs text-muted-foreground">
@@ -159,15 +162,29 @@ export default function SuperAdminBillingPage() {
                 </div>
               </div>
 
-              <div className="pt-6 border-t mt-6">
+              <div className="pt-6 border-t mt-6 flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => handleEditPlan(plan)}
-                  className="w-full text-xs font-semibold gap-1.5 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 dark:hover:bg-emerald-950"
+                  className="flex-1 text-xs font-semibold gap-1.5 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 dark:hover:bg-emerald-950"
                 >
                   <Edit2 className="h-3.5 w-3.5" />
                   Edit Plan
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  title="Deactivate / Remove Plan"
+                  onClick={async () => {
+                    if (confirm(`Are you sure you want to deactivate plan "${plan.name}"?`)) {
+                      await (billingService as any).deletePlan?.(plan.id);
+                      fetchPlans();
+                    }
+                  }}
+                  className="text-xs text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 px-2.5 h-8"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
             </div>

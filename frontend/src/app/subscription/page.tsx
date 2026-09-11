@@ -26,6 +26,34 @@ import {
 } from "lucide-react";
 import { MockCashfreeModalContainer } from "@/components/billing/mock-cashfree-modal";
 import { verifySubscriptionStatus, markSubscriptionActive } from "@/lib/subscription";
+import { getSharedCustomPlans } from "@/super-admin/services";
+
+function formatFeatureName(feat: string): string {
+  if (!feat) return "";
+  if (feat.includes(" ") || feat.includes("/")) return feat;
+  const featureMap: Record<string, string> = {
+    dashboard: "Analytics & Overview Dashboard",
+    crm: "Omnichannel Customer CRM",
+    "crm.contacts": "Customer 360 Contact Directory",
+    "crm.super_fields": "Custom Data Fields & Tags",
+    "crm.bulk_campaign": "Bulk Broadcast Campaign Engine",
+    "crm.live_chat": "Multi-agent Unified Live Chat",
+    channels: "Multi-Channel Messaging Hub",
+    "channels.whatsapp": "WhatsApp Cloud API Integration",
+    "channels.instagram": "Instagram Direct & Automation",
+    "channels.facebook": "Facebook Messenger Support",
+    "channels.rcs": "RCS Business Messaging",
+    chatbots: "Interactive Botflow Automation",
+    automations: "Event-Driven Automation Rules",
+    whatsapp_mini_apps: "Interactive WhatsApp Mini-Apps",
+    voice_ai_agent: "Voice AI Streaming Agent",
+    custom_domains: "Custom Domain Mapping",
+    priority_support: "Dedicated 24/7 Priority SLA",
+    api_access: "Full REST API & Webhooks Access",
+    sso: "Enterprise Single Sign-On (SSO)",
+  };
+  return featureMap[feat] || feat.replace(/[._]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 interface PlanLimit {
   maxMessages: number;
@@ -215,21 +243,64 @@ export default function SubscriptionSelectionPage() {
         }
       }
 
-      // Fetch dynamic plan tiers from backend (proxy first, then direct API fallback)
+      // Fetch dynamic plan tiers from backend
+      let loadedPlans: PlanItem[] = [];
       try {
-        let planRes = await fetch(`${getBackendUrl()}/billing/plans`);
-        if (!planRes.ok && typeof window !== "undefined" && !window.location.hostname.includes("localhost")) {
+        let planRes = await fetch(`${getBackendUrl()}/billing/plans`).catch(() => null);
+        if (!planRes || (!planRes.ok && typeof window !== "undefined" && !window.location.hostname.includes("localhost"))) {
           const directApiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.appnix.co.in/api/v1";
-          planRes = await fetch(`${directApiUrl}/billing/plans`);
+          planRes = await fetch(`${directApiUrl}/billing/plans`).catch(() => null);
         }
-        if (planRes.ok) {
+        if (planRes && planRes.ok) {
           const json = await planRes.json();
           if (json.success && Array.isArray(json.data) && json.data.length > 0) {
-            setPlans(json.data);
+            loadedPlans = json.data;
           }
         }
-      } catch {
-        // Fallback plans already initialized
+      } catch {}
+
+      // Check shared custom plans from cookie/storage created via Admin Panel
+      try {
+        const sharedCustom = getSharedCustomPlans();
+        if (sharedCustom && sharedCustom.length > 0) {
+          sharedCustom.forEach((cp) => {
+            const mPrice = Number(cp.monthlyPrice || 0);
+            const yPrice = Number(cp.yearlyPrice || mPrice * 10);
+            const formattedCustom: PlanItem = {
+              id: cp.id,
+              name: cp.name,
+              slug: cp.id,
+              description: "",
+              monthlyPrice: mPrice,
+              yearlyPrice: yPrice,
+              trialDays: 0,
+              hasTrial: false,
+              isPopular: Boolean(cp.isPopular),
+              features: cp.features || [],
+              limits: {
+                maxMessages: parseInt(cp.apiLimit?.replace(/[^0-9]/g, "") || "") || 25000,
+                maxBots: 5,
+                maxUsers: typeof cp.userLimit === "number" ? cp.userLimit : 10,
+                maxContacts: 5000,
+                storageQuotaMb: (parseInt(cp.storageLimit?.replace(/[^0-9]/g, "") || "") || 5) * 1024,
+                supportLevel: cp.supportSla,
+              },
+            };
+
+            const existingIdx = loadedPlans.findIndex(
+              (p) => p.slug === cp.id || p.id === cp.id || p.name.toLowerCase() === cp.name.toLowerCase()
+            );
+            if (existingIdx !== -1) {
+              loadedPlans[existingIdx] = { ...loadedPlans[existingIdx], ...formattedCustom };
+            } else {
+              loadedPlans.push(formattedCustom);
+            }
+          });
+        }
+      } catch {}
+
+      if (loadedPlans.length > 0 && isMounted) {
+        setPlans(loadedPlans);
       }
     }
 
@@ -521,7 +592,15 @@ export default function SubscriptionSelectionPage() {
             <p className="text-xs text-muted-foreground">Loading workspace subscription tiers...</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
+          <div
+            className={cn(
+              "grid gap-6 pt-4",
+              plans.length === 1 && "grid-cols-1 max-w-md mx-auto",
+              plans.length === 2 && "grid-cols-1 md:grid-cols-2 max-w-3xl mx-auto",
+              plans.length === 3 && "grid-cols-1 md:grid-cols-3",
+              plans.length >= 4 && "grid-cols-1 md:grid-cols-2 lg:grid-cols-4"
+            )}
+          >
             {plans.map((plan) => {
               let price = plan.monthlyPrice;
               let periodSuffix = "/month";
@@ -588,7 +667,7 @@ export default function SubscriptionSelectionPage() {
                     {/* 3-5 Key Features / Limits */}
                     <ul className="space-y-2 py-1 text-xs">
                       {(plan.features && plan.features.length > 0
-                        ? plan.features.slice(0, 4)
+                        ? plan.features.slice(0, 5)
                         : [
                             `${(plan.limits?.maxMessages || 2000).toLocaleString()} monthly messages`,
                             `${plan.limits?.maxBots || 1} automation botflows`,
@@ -598,7 +677,7 @@ export default function SubscriptionSelectionPage() {
                       ).map((feat, idx) => (
                         <li key={idx} className="flex items-center gap-2 text-foreground/90">
                           <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                          <span>{feat}</span>
+                          <span>{formatFeatureName(feat)}</span>
                         </li>
                       ))}
                     </ul>

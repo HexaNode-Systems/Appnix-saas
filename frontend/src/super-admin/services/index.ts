@@ -139,11 +139,193 @@ export async function executeGuestLogin(client: any, returnUrl: string): Promise
   window.location.href = "/dashboard";
 }
 
+const CUSTOM_PLANS_COOKIE = "appnix_custom_plans";
+const CUSTOM_PLANS_STORAGE = "appnix_custom_plans";
+
+export function getSharedCustomPlans(): PlanTier[] {
+  if (typeof window === "undefined") return [];
+  try {
+    // 1. Try cookie first (shared across .appnix.co.in subdomains)
+    const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${CUSTOM_PLANS_COOKIE}=([^;]+)`));
+    if (match) {
+      const parsed = JSON.parse(decodeURIComponent(match[1]));
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+    // 2. Try localStorage
+    const stored = localStorage.getItem(CUSTOM_PLANS_STORAGE);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
+export function saveSharedCustomPlan(plan: PlanTier): void {
+  if (typeof window === "undefined") return;
+  try {
+    const existing = getSharedCustomPlans();
+    const idx = existing.findIndex((p) => p.id === plan.id || p.name.toLowerCase() === plan.name.toLowerCase());
+    if (idx !== -1) {
+      existing[idx] = plan;
+    } else {
+      existing.push(plan);
+    }
+    const jsonStr = JSON.stringify(existing);
+    localStorage.setItem(CUSTOM_PLANS_STORAGE, jsonStr);
+
+    const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || "appnix.co.in";
+    const domains = ["", `.${rootDomain}`, window.location.hostname];
+    domains.forEach((d) => {
+      const domainAttr = d ? `; domain=${d}` : "";
+      document.cookie = `${CUSTOM_PLANS_COOKIE}=${encodeURIComponent(jsonStr)}; path=/; max-age=31536000; SameSite=Lax${domainAttr}`;
+    });
+  } catch {}
+}
+
+export function removeSharedCustomPlan(id: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const existing = getSharedCustomPlans().filter((p) => p.id !== id);
+    const jsonStr = JSON.stringify(existing);
+    localStorage.setItem(CUSTOM_PLANS_STORAGE, jsonStr);
+
+    const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || "appnix.co.in";
+    const domains = ["", `.${rootDomain}`, window.location.hostname];
+    domains.forEach((d) => {
+      const domainAttr = d ? `; domain=${d}` : "";
+      document.cookie = `${CUSTOM_PLANS_COOKIE}=${encodeURIComponent(jsonStr)}; path=/; max-age=31536000; SameSite=Lax${domainAttr}`;
+    });
+  } catch {}
+}
+
 export const billingService = {
   getPlans: async (): Promise<PlanTier[]> => {
+    let apiPlans: PlanTier[] = [];
+    try {
+      const token =
+        typeof window !== "undefined"
+          ? localStorage.getItem(config.auth.adminTokenKey) ||
+            localStorage.getItem(config.auth.tokenKey) ||
+            localStorage.getItem("appnix_auth_token")
+          : null;
+
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      let res = await fetch(`${config.api.proxyPrefix}/billing/plans`, {
+        headers,
+        credentials: "include",
+      }).catch(() => null);
+
+      if (!res || !res.ok) {
+        res = await fetch(`${config.api.baseUrl}/billing/plans`, { headers }).catch(() => null);
+      }
+
+      if (res && res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+          apiPlans = json.data.map((p: any) => ({
+            id: p.slug || p.id,
+            name: p.name,
+            monthlyPrice: Number(p.monthlyPrice ?? p.price ?? 0),
+            yearlyPrice: Number(p.yearlyPrice ?? (p.monthlyPrice ? p.monthlyPrice * 10 : 0)),
+            userLimit: p.limits?.maxUsers ?? p.maxUsers ?? 5,
+            apiLimit: p.limits?.apiQuota ? `${Number(p.limits.apiQuota).toLocaleString()} req/mo` : "50,000 req/mo",
+            storageLimit: p.limits?.storageQuotaMb ? `${Math.round(p.limits.storageQuotaMb / 1024)} GB` : "5 GB",
+            supportSla: p.limits?.supportLevel || p.supportLevel || "Standard SLA",
+            features: Array.isArray(p.features) && p.features.length > 0 ? p.features : [
+              `Up to ${p.limits?.maxUsers || 5} Users`,
+              `${(p.limits?.maxMessages || 2000).toLocaleString()} Messages/mo`,
+              `${p.limits?.maxBots || 1} Botflow(s)`,
+              p.limits?.supportLevel || "Standard SLA",
+            ],
+            isPopular: Boolean(p.isPopular),
+            customDomain: Boolean(p.customDomain),
+            sso: Boolean(p.sso),
+            advancedAnalytics: Boolean(p.advancedAnalytics ?? true),
+            prioritySupport: Boolean(p.prioritySupport),
+          }));
+        }
+      }
+    } catch {}
+
+    const customPlans = getSharedCustomPlans();
+    const combined = [...apiPlans];
+
+    // Merge custom plans if not already present
+    customPlans.forEach((cp) => {
+      const idx = combined.findIndex((p) => p.id === cp.id || p.name.toLowerCase() === cp.name.toLowerCase());
+      if (idx !== -1) {
+        combined[idx] = { ...combined[idx], ...cp };
+      } else {
+        combined.push(cp);
+      }
+    });
+
+    if (combined.length > 0) {
+      return combined;
+    }
+
     return [...mockPlans];
   },
+
   savePlan: async (plan: PlanTier): Promise<PlanTier> => {
+    // 1. Save locally in shared cookie and storage immediately
+    saveSharedCustomPlan(plan);
+
+    // 2. Persist to backend database via API
+    try {
+      const token =
+        typeof window !== "undefined"
+          ? localStorage.getItem(config.auth.adminTokenKey) ||
+            localStorage.getItem(config.auth.tokenKey) ||
+            localStorage.getItem("appnix_auth_token")
+          : null;
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const payload = {
+        id: plan.id,
+        name: plan.name,
+        slug: plan.id,
+        monthlyPrice: plan.monthlyPrice,
+        yearlyPrice: plan.yearlyPrice,
+        price: plan.monthlyPrice,
+        userLimit: plan.userLimit,
+        isPopular: plan.isPopular,
+        customDomain: plan.customDomain,
+        sso: plan.sso,
+        prioritySupport: plan.prioritySupport,
+        features: plan.features,
+        supportSla: plan.supportSla,
+        limits: {
+          maxUsers: typeof plan.userLimit === "number" ? plan.userLimit : 25,
+          apiQuota: parseInt(plan.apiLimit?.replace(/[^0-9]/g, "") || "") || 50000,
+          storageQuotaMb: (parseInt(plan.storageLimit?.replace(/[^0-9]/g, "") || "") || 5) * 1024,
+          supportLevel: plan.supportSla,
+        },
+      };
+
+      const res = await fetch(`${config.api.proxyPrefix}/billing/plans`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify(payload),
+      }).catch(() => null);
+
+      if (!res || !res.ok) {
+        await fetch(`${config.api.baseUrl}/billing/plans`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+        }).catch(() => null);
+      }
+    } catch {}
+
     const index = mockPlans.findIndex((p) => p.id === plan.id);
     if (index !== -1) {
       mockPlans[index] = plan;
@@ -151,6 +333,34 @@ export const billingService = {
       mockPlans.push(plan);
     }
     return plan;
+  },
+
+  deletePlan: async (id: string): Promise<boolean> => {
+    removeSharedCustomPlan(id);
+
+    try {
+      const token =
+        typeof window !== "undefined"
+          ? localStorage.getItem(config.auth.adminTokenKey) ||
+            localStorage.getItem(config.auth.tokenKey) ||
+            localStorage.getItem("appnix_auth_token")
+          : null;
+
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      await fetch(`${config.api.proxyPrefix}/billing/plans/${id}`, {
+        method: "DELETE",
+        headers,
+        credentials: "include",
+      }).catch(() => null);
+    } catch {}
+
+    const index = mockPlans.findIndex((p) => p.id === id);
+    if (index !== -1) {
+      mockPlans.splice(index, 1);
+    }
+    return true;
   },
 };
 

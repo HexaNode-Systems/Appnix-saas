@@ -282,7 +282,9 @@ export function proxy(request: NextRequest) {
     const isLoginPath =
       pathname === "/login" ||
       pathname === "/signin" ||
-      pathname === "/admin/login";
+      pathname === "/signup" ||
+      pathname === "/admin/login" ||
+      pathname === "/admin/signup";
 
     if (isLoginPath) {
       const isSwitch = request.nextUrl.searchParams.get("switch") === "true" || request.nextUrl.searchParams.has("error");
@@ -294,7 +296,14 @@ export function proxy(request: NextRequest) {
 
     if (!isAdminAuth || !isAdminRole) {
       const loginUrl = new URL("/admin/login", request.url);
-      loginUrl.searchParams.set("returnUrl", pathname);
+      if (
+        pathname !== "/admin/dashboard" &&
+        pathname !== "/dashboard" &&
+        pathname !== "/admin" &&
+        pathname !== "/"
+      ) {
+        loginUrl.searchParams.set("returnUrl", pathname);
+      }
       const response = NextResponse.redirect(loginUrl);
       const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || "appnix.co.in";
       const domainsToClear = ["", `.${rootDomain}`];
