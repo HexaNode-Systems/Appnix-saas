@@ -103,10 +103,16 @@ export async function verifySubscriptionStatus(
   let lastStatus: "ACTIVE" | "TRIALING" | "EXPIRED" | "CANCELLED" | "SUSPENDED" | "NONE" = "NONE";
   let lastActivePlan: any = null;
 
-  const backendUrl =
+  const isBrowser = typeof window !== "undefined";
+  const proxyPrefix = "/api/proxy";
+  const directApiUrl =
     process.env.NEXT_PUBLIC_API_BASE_URL ||
     process.env.NEXT_PUBLIC_API_URL ||
-    "http://localhost:4000/api/v1";
+    (isBrowser && !window.location.hostname.includes("localhost")
+      ? "https://api.appnix.co.in/api/v1"
+      : "http://localhost:4000/api/v1");
+
+  const backendUrl = isBrowser ? proxyPrefix : directApiUrl;
 
   const authHeaders: Record<string, string> = token
     ? { Authorization: `Bearer ${token}` }

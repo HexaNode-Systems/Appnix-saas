@@ -234,6 +234,9 @@ export function proxy(request: NextRequest) {
       return response;
     }
 
+    if (pathname === "/subscription") {
+      return NextResponse.redirect(new URL(`/super-admin/subscriptions${search}`, request.url));
+    }
     if (pathname === "/" || pathname === "/dashboard") {
       return NextResponse.rewrite(new URL(`/super-admin/dashboard${search}`, request.url));
     }
@@ -296,6 +299,9 @@ export function proxy(request: NextRequest) {
       return response;
     }
 
+    if (pathname === "/subscription") {
+      return NextResponse.redirect(new URL(`/admin/dashboard${search}`, request.url));
+    }
     if (pathname === "/" || pathname === "/dashboard") {
       return NextResponse.rewrite(new URL(`/admin/dashboard${search}`, request.url));
     }

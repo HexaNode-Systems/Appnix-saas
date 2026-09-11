@@ -37,8 +37,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       return;
     }
 
-    // 1. Super Admin always has unrestricted panel access
-    if (user.role === "owner" || (user as any).role === "SUPER_ADMIN") {
+    // 1. Super Admin and Partner/Reseller Admins always have unrestricted access
+    const isSuperAdmin = user.role === "owner" || (user as any).role === "SUPER_ADMIN";
+    const isReseller =
+      user.role === "admin" ||
+      (user as any).role === "RESELLER_ADMIN" ||
+      (user as any).tier === "PRIMARY_RESELLER" ||
+      (user as any).tier === "SUB_RESELLER";
+
+    if (isSuperAdmin || isReseller) {
       setHasSubAccess(true);
       setIsVerifyingSub(false);
       return;

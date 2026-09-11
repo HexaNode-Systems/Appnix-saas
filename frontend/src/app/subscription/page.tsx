@@ -60,12 +60,12 @@ interface TrialEligibility {
 }
 
 function getBackendUrl(): string {
+  if (typeof window !== "undefined") {
+    return "/api/proxy";
+  }
   if (process.env.NEXT_PUBLIC_API_BASE_URL) return process.env.NEXT_PUBLIC_API_BASE_URL;
   if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
-  if (typeof window !== "undefined" && !window.location.hostname.includes("localhost")) {
-    return "https://api.appnix.co.in/api/v1";
-  }
-  return "http://localhost:4000/api/v1";
+  return "https://api.appnix.co.in/api/v1";
 }
 
 const DEFAULT_PLANS: PlanItem[] = [
@@ -145,33 +145,49 @@ export default function SubscriptionSelectionPage() {
     async function checkSubscriptionAndLoad() {
       if (isAuthLoading) return;
 
-      // 1. Super Admin bypass
+      // 1. Administrative bypass: Super Admin & Reseller Admins never need retail subscriptions
       if (user?.role === "owner" || (user as any)?.role === "SUPER_ADMIN") {
         router.replace("/super-admin/dashboard");
+        return;
+      }
+      if (
+        user?.role === "admin" ||
+        (user as any)?.role === "RESELLER_ADMIN" ||
+        (user as any)?.tier === "PRIMARY_RESELLER" ||
+        (user as any)?.tier === "SUB_RESELLER"
+      ) {
+        router.replace("/admin/dashboard");
         return;
       }
 
       const workspaceId = user?.workspaceId || (user as any)?.tenantId;
 
-      // 2. Verify workspace subscription status
-      const statusResult = await verifySubscriptionStatus(workspaceId);
+      // 2. Verify workspace subscription status with strict error recovery
+      try {
+        const statusResult = await verifySubscriptionStatus(workspaceId);
 
-      if (!isMounted) return;
+        if (!isMounted) return;
 
-      // RULE: Once a subscription is successfully activated, the Subscription/Choose Plan page
-      // must NOT appear again while the subscription is active and not expired.
-      // The user should go directly to the dashboard on every login.
-      if (statusResult.hasActiveSubscription) {
-        router.replace("/dashboard");
-        return;
+        // RULE: Once a subscription is successfully activated, the Subscription/Choose Plan page
+        // must NOT appear again while the subscription is active and not expired.
+        // The user should go directly to the dashboard on every login.
+        if (statusResult.hasActiveSubscription) {
+          router.replace("/dashboard");
+          return;
+        }
+
+        // Show the Subscription page ONLY when user has no active subscription
+        // or the current subscription has expired/cancelled/suspended
+        setIsExpired(statusResult.isExpired);
+        setIsCancelled(statusResult.isCancelled);
+        setIsSuspended(statusResult.isSuspended);
+      } catch (err) {
+        console.warn("[SubscriptionPage] Subscription verification notice:", err);
+      } finally {
+        if (isMounted) {
+          setIsVerifying(false);
+        }
       }
-
-      // Show the Subscription page ONLY when user has no active subscription
-      // or the current subscription has expired/cancelled/suspended
-      setIsExpired(statusResult.isExpired);
-      setIsCancelled(statusResult.isCancelled);
-      setIsSuspended(statusResult.isSuspended);
-      setIsVerifying(false);
 
       const token =
         typeof window !== "undefined"
@@ -199,9 +215,12 @@ export default function SubscriptionSelectionPage() {
         }
       }
 
-      // Fetch dynamic plan tiers from backend
+      // Fetch dynamic plan tiers from backend (proxy first, then direct API fallback)
       try {
-        const planRes = await fetch(`${getBackendUrl()}/billing/plans`);
+        let planRes = await fetch(`${getBackendUrl()}/billing/plans`);
+        if (!planRes.ok && typeof window !== "undefined" && !window.location.hostname.includes("localhost")) {
+          planRes = await fetch("https://api.appnix.co.in/api/v1/billing/plans");
+        }
         if (planRes.ok) {
           const json = await planRes.json();
           if (json.success && Array.isArray(json.data) && json.data.length > 0) {

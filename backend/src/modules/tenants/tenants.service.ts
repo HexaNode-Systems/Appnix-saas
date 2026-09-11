@@ -737,13 +737,28 @@ export class TenantsService {
       });
 
       // 3. Create Subscription
+      const now = new Date();
+      const totalDays = 90;
+      const currentPeriodEnd = new Date(now.getTime() + totalDays * 24 * 60 * 60 * 1000);
+      const planSlug = planName.toLowerCase().replace(/\s+/g, '-');
+      const matchedPlan = await tx.plan.findFirst({
+        where: {
+          OR: [{ slug: planSlug }, { name: { equals: planName, mode: 'insensitive' } }],
+        },
+      });
+
       const subscription = await tx.subscription.create({
         data: {
           tenantId: clientTenant.id,
           planName,
-          planId: planName.toLowerCase().replace(/\s+/g, '-'),
+          planId: planSlug,
+          planRefId: matchedPlan?.id || null,
           price,
           status: 'ACTIVE',
+          totalDays,
+          remainingDays: totalDays,
+          currentPeriodStart: now,
+          currentPeriodEnd,
         },
       });
 
