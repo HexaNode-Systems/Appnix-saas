@@ -132,9 +132,13 @@ export function proxy(request: NextRequest) {
       "appnix_admin_refresh_token",
       "appnix_refresh_token",
     ];
+    const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || "appnix.co.in";
+    const domainsToClear = ["", `.${rootDomain}`];
     allAuthCookies.forEach((name) => {
       response.cookies.delete(name);
-      response.cookies.set(name, "", { path: "/", maxAge: 0 });
+      domainsToClear.forEach((dom) => {
+        response.cookies.set(name, "", { path: "/", maxAge: 0, domain: dom || undefined });
+      });
     });
     return response;
   }
@@ -263,7 +267,8 @@ export function proxy(request: NextRequest) {
       pathname === "/admin/login";
 
     if (isLoginPath) {
-      if (isAdminAuth && isAdminRole) {
+      const isSwitch = request.nextUrl.searchParams.get("switch") === "true" || request.nextUrl.searchParams.has("error");
+      if (isAdminAuth && isAdminRole && !isSwitch) {
         return NextResponse.redirect(new URL("/admin/dashboard", request.url));
       }
       return NextResponse.rewrite(new URL(`/admin/login${search}`, request.url));
@@ -273,6 +278,8 @@ export function proxy(request: NextRequest) {
       const loginUrl = new URL("/admin/login", request.url);
       loginUrl.searchParams.set("returnUrl", pathname);
       const response = NextResponse.redirect(loginUrl);
+      const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || "appnix.co.in";
+      const domainsToClear = ["", `.${rootDomain}`];
       [
         ADMIN_COOKIE,
         AUTH_COOKIE,
@@ -282,7 +289,9 @@ export function proxy(request: NextRequest) {
         "appnix_refresh_token",
       ].forEach((c) => {
         response.cookies.delete(c);
-        response.cookies.set(c, "", { path: "/", maxAge: 0 });
+        domainsToClear.forEach((dom) => {
+          response.cookies.set(c, "", { path: "/", maxAge: 0, domain: dom || undefined });
+        });
       });
       return response;
     }

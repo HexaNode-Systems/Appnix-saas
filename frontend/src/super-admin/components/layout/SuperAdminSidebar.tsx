@@ -175,9 +175,22 @@ export function SuperAdminSidebar({ open, onClose, isSuperAdmin: propIsSuperAdmi
         localStorage.removeItem("appnix_user");
         localStorage.removeItem("appnix_admin_refresh_token");
         localStorage.removeItem("appnix_refresh_token");
-        document.cookie = "appnix_admin_token=; path=/; max-age=0";
-        document.cookie = "appnix_access_token=; path=/; max-age=0";
-        document.cookie = "appnix_auth_token=; path=/; max-age=0";
+        const domains = ["", ".appnix.co.in", typeof window !== "undefined" ? window.location.hostname : ""];
+        const cookiesToClear = [
+          "appnix_admin_token",
+          "appnix_admin_refresh_token",
+          "appnix_access_token",
+          "appnix_auth_token",
+          "appnix_refresh_token",
+          "appnix_superadmin_token",
+          "appnix_superadmin_refresh_token",
+        ];
+        cookiesToClear.forEach((c) => {
+          domains.forEach((d) => {
+            const domainAttr = d ? `; domain=${d}` : "";
+            document.cookie = `${c}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT${domainAttr}`;
+          });
+        });
         window.location.href = isSuperAdminSubdomain ? "/logout" : "/admin/logout";
       }
     }
