@@ -24,6 +24,8 @@ import {
   Loader2,
   DollarSign,
   Calendar,
+  Clock,
+  Settings2,
 } from "lucide-react";
 
 export default function PartnerDetailsPage({
@@ -311,6 +313,55 @@ export default function PartnerDetailsPage({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left 1 Col: Partner Configuration & Domain */}
         <div className="space-y-6">
+          {/* 7-Day Free Trial Entitlement Card */}
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-5 shadow-xs space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <Clock className="h-3.5 w-3.5 text-emerald-600" />
+                7-Day Free Trial
+              </h3>
+              <Badge
+                className={
+                  (partner.trialConfig?.enabled ?? partner.partnerConfig?.trialEnabled)
+                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-bold text-[10px]"
+                    : "bg-muted text-muted-foreground text-[10px]"
+                }
+              >
+                {(partner.trialConfig?.enabled ?? partner.partnerConfig?.trialEnabled)
+                  ? "ENABLED"
+                  : "DISABLED"}
+              </Badge>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center justify-between py-1 border-b border-emerald-500/10 text-[11px]">
+                <span className="text-muted-foreground">Duration:</span>
+                <span className="font-semibold text-foreground">7 Days (Fixed)</span>
+              </div>
+              <div className="flex items-center justify-between py-1 border-b border-emerald-500/10 text-[11px]">
+                <span className="text-muted-foreground">Max Allowed Users:</span>
+                <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                  {partner.trialConfig?.maxUsers ?? partner.partnerConfig?.trialMaxUsers ?? 5} seats
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-1 text-[11px]">
+                <span className="text-muted-foreground">Configured By:</span>
+                <span className="font-medium text-muted-foreground">Super Admin</span>
+              </div>
+            </div>
+
+            <Link href={`/super-admin/partners/update?id=${partner.id}`}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full text-xs gap-1.5 border-emerald-500/30 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-500/10 cursor-pointer mt-1"
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+                <span>Configure Trial Settings</span>
+              </Button>
+            </Link>
+          </div>
+
           {/* Custom Domain Card */}
           <div className="rounded-xl border bg-card p-5 shadow-xs space-y-3">
             <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">

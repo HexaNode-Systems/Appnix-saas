@@ -449,6 +449,11 @@ export class SuperAdminService {
         maxClients: p.maxEndClients || p.partnerConfig?.clientLimit || 50,
         totalUsers: p._count.users,
 
+        // 7-Day Free Trial Configuration (Super Admin controlled):
+        trialEnabled: p.partnerConfig?.trialEnabled ?? false,
+        trialDays: p.partnerConfig?.trialDays ?? 7,
+        trialMaxUsers: p.partnerConfig?.trialMaxUsers ?? 5,
+
         // Lifetime White-Label License Economics (One-time, permanent, no expiry):
         lifetimeFee: setupFee,
         lifetimeFeePaid: setupFeePaid,
@@ -649,6 +654,11 @@ export class SuperAdminService {
         faviconUrl: partner.faviconUrl,
       },
       partnerConfig: partner.partnerConfig,
+      trialConfig: {
+        enabled: partner.partnerConfig?.trialEnabled ?? false,
+        days: partner.partnerConfig?.trialDays ?? 7,
+        maxUsers: partner.partnerConfig?.trialMaxUsers ?? 5,
+      },
       adminUsers: partner.users,
       clients: clientsPaginated,
       metrics: {
@@ -1015,6 +1025,17 @@ export class SuperAdminService {
           ? Number(dto.perClientRate)
           : defaultPerClient;
 
+    const trialEnabled = Boolean(dto.trialEnabled);
+    const trialDays = 7; // Fixed at 7 days for now
+    let trialMaxUsers = 5;
+    if (dto.trialMaxUsers !== undefined) {
+      const parsedLimit = Number(dto.trialMaxUsers);
+      if (isNaN(parsedLimit) || parsedLimit < 1) {
+        throw new BadRequestException('Maximum users allowed during trial must be a positive integer (at least 1).');
+      }
+      trialMaxUsers = Math.floor(parsedLimit);
+    }
+
     // 3. Create Partner Wholesale Config
     const partnerConfig = await this.prisma.partnerConfig.create({
       data: {
@@ -1034,6 +1055,9 @@ export class SuperAdminService {
           'automations',
         ],
         customDomain: dto.customDomain ? dto.customDomain.toLowerCase().trim() : null,
+        trialEnabled,
+        trialDays,
+        trialMaxUsers,
       },
     });
 
@@ -1256,6 +1280,17 @@ export class SuperAdminService {
     if (dto.featureAccess) updateConfigData.featureAccess = dto.featureAccess;
     if (dto.customDomain !== undefined) {
       updateConfigData.customDomain = dto.customDomain ? dto.customDomain.toLowerCase().trim() : null;
+    }
+    if (dto.trialEnabled !== undefined) {
+      updateConfigData.trialEnabled = Boolean(dto.trialEnabled);
+      updateConfigData.trialDays = 7;
+    }
+    if (dto.trialMaxUsers !== undefined) {
+      const parsedLimit = Number(dto.trialMaxUsers);
+      if (isNaN(parsedLimit) || parsedLimit < 1) {
+        throw new BadRequestException('Maximum users allowed during trial must be a positive integer (at least 1).');
+      }
+      updateConfigData.trialMaxUsers = Math.floor(parsedLimit);
     }
 
     if (Object.keys(updateConfigData).length > 0) {
@@ -1764,6 +1799,9 @@ export class SuperAdminService {
       subscriptions,
       orderCount,
       paymentOrders,
+      trialEnabledPartnersCount,
+      activeTrialsCount,
+      expiredTrialsCount,
     ] = await Promise.all([
       this.prisma.subscription.count(),
       this.prisma.subscription.count({ where: { status: 'ACTIVE' } }),
@@ -1800,6 +1838,21 @@ export class SuperAdminService {
         orderBy: { createdAt: 'desc' },
         include: { plan: true },
       }),
+      this.prisma.partnerConfig.count({ where: { trialEnabled: true } }),
+      this.prisma.subscription.count({
+        where: {
+          status: 'TRIALING',
+          currentPeriodEnd: { gt: new Date() },
+        },
+      }),
+      this.prisma.subscription.count({
+        where: {
+          OR: [
+            { status: 'TRIALING', currentPeriodEnd: { lte: new Date() } },
+            { isTrial: true, status: { not: 'TRIALING' } },
+          ],
+        },
+      }),
     ]);
 
     return {
@@ -1809,6 +1862,9 @@ export class SuperAdminService {
         totalRevenue: Number(totalRevenueAgg._sum.amount || 0),
         paymentOrdersCount: totalPaymentOrdersCount,
         successOrdersCount: successPaymentOrdersCount,
+        trialEnabledPartnersCount,
+        activeTrialsCount,
+        expiredTrialsCount,
       },
       plans: plans.map((p: any) => ({
         id: p.id,
@@ -1827,6 +1883,9 @@ export class SuperAdminService {
           planName: s.planName,
           price: s.price,
           status: s.status,
+          isTrial: s.isTrial || s.status === 'TRIALING',
+          maxTeamSeats: s.maxTeamSeats,
+          usedTeamSeats: s.usedTeamSeats,
           currentPeriodStart: s.currentPeriodStart,
           currentPeriodEnd: s.currentPeriodEnd,
           createdAt: s.createdAt,

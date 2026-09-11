@@ -52,14 +52,24 @@ export class BillingController {
     throw new BadRequestException('Create and verify a Cashfree payment order before activating a subscription.');
   }
 
+  @Get('trial-eligibility')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Check 7-day free trial eligibility and partner permissions for the workspace' })
+  getTrialEligibility(@CurrentUser() user: AuthUser) {
+    const tenantId = user?.tenantId;
+    return this.billingService.getTrialEligibility(tenantId);
+  }
+
   @Post('trial')
+  @ApiBearerAuth()
   @UseGuards(JwtAccessGuard)
   @ApiOperation({ summary: 'Redeem an eligible plan free trial for the workspace' })
   startTrial(
     @CurrentUser() user: AuthUser,
-    @Body() body: { planId: string },
+    @Body() body: { planId?: string },
   ) {
-    return this.billingService.startTrial(user.tenantId, body.planId || 'pro');
+    return this.billingService.startTrial(user.tenantId, body?.planId || 'pro');
   }
 
   @Post('activate-payment')

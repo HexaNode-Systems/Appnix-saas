@@ -130,6 +130,21 @@ export class CreatePartnerDto {
   @IsOptional()
   featureAccess?: string[];
 
+  @ApiPropertyOptional({ example: false, description: 'Whether 7-day free trial is enabled for this partner' })
+  @IsBoolean()
+  @IsOptional()
+  trialEnabled?: boolean;
+
+  @ApiPropertyOptional({ example: 7, description: 'Trial duration in days (fixed at 7)' })
+  @IsNumber()
+  @IsOptional()
+  trialDays?: number;
+
+  @ApiPropertyOptional({ example: 5, description: 'Maximum users allowed during free trial' })
+  @IsNumber()
+  @IsOptional()
+  trialMaxUsers?: number;
+
   @ApiPropertyOptional({ example: '#0f172a' })
   @IsString()
   @IsOptional()
@@ -232,6 +247,21 @@ export class UpdatePartnerDto {
   @IsArray()
   @IsOptional()
   featureAccess?: string[];
+
+  @ApiPropertyOptional({ example: false, description: 'Whether 7-day free trial is enabled for this partner' })
+  @IsBoolean()
+  @IsOptional()
+  trialEnabled?: boolean;
+
+  @ApiPropertyOptional({ example: 7, description: 'Trial duration in days (fixed at 7)' })
+  @IsNumber()
+  @IsOptional()
+  trialDays?: number;
+
+  @ApiPropertyOptional({ example: 5, description: 'Maximum users allowed during free trial' })
+  @IsNumber()
+  @IsOptional()
+  trialMaxUsers?: number;
 
   @ApiPropertyOptional({ example: 'app.apexdigital.com' })
   @IsString()

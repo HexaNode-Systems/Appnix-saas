@@ -22,6 +22,7 @@ import {
   Settings2,
   Pencil,
   CheckCircle2,
+  Clock,
   XCircle,
   Globe,
   DollarSign,
@@ -101,6 +102,8 @@ export default function SuperAdminPartnersPage() {
     logoUrl: "",
     customDomain: "",
     featureAccess: [] as string[],
+    trialEnabled: false,
+    trialMaxUsers: 5,
   });
 
   const loadData = async (targetPage = page, targetLimit = limit) => {
@@ -168,6 +171,8 @@ export default function SuperAdminPartnersPage() {
       logoUrl: p.branding?.logoUrl || "",
       customDomain: p.customDomain || "",
       featureAccess: p.featureAccess || [],
+      trialEnabled: Boolean(p.trialEnabled ?? p.partnerConfig?.trialEnabled ?? false),
+      trialMaxUsers: Number(p.trialMaxUsers ?? p.partnerConfig?.trialMaxUsers ?? 5),
     });
     setIsEditOpen(true);
   };
@@ -187,6 +192,9 @@ export default function SuperAdminPartnersPage() {
     try {
       await superAdminApi.updatePartner(selectedPartner.id, {
         ...editForm,
+        trialEnabled: Boolean(editForm.trialEnabled),
+        trialDays: 7,
+        trialMaxUsers: Number(editForm.trialMaxUsers || 5),
         perClientRate: Number(editForm.perClientRate),
         setupFee: Number(editForm.setupFee),
         clientLimit: Number(editForm.clientLimit),
@@ -442,6 +450,7 @@ export default function SuperAdminPartnersPage() {
                   <th className="py-3 px-3.5">Monthly Commission</th>
                   <th className="py-3 px-3.5">Total Commission</th>
                   <th className="py-3 px-3.5">Partner Margin</th>
+                  <th className="py-3 px-3.5">7-Day Free Trial</th>
                   <th className="py-3 px-3.5">Status</th>
                   <th className="py-3 px-3.5 text-right">Actions</th>
                 </tr>
@@ -582,7 +591,25 @@ export default function SuperAdminPartnersPage() {
                         </div>
                       </td>
 
-                      {/* 9. Status */}
+                      {/* 9. 7-Day Free Trial Status */}
+                      <td className="py-3.5 px-3.5">
+                        {p.trialEnabled ? (
+                          <div className="space-y-0.5">
+                            <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-bold text-[10px]">
+                              ENABLED (7d)
+                            </Badge>
+                            <span className="text-[10px] text-muted-foreground font-mono block">
+                              Max {p.trialMaxUsers || 5} seats
+                            </span>
+                          </div>
+                        ) : (
+                          <Badge variant="outline" className="text-muted-foreground text-[10px]">
+                            Disabled
+                          </Badge>
+                        )}
+                      </td>
+
+                      {/* 10. Status */}
                       <td className="py-3.5 px-3.5">
                         <Badge
                           className={
@@ -762,6 +789,50 @@ export default function SuperAdminPartnersPage() {
                     onChange={(e) => setEditForm({ ...editForm, primaryColor: e.target.value })}
                     className="h-9 text-xs font-mono flex-1"
                   />
+                </div>
+              </div>
+
+              {/* 7-Day Free Trial Configuration */}
+              <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5 text-emerald-600" />
+                    7-Day Free Trial Entitlement
+                  </span>
+                  <Badge className={editForm.trialEnabled ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 text-[10px]" : "bg-muted text-muted-foreground text-[10px]"}>
+                    {editForm.trialEnabled ? "ENABLED (7d)" : "DISABLED"}
+                  </Badge>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-foreground mb-1">
+                      Free Trial Access
+                    </label>
+                    <select
+                      value={editForm.trialEnabled ? "yes" : "no"}
+                      onChange={(e) => setEditForm({ ...editForm, trialEnabled: e.target.value === "yes" })}
+                      className="w-full h-8 rounded-md border border-input bg-background px-2.5 text-xs font-semibold text-foreground cursor-pointer"
+                    >
+                      <option value="no">Disabled</option>
+                      <option value="yes">Enabled (7 Days)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-foreground mb-1">
+                      Max Trial Seats / Users
+                    </label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={editForm.trialMaxUsers}
+                      onChange={(e) => setEditForm({ ...editForm, trialMaxUsers: Math.max(1, parseInt(e.target.value) || 1) })}
+                      disabled={!editForm.trialEnabled}
+                      className="h-8 text-xs font-mono font-bold text-emerald-700 dark:text-emerald-400"
+                    />
+                  </div>
                 </div>
               </div>
 

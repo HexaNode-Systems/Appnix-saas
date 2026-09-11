@@ -94,7 +94,7 @@ export default function SuperAdminSubscriptionsPage() {
       )}
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="rounded-xl border bg-card p-4 shadow-xs">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             Active Subscriptions
@@ -104,6 +104,18 @@ export default function SuperAdminSubscriptionsPage() {
           </p>
           <p className="text-xs text-muted-foreground mt-1">
             Across {data?.overview?.totalSubscriptions || 0} total tenant accounts
+          </p>
+        </div>
+
+        <div className="rounded-xl border bg-card p-4 shadow-xs">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Active 7-Day Trials
+          </span>
+          <p className="text-2xl font-black text-emerald-700 dark:text-emerald-400 font-mono mt-2">
+            {loading ? "..." : data?.overview?.activeTrialsCount ?? 0}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {data?.overview?.expiredTrialsCount ?? 0} expired • {data?.overview?.trialEnabledPartnersCount ?? 0} partners enabled
           </p>
         </div>
 

@@ -17,6 +17,7 @@ import {
   AlertCircle,
   Loader2,
   CheckCircle2,
+  Clock,
   Eye,
   EyeOff,
   Check,
@@ -87,6 +88,9 @@ function UpdatePartnerForm() {
       "chatbots",
       "automations",
     ] as string[],
+    trialEnabled: false,
+    trialDays: 7,
+    trialMaxUsers: 5,
   });
 
   const availableFeatures = [
@@ -159,6 +163,9 @@ function UpdatePartnerForm() {
               "chatbots",
               "automations",
             ],
+            trialEnabled: Boolean(partner.trialConfig?.enabled ?? partner.partnerConfig?.trialEnabled ?? false),
+            trialDays: Number(partner.trialConfig?.days ?? partner.partnerConfig?.trialDays ?? 7),
+            trialMaxUsers: Number(partner.trialConfig?.maxUsers ?? partner.partnerConfig?.trialMaxUsers ?? 5),
           });
         }
       } catch (err: any) {
@@ -682,7 +689,92 @@ function UpdatePartnerForm() {
           </div>
         </div>
 
-        {/* Section 4: Allowed Subsystems & Feature Entitlements */}
+        {/* Section 4: 7-Day Free Trial Configuration (Super Admin Controlled) */}
+        <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-6 shadow-xs space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-emerald-500/20 pb-3.5">
+            <div className="flex items-center gap-2.5">
+              <div className="rounded-lg bg-emerald-500/20 p-2 text-emerald-700 dark:text-emerald-300">
+                <Clock className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-foreground">
+                  7-Day Free Trial Entitlement
+                </h3>
+                <p className="text-[11px] text-muted-foreground">
+                  Authorize whether this partner may offer a 7-day free trial to their clients and configure the seat limit.
+                </p>
+              </div>
+            </div>
+
+            <Badge
+              className={
+                form.trialEnabled
+                  ? "bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-500/30 text-[10px] font-bold w-fit"
+                  : "bg-muted text-muted-foreground text-[10px] font-bold w-fit"
+              }
+            >
+              {form.trialEnabled ? "7-DAY TRIAL: ENABLED" : "TRIAL: DISABLED"}
+            </Badge>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+            {/* Free Trial Toggle */}
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
+                Free Trial Status <span className="text-rose-500">*</span>
+              </label>
+              <select
+                value={form.trialEnabled ? "yes" : "no"}
+                onChange={(e) => setForm({ ...form, trialEnabled: e.target.value === "yes" })}
+                className="w-full h-10 rounded-md border border-input bg-background px-3 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+              >
+                <option value="no">Disabled (Partner cannot use trial)</option>
+                <option value="yes">Enabled (7-Day Free Trial allowed)</option>
+              </select>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Super Admin exclusive permission
+              </p>
+            </div>
+
+            {/* Trial Duration (Fixed at 7 days) */}
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
+                Trial Duration
+              </label>
+              <div className="h-10 rounded-md border border-input bg-muted/40 px-3 flex items-center text-xs font-mono font-bold text-foreground">
+                7 Days (Fixed)
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Calculated strictly server-side from activation
+              </p>
+            </div>
+
+            {/* Maximum Allowed Users */}
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
+                Max Users Allowed During Trial <span className="text-rose-500">*</span>
+              </label>
+              <Input
+                type="number"
+                required
+                min={1}
+                max={100}
+                value={form.trialMaxUsers}
+                onChange={(e) => {
+                  const val = Math.max(1, parseInt(e.target.value) || 1);
+                  setForm({ ...form, trialMaxUsers: val });
+                }}
+                disabled={!form.trialEnabled}
+                className="h-10 text-xs font-mono font-bold text-emerald-700 dark:text-emerald-400"
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Enforced server-side when inviting team members
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 5: Allowed Subsystems & Feature Entitlements */}
         <div className="rounded-xl border bg-card p-6 shadow-xs space-y-4">
           <div className="flex items-center gap-2.5 border-b pb-3.5">
             <div className="rounded-lg bg-indigo-500/10 p-2 text-indigo-600 dark:text-indigo-400">

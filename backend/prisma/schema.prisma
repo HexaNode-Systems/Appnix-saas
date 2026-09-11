@@ -28,6 +28,7 @@ model Tenant {
   apiKey             String?              @unique
   webhookUrl         String?
   twoFactorEnabled   Boolean              @default(false)
+  trialUsed          Boolean              @default(false)
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   
@@ -160,6 +161,7 @@ model Subscription {
   usedBots             Int                @default(0)
   maxTeamSeats         Int                @default(10)
   usedTeamSeats        Int                @default(1)
+  isTrial              Boolean            @default(false)
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   tenant               Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1047,6 +1049,9 @@ model PartnerConfig {
   clientLimit     Int            @default(20)
   featureAccess   Json           @default("[]")
   customDomain    String?
+  trialEnabled    Boolean        @default(false)
+  trialDays       Int            @default(7)
+  trialMaxUsers   Int            @default(5)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)

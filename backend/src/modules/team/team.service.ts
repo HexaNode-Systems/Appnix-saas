@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { InviteMemberDto, UpdateMemberRoleDto } from './dto/team.dto';
 import * as bcrypt from 'bcryptjs';
@@ -30,6 +30,32 @@ export class TeamService {
   }
 
   async inviteMember(tenantId: string, dto: InviteMemberDto) {
+    // 1. Enforce Workspace User Seat Limit (Server-Side)
+    const [currentUserCount, subscription, tenant] = await Promise.all([
+      this.prisma.user.count({ where: { tenantId } }),
+      this.prisma.subscription.findFirst({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { maxUsers: true },
+      }),
+    ]);
+
+    const maxAllowedSeats = subscription?.maxTeamSeats || tenant?.maxUsers || 5;
+
+    if (currentUserCount >= maxAllowedSeats) {
+      if (subscription?.status === 'TRIALING' || subscription?.isTrial) {
+        throw new BadRequestException(
+          `Trial user limit of ${maxAllowedSeats} seats reached (${currentUserCount} of ${maxAllowedSeats} used). Upgrade to a paid subscription plan to invite more team members.`,
+        );
+      }
+      throw new BadRequestException(
+        `Workspace seat limit of ${maxAllowedSeats} users reached (${currentUserCount} of ${maxAllowedSeats} used). Upgrade your subscription plan to add more team members.`,
+      );
+    }
+
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
@@ -59,6 +85,16 @@ export class TeamService {
         createdAt: true,
       },
     });
+
+    // Update usedTeamSeats on subscription
+    if (subscription) {
+      await this.prisma.subscription
+        .update({
+          where: { id: subscription.id },
+          data: { usedTeamSeats: currentUserCount + 1 },
+        })
+        .catch(() => {});
+    }
 
     return {
       success: true,
@@ -98,6 +134,24 @@ export class TeamService {
     if (!user) throw new NotFoundException('Member not found');
 
     await this.prisma.user.delete({ where: { id: userId } });
+
+    // Update remaining seats count on subscription
+    const [remainingUsers, subscription] = await Promise.all([
+      this.prisma.user.count({ where: { tenantId } }),
+      this.prisma.subscription.findFirst({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    if (subscription) {
+      await this.prisma.subscription
+        .update({
+          where: { id: subscription.id },
+          data: { usedTeamSeats: Math.max(1, remainingUsers) },
+        })
+        .catch(() => {});
+    }
 
     return {
       success: true,

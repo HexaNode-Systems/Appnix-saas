@@ -50,6 +50,24 @@ interface PlanItem {
   limits: PlanLimit;
 }
 
+interface TrialEligibility {
+  eligible: boolean;
+  partnerTrialEnabled?: boolean;
+  trialDays?: number;
+  trialMaxUsers?: number;
+  partnerName?: string;
+  reason?: string;
+}
+
+function getBackendUrl(): string {
+  if (process.env.NEXT_PUBLIC_API_BASE_URL) return process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+  if (typeof window !== "undefined" && !window.location.hostname.includes("localhost")) {
+    return "https://api.appnix.co.in/api/v1";
+  }
+  return "http://localhost:4000/api/v1";
+}
+
 const DEFAULT_PLANS: PlanItem[] = [
   {
     id: "starter",
@@ -118,6 +136,8 @@ export default function SubscriptionSelectionPage() {
   const [isSuspended, setIsSuspended] = useState<boolean>(false);
   const [processingPlanId, setProcessingPlanId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [trialEligibility, setTrialEligibility] = useState<TrialEligibility | null>(null);
+  const [isStartingTrial, setIsStartingTrial] = useState<boolean>(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -153,9 +173,35 @@ export default function SubscriptionSelectionPage() {
       setIsSuspended(statusResult.isSuspended);
       setIsVerifying(false);
 
+      const token =
+        typeof window !== "undefined"
+          ? localStorage.getItem("appnix_auth_token") ||
+            localStorage.getItem("token") ||
+            localStorage.getItem("appnix_token")
+          : null;
+
+      // Check partner-controlled 7-day free trial eligibility
+      if (token) {
+        try {
+          const eligRes = await fetch(`${getBackendUrl()}/billing/trial-eligibility`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+          if (eligRes.ok) {
+            const eligJson = await eligRes.json();
+            if (isMounted) {
+              setTrialEligibility(eligJson);
+            }
+          }
+        } catch (err) {
+          console.warn("[SubscriptionPage] Could not check trial eligibility:", err);
+        }
+      }
+
       // Fetch dynamic plan tiers from backend
       try {
-        const planRes = await fetch("http://localhost:4000/api/v1/billing/plans");
+        const planRes = await fetch(`${getBackendUrl()}/billing/plans`);
         if (planRes.ok) {
           const json = await planRes.json();
           if (json.success && Array.isArray(json.data) && json.data.length > 0) {
@@ -175,8 +221,8 @@ export default function SubscriptionSelectionPage() {
   }, [user, isAuthLoading, router]);
 
   // Handle Trial Activation
-  const handleStartTrial = async (planId: string) => {
-    setProcessingPlanId(planId);
+  const handleStartTrial = async (planId: string = "pro") => {
+    setIsStartingTrial(true);
     setActionError(null);
     try {
       const token =
@@ -186,7 +232,7 @@ export default function SubscriptionSelectionPage() {
             localStorage.getItem("appnix_token")
           : null;
       const workspaceId = user?.workspaceId || (user as any)?.tenantId;
-      const res = await fetch("http://localhost:4000/api/v1/billing/trial", {
+      const res = await fetch(`${getBackendUrl()}/billing/trial`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -206,7 +252,7 @@ export default function SubscriptionSelectionPage() {
     } catch (err: any) {
       setActionError(err.message || "Failed to initiate trial.");
     } finally {
-      setProcessingPlanId(null);
+      setIsStartingTrial(false);
     }
   };
 
@@ -393,6 +439,60 @@ export default function SubscriptionSelectionPage() {
             </button>
           </div>
         </div>
+
+        {/* Partner-Controlled 7-Day Free Trial Banner */}
+        {trialEligibility?.eligible && (
+          <div className="relative overflow-hidden rounded-2xl border-2 border-emerald-500/40 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent p-6 sm:p-7 shadow-sm transition-all">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+              <div className="space-y-2.5 max-w-xl">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-bold uppercase tracking-wider">
+                  <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
+                  <span>7-Day Free Trial Available</span>
+                </div>
+                <h2 className="text-2xl font-black tracking-tight text-foreground">
+                  Experience Appnix Risk-Free for 7 Days
+                </h2>
+                <p className="text-xs sm:text-sm text-muted-foreground">
+                  Your organization is eligible for a full 7-day trial. Test WhatsApp broadcast campaigns, automated AI botflows, and unified inbox with no upfront commitment.
+                </p>
+                <div className="flex flex-wrap items-center gap-y-2 gap-x-4 pt-1 text-xs text-foreground font-medium">
+                  <div className="flex items-center gap-1.5">
+                    <Clock className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span>7 Days Duration</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Users className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span>{trialEligibility.trialMaxUsers ?? 5} User Seats Included</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Shield className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span>No Credit Card Required</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="shrink-0 flex flex-col sm:flex-row md:flex-col gap-2">
+                <Button
+                  size="lg"
+                  disabled={isStartingTrial}
+                  onClick={() => handleStartTrial("pro")}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-5 text-xs sm:text-sm gap-2 shadow-sm cursor-pointer"
+                >
+                  {isStartingTrial ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Zap className="h-4 w-4" />
+                  )}
+                  <span>Start 7-Day Free Trial</span>
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+                <p className="text-[11px] text-center text-muted-foreground">
+                  Instant activation • Zero charges
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Plans Grid */}
         {plans.length === 0 ? (

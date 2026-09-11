@@ -96,6 +96,15 @@ interface InvoiceItem {
   paymentMethod?: string;
 }
 
+function getBackendUrl(): string {
+  if (process.env.NEXT_PUBLIC_API_BASE_URL) return process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+  if (typeof window !== "undefined" && !window.location.hostname.includes("localhost")) {
+    return "https://api.appnix.co.in/api/v1";
+  }
+  return "http://localhost:4000/api/v1";
+}
+
 export default function BillingPage() {
   const [activePlanId, setActivePlanId] = useState<string>("pro");
   const [activePlanDetails, setActivePlanDetails] = useState({
@@ -104,6 +113,9 @@ export default function BillingPage() {
     status: "ACTIVE",
     remainingDays: 30,
     renewalDate: "04 Oct 2026",
+    isTrial: false,
+    maxTeamSeats: 10,
+    usedTeamSeats: 1,
   });
   const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(true);
@@ -126,12 +138,59 @@ export default function BillingPage() {
       } catch {}
     }
 
-    // 2. Fetch real database subscription and transaction orders
+    // 2. Fetch authenticated subscription from backend
+    const token =
+      typeof window !== "undefined"
+        ? localStorage.getItem("appnix_auth_token") ||
+          localStorage.getItem("token") ||
+          localStorage.getItem("appnix_token")
+        : null;
+
+    if (token) {
+      try {
+        const subRes = await fetch(`${getBackendUrl()}/billing/subscription`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        if (subRes.ok) {
+          const subData = await subRes.json();
+          if (subData.hasActiveSubscription && subData.data) {
+            const d = subData.data;
+            const resolvedPlanId = d.slug || d.planId || "pro";
+            setActivePlanId(resolvedPlanId);
+
+            const renewal = d.currentPeriodEnd
+              ? new Date(d.currentPeriodEnd).toLocaleDateString("en-IN", {
+                  day: "2-digit",
+                  month: "short",
+                  year: "numeric",
+                })
+              : "Next Month";
+
+            setActivePlanDetails({
+              name: d.isTrial ? "7-Day Free Trial" : (d.name || "Professional Tier"),
+              price: d.isTrial ? "₹0 (Trial)" : (d.price || "₹2,999/mo"),
+              status: d.status || (d.isTrial ? "TRIALING" : "ACTIVE"),
+              remainingDays: d.remainingDays ?? (d.isTrial ? 7 : 30),
+              renewalDate: renewal,
+              isTrial: Boolean(d.isTrial),
+              maxTeamSeats: d.maxTeamSeats || (d.isTrial ? 5 : 10),
+              usedTeamSeats: d.usedTeamSeats || 1,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("[BillingPage] Failed to fetch subscription details:", err);
+      }
+    }
+
+    // 3. Fetch real database transaction orders
     try {
       const res = await fetch("/api/v1/payments/cashfree/history");
       if (res.ok) {
         const data = await res.json();
-        if (data.activePlan) {
+        if (data.activePlan && !activePlanDetails.isTrial) {
           const stored = typeof window !== "undefined" ? localStorage.getItem("appnix_active_plan") : null;
           const resolvedPlanId = stored || data.activePlan.id || "pro";
           setActivePlanId(resolvedPlanId);
@@ -144,7 +203,8 @@ export default function BillingPage() {
               })
             : "Next Month";
 
-          setActivePlanDetails({
+          setActivePlanDetails((prev) => ({
+            ...prev,
             name:
               resolvedPlanId === "starter"
                 ? "Starter Tier"
@@ -160,7 +220,7 @@ export default function BillingPage() {
             status: data.activePlan.status || "ACTIVE",
             remainingDays: data.activePlan.remainingDays || 30,
             renewalDate: renewal,
-          });
+          }));
         }
 
         if (Array.isArray(data.invoices)) {
@@ -199,16 +259,24 @@ export default function BillingPage() {
   // Compute active state dynamically so the upgraded plan shows as current
   const computedPlans = BASE_PLANS.map((p) => ({
     ...p,
-    isCurrent: p.id === activePlanId,
+    isCurrent: !activePlanDetails.isTrial && p.id === activePlanId,
   }));
 
   // Dynamic quota calculations based on active plan
-  const quotaConfig =
-    activePlanId === "enterprise"
-      ? { msgs: "Unlimited", bots: "Unlimited", seats: "Unlimited", pctMsgs: "10%", pctBots: "20%", pctSeats: "30%" }
-      : activePlanId === "starter"
-      ? { msgs: "450 / 2,000", bots: "1 / 1", seats: "1 / 2", pctMsgs: "22.5%", pctBots: "100%", pctSeats: "50%" }
-      : { msgs: "4,120 / 25,000", bots: "3 / 5", seats: "5 / 10", pctMsgs: "16.48%", pctBots: "60%", pctSeats: "50%" };
+  const quotaConfig = activePlanDetails.isTrial
+    ? {
+        msgs: "2,500 / 5,000",
+        bots: "2 / 3",
+        seats: `${activePlanDetails.usedTeamSeats} / ${activePlanDetails.maxTeamSeats}`,
+        pctMsgs: "50%",
+        pctBots: "66%",
+        pctSeats: `${Math.min(100, Math.round((activePlanDetails.usedTeamSeats / (activePlanDetails.maxTeamSeats || 1)) * 100))}%`,
+      }
+    : activePlanId === "enterprise"
+    ? { msgs: "Unlimited", bots: "Unlimited", seats: "Unlimited", pctMsgs: "10%", pctBots: "20%", pctSeats: "30%" }
+    : activePlanId === "starter"
+    ? { msgs: "450 / 2,000", bots: "1 / 1", seats: `${activePlanDetails.usedTeamSeats} / 2`, pctMsgs: "22.5%", pctBots: "100%", pctSeats: "50%" }
+    : { msgs: "4,120 / 25,000", bots: "3 / 5", seats: `${activePlanDetails.usedTeamSeats} / 10`, pctMsgs: "16.48%", pctBots: "60%", pctSeats: "50%" };
 
   return (
     <div className="space-y-6">
@@ -238,30 +306,54 @@ export default function BillingPage() {
       </div>
 
       {/* Dynamic Active Subscription Banner */}
-      <div className="rounded-xl border bg-card p-6 shadow-xs">
+      <div
+        className={cn(
+          "rounded-xl border p-6 shadow-xs transition-all",
+          activePlanDetails.isTrial
+            ? "border-emerald-500/40 bg-gradient-to-br from-emerald-500/10 via-card to-card"
+            : "border-border bg-card"
+        )}
+      >
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white font-bold">
-                CURRENT PLAN
-              </Badge>
+              {activePlanDetails.isTrial ? (
+                <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white font-bold gap-1 px-2.5 py-0.5">
+                  <Sparkles className="h-3 w-3" />
+                  7-DAY FREE TRIAL
+                </Badge>
+              ) : (
+                <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white font-bold">
+                  CURRENT PLAN
+                </Badge>
+              )}
               <h2 className="text-xl font-bold text-foreground">
-                {activePlanDetails.name} Plan
+                {activePlanDetails.isTrial ? "Your 7-Day Free Trial is Active" : `${activePlanDetails.name} Plan`}
               </h2>
             </div>
             <p className="text-sm text-muted-foreground">
-              Renews automatically on <span className="font-semibold text-foreground">{activePlanDetails.renewalDate}</span> via Cashfree PG.
+              {activePlanDetails.isTrial ? (
+                <span>
+                  Trial ends on <span className="font-semibold text-foreground">{activePlanDetails.renewalDate}</span> ({activePlanDetails.remainingDays} days remaining). Upgrade anytime to maintain uninterrupted WhatsApp & CRM messaging.
+                </span>
+              ) : (
+                <span>
+                  Renews automatically on <span className="font-semibold text-foreground">{activePlanDetails.renewalDate}</span> via Cashfree PG.
+                </span>
+              )}
             </p>
           </div>
 
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
             <div className="text-left sm:text-right">
               <p className="text-2xl font-extrabold text-foreground">
-                {activePlanDetails.price.replace("/mo", "")}
-                <span className="text-sm font-normal text-muted-foreground">/mo</span>
+                {activePlanDetails.isTrial ? "₹0" : activePlanDetails.price.replace("/mo", "")}
+                <span className="text-sm font-normal text-muted-foreground">
+                  {activePlanDetails.isTrial ? " (Free Trial)" : "/mo"}
+                </span>
               </p>
               <p className="text-xs text-emerald-600 font-medium">
-                {activePlanDetails.remainingDays} Days remaining in billing cycle
+                {activePlanDetails.remainingDays} {activePlanDetails.remainingDays === 1 ? "Day" : "Days"} remaining in {activePlanDetails.isTrial ? "free trial" : "billing cycle"}
               </p>
             </div>
             <Button
@@ -269,10 +361,20 @@ export default function BillingPage() {
                 const el = document.getElementById("available-tiers");
                 el?.scrollIntoView({ behavior: "smooth" });
               }}
-              variant="outline"
-              className="text-xs"
+              variant={activePlanDetails.isTrial ? "default" : "outline"}
+              className={cn(
+                "text-xs gap-1.5 font-semibold cursor-pointer",
+                activePlanDetails.isTrial && "bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+              )}
             >
-              Change Subscription
+              {activePlanDetails.isTrial ? (
+                <>
+                  <Zap className="h-3.5 w-3.5" />
+                  <span>Upgrade to Paid Plan</span>
+                </>
+              ) : (
+                <span>Change Subscription</span>
+              )}
             </Button>
           </div>
         </div>

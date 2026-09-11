@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -254,9 +254,13 @@ export class BillingService {
           planId: sub.planId,
           planName: sub.planName,
           status: 'EXPIRED',
+          isTrial: sub.isTrial || sub.status === 'TRIALING',
           currentPeriodEnd: sub.currentPeriodEnd,
         },
-        message: 'Your subscription has expired. Please choose a plan to renew.',
+        message:
+          sub.status === 'TRIALING' || sub.isTrial
+            ? 'Your 7-day free trial has expired. Please select a plan to continue.'
+            : 'Your subscription has expired. Please choose a plan to renew.',
       };
     }
 
@@ -276,14 +280,15 @@ export class BillingService {
       };
     }
 
-    // 3. Active or Trialing Subscription
+    // 6. Active or Trialing Subscription
     const [usedBots, usedTeamSeats, usedMessages] = await Promise.all([
       this.prisma.bot.count({ where: { tenantId } }),
       this.prisma.user.count({ where: { tenantId } }),
       this.prisma.message.count({ where: { tenantId } }),
     ]);
 
-    const totalDays = sub.totalDays || 30;
+    const isTrial = sub.status === 'TRIALING' || sub.isTrial;
+    const totalDays = sub.totalDays || (isTrial ? 7 : 30);
     const remainingDays = Math.max(
       0,
       Math.ceil((new Date(sub.currentPeriodEnd).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
@@ -298,7 +303,7 @@ export class BillingService {
         planName: sub.planName,
         price: sub.price,
         status: sub.status,
-        isTrial: sub.status === 'TRIALING',
+        isTrial,
         totalDays,
         remainingDays,
         usedDays: Math.max(0, totalDays - remainingDays),
@@ -309,83 +314,190 @@ export class BillingService {
         maxBots: sub.maxBots,
         usedBots,
         maxTeamSeats: sub.maxTeamSeats,
-        usedTeamSeats,
+        usedTeamSeats: Math.max(1, usedTeamSeats),
         nextBillingDate: sub.currentPeriodEnd.toLocaleDateString('en-GB', {
           day: '2-digit',
           month: 'short',
           year: 'numeric',
         }),
-        paymentMethod: (sub as any).paymentProvider || 'Cashfree UPI / NetBanking',
+        paymentMethod: (sub as any).paymentProvider || (isTrial ? 'Free Trial' : 'Cashfree UPI / NetBanking'),
       },
     };
   }
 
   /**
-   * Starts a free trial for a workspace if the chosen plan explicitly supports it
-   * and the workspace has not previously redeemed a trial.
+   * Checks whether the current workspace is eligible for a 7-day free trial based on
+   * their parent partner configuration (strictly controlled by Super Admin).
    */
-  async startTrial(tenantId: string, planId: string) {
-    if (!tenantId) {
-      throw new BadRequestException('Tenant ID is required.');
+  async getTrialEligibility(tenantId: string) {
+    if (!tenantId || tenantId === 'default' || tenantId === 'tenant_default') {
+      return {
+        eligible: false,
+        trialEnabled: false,
+        reason: 'Valid workspace context required.',
+      };
     }
 
-    // 1. Verify workspace has not already used a trial
-    const existingTrial = await this.prisma.subscription.findFirst({
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      include: {
+        parent: {
+          include: { partnerConfig: true },
+        },
+        partnerConfig: true,
+      },
+    });
+
+    if (!tenant) {
+      return {
+        eligible: false,
+        trialEnabled: false,
+        reason: 'Workspace organization not found.',
+      };
+    }
+
+    // Determine partner configuration:
+    // If tenant is an END_CLIENT, check parent partner's partnerConfig.
+    // If tenant is a RESELLER itself, check own partnerConfig or parent.
+    const partnerConfig =
+      tenant.tier === 'END_CLIENT'
+        ? tenant.parent?.partnerConfig
+        : tenant.partnerConfig || tenant.parent?.partnerConfig;
+
+    if (!partnerConfig || !partnerConfig.trialEnabled) {
+      return {
+        eligible: false,
+        trialEnabled: false,
+        reason: '7-Day Free Trial is disabled by your partner administrator. Please select a subscription plan.',
+      };
+    }
+
+    // Check if workspace has already redeemed a trial
+    if (tenant.trialUsed) {
+      return {
+        eligible: false,
+        trialEnabled: true,
+        alreadyUsed: true,
+        trialDays: partnerConfig.trialDays || 7,
+        trialMaxUsers: partnerConfig.trialMaxUsers || 5,
+        reason: 'Free trial has already been redeemed for this workspace.',
+      };
+    }
+
+    const existingTrialOrActive = await this.prisma.subscription.findFirst({
       where: {
         tenantId,
-        status: 'TRIALING' as any,
+        OR: [
+          { status: 'TRIALING' },
+          { isTrial: true },
+          { status: 'ACTIVE' },
+        ],
       },
     });
 
-    if (existingTrial) {
-      throw new BadRequestException('A free trial has already been redeemed for this workspace. Please select a plan to subscribe.');
+    if (existingTrialOrActive) {
+      return {
+        eligible: false,
+        trialEnabled: true,
+        alreadyUsed: true,
+        trialDays: partnerConfig.trialDays || 7,
+        trialMaxUsers: partnerConfig.trialMaxUsers || 5,
+        reason:
+          existingTrialOrActive.status === 'ACTIVE'
+            ? 'Workspace already has an active subscription.'
+            : 'Free trial has already been redeemed for this workspace.',
+      };
     }
 
-    // 2. Fetch the plan configured in database
-    const planRows: any[] = await this.prisma.$queryRaw`
-      SELECT * FROM plans WHERE slug = ${planId} OR id = ${planId} LIMIT 1;
-    `;
-    const plan = planRows?.[0];
+    return {
+      eligible: true,
+      trialEnabled: true,
+      alreadyUsed: false,
+      trialDays: partnerConfig.trialDays || 7,
+      trialMaxUsers: partnerConfig.trialMaxUsers || 5,
+      partnerName: tenant.parent?.name || tenant.name,
+    };
+  }
 
-    if (!plan) {
-      throw new NotFoundException(`Plan '${planId}' not found.`);
+  /**
+   * Starts a 7-day free trial for a workspace if the partner explicitly allows it
+   * and the workspace has not previously redeemed a trial.
+   */
+  async startTrial(tenantId: string, planId?: string) {
+    if (!tenantId || tenantId === 'default' || tenantId === 'tenant_default') {
+      throw new BadRequestException('Valid workspace context is required.');
     }
 
-    const trialDays = Number(plan.trialDays || 0);
-    if (trialDays <= 0) {
-      throw new BadRequestException(`The ${plan.name} plan does not offer a free trial. Payment is required to activate.`);
+    const eligibility = await this.getTrialEligibility(tenantId);
+    if (!eligibility.trialEnabled) {
+      throw new ForbiddenException(
+        'The 7-Day Free Trial is not enabled for your organization. Please select a paid subscription plan.',
+      );
+    }
+    if (!eligibility.eligible) {
+      throw new BadRequestException(eligibility.reason || 'Workspace is not eligible for a free trial.');
     }
 
-    // 3. Create Trialing Subscription
+    const trialDays = 7; // Fixed at 7 days
+    const trialMaxUsers = eligibility.trialMaxUsers || 5;
     const now = new Date();
-    const trialEnd = new Date();
-    trialEnd.setDate(now.getDate() + trialDays);
+    const trialEnd = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
 
-    const sub = await (this.prisma.subscription as any).create({
-      data: {
-        tenantId,
-        planId: plan.slug || plan.id,
-        planName: `${plan.name} (Trial)`,
-        price: `₹0 (Trial - ${trialDays} Days)`,
-        status: 'TRIALING' as any,
-        totalDays: trialDays,
-        remainingDays: trialDays,
-        currentPeriodStart: now,
-        currentPeriodEnd: trialEnd,
-        maxMessages: plan.maxMessages || 2000,
-        usedMessages: 0,
-        maxBots: plan.maxBots || 1,
-        usedBots: 0,
-        maxTeamSeats: plan.maxUsers || 2,
-        usedTeamSeats: 1,
-      },
+    const currentUserCount = await this.prisma.user.count({ where: { tenantId } });
+
+    const sub = await this.prisma.$transaction(async (tx) => {
+      await tx.tenant.update({
+        where: { id: tenantId },
+        data: {
+          trialUsed: true,
+          maxUsers: trialMaxUsers,
+        },
+      });
+
+      return tx.subscription.create({
+        data: {
+          tenantId,
+          planId: planId || 'pro',
+          planName: '7-Day Free Trial',
+          price: `₹0 (Trial - ${trialDays} Days)`,
+          status: 'TRIALING',
+          isTrial: true,
+          totalDays: trialDays,
+          remainingDays: trialDays,
+          currentPeriodStart: now,
+          currentPeriodEnd: trialEnd,
+          maxMessages: 10000,
+          usedMessages: 0,
+          maxBots: 2,
+          usedBots: 0,
+          maxTeamSeats: trialMaxUsers,
+          usedTeamSeats: Math.max(1, currentUserCount),
+        },
+      });
     });
+
+    this.logger.log(
+      `🎉 Activated 7-day free trial for tenant "${tenantId}" (max seats: ${trialMaxUsers}, expires: ${trialEnd.toISOString()})`,
+    );
 
     return {
       success: true,
       hasActiveSubscription: true,
-      data: sub,
-      message: `Your ${trialDays}-day free trial for ${plan.name} has been activated!`,
+      data: {
+        id: sub.id,
+        planId: sub.planId,
+        planName: sub.planName,
+        price: sub.price,
+        status: sub.status,
+        isTrial: true,
+        totalDays: trialDays,
+        remainingDays: trialDays,
+        maxTeamSeats: trialMaxUsers,
+        usedTeamSeats: sub.usedTeamSeats,
+        currentPeriodStart: sub.currentPeriodStart,
+        currentPeriodEnd: sub.currentPeriodEnd,
+      },
+      message: `Your 7-Day Free Trial with ${trialMaxUsers} user seats has been activated!`,
     };
   }
 
