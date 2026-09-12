@@ -7,20 +7,24 @@ import { TenantContextStore } from './tenant-context.store';
 
 export interface SessionContext {
   /** The authenticated human/operator. This never changes during impersonation. */
-  userId: string;
-  email: string;
-  role: Role;
+  userId?: string;
+  email?: string;
+  role?: Role;
   /** The tenant bound to the login session. */
-  workspaceId: string;
+  workspaceId?: string;
   /** The only tenant application queries may use for this request. */
   tenantId: string;
   impersonatedWorkspaceId?: string;
   /** Materialized hierarchical path (e.g. "root.t_123.t_456") for subtree isolation */
-  orgPath: string;
+  orgPath?: string;
   /** Organization tier (PLATFORM_ROOT, PRIMARY_RESELLER, SUB_RESELLER, END_CLIENT) */
-  tier: string;
+  tier?: string;
   /** Granted permissions array */
-  permissions: string[];
+  permissions?: string[];
+  partnerId?: string;
+  isWhiteLabel?: boolean;
+  isDirect?: boolean;
+  domainContext?: 'MARKETING' | 'DIRECT_CLIENT' | 'DIRECT_ADMIN' | 'SUPER_ADMIN' | 'PARTNER_ADMIN' | 'CUSTOM_DOMAIN';
 }
 
 interface ImpersonationClaims {
@@ -63,12 +67,17 @@ export class SessionContextResolver {
       throw new UnauthorizedException('A verified authenticated session is required');
     }
 
+    const existingStore = this.tenantContextStore.get();
     const context: SessionContext = {
       userId: principal.userId,
       email: principal.email || '',
       role: principal.role,
       workspaceId: principal.tenantId,
       tenantId: principal.tenantId,
+      partnerId: existingStore?.partnerId,
+      isWhiteLabel: existingStore?.isWhiteLabel,
+      isDirect: existingStore?.isDirect,
+      domainContext: existingStore?.domainContext,
       orgPath: principal.orgPath || 'root',
       tier: principal.tier || 'END_CLIENT',
       permissions: principal.permissions || ['*'],

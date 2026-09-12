@@ -57,6 +57,22 @@ export class TenantsService {
     return `${base || 'org'}-${suffix}`;
   }
 
+  private async resolveActorPath(actor: SessionContext): Promise<string> {
+    if (actor.role === Role.SUPER_ADMIN) return 'root';
+    let path = actor.orgPath;
+    if (!path || path === 'root') {
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { id: actor.tenantId },
+        select: { path: true },
+      });
+      path = tenant?.path;
+    }
+    if (!path || path === 'root') {
+      throw new ForbiddenException('Invalid hierarchy context for tenant operation');
+    }
+    return path;
+  }
+
   async findAll(actor?: SessionContext) {
     if (!actor || actor.role === Role.SUPER_ADMIN) {
       return this.prisma.tenant.findMany({
@@ -73,7 +89,7 @@ export class TenantsService {
     }
 
     if (actor.role === Role.RESELLER_ADMIN) {
-      const actorPath = actor.orgPath || 'root';
+      const actorPath = await this.resolveActorPath(actor);
       const rows: any[] = await this.prisma.$queryRawUnsafe(
         `
         SELECT t.id, t.name, t.slug, t.tier, t.path, t.depth, t."parentId", t.status,
@@ -130,7 +146,7 @@ export class TenantsService {
     // Hierarchy isolation check: non-super-admins cannot read tenants outside their subtree
     if (actor && actor.role !== Role.SUPER_ADMIN) {
       const isSelf = actor.tenantId === tenant.id;
-      const actorPath = actor.orgPath || 'root';
+      const actorPath = await this.resolveActorPath(actor);
       const isDescendant = tenant.path.startsWith(actorPath + '.') || tenant.path === actorPath;
 
       if (!isSelf && !isDescendant) {
@@ -153,7 +169,7 @@ export class TenantsService {
         ORDER BY t.depth ASC, t.name ASC
       `);
     } else {
-      const actorPath = actor.orgPath || 'root';
+      const actorPath = await this.resolveActorPath(actor);
       rows = await this.prisma.$queryRawUnsafe(
         `
         SELECT t.id, t.name, t.slug, t.tier, t.path, t.depth, t."parentId", t.status,
@@ -214,12 +230,13 @@ export class TenantsService {
 
     // Reseller Admin can only provision children under their own organization
     if (actor && actor.role === Role.RESELLER_ADMIN) {
+      const actorPath = await this.resolveActorPath(actor);
       if (!parentId) {
         parentId = actor.tenantId;
       } else {
         // Verify parent is within actor's subtree
         const targetParent = await this.prisma.tenant.findUnique({ where: { id: parentId } });
-        if (!targetParent || (!targetParent.path.startsWith(actor.orgPath + '.') && targetParent.id !== actor.tenantId)) {
+        if (!targetParent || (!targetParent.path.startsWith(actorPath + '.') && targetParent.id !== actor.tenantId)) {
           throw new ForbiddenException('Cannot provision tenant outside your authorized hierarchy');
         }
       }
@@ -388,13 +405,62 @@ export class TenantsService {
     // Strip port if present (e.g. "portal.client.com:3000" -> "portal.client.com")
     const cleanHost = rawHost.split(':')[0].toLowerCase().trim();
 
-    // 1. Check Platform Root Admin subdomain
-    if (cleanHost.startsWith('admin.') || cleanHost === 'admin.localhost') {
+    // 1. Check Specific Appnix Subdomains and Platforms
+    if (cleanHost === 'superadmin.appnix.co.in' || cleanHost.startsWith('superadmin.localhost')) {
       return {
         found: true,
-        type: 'PLATFORM_ROOT',
+        type: 'SUPER_ADMIN',
+        panel: 'SUPER_ADMIN',
         tier: TenantTier.PLATFORM_ROOT,
         isPlatformAdmin: true,
+        isSuperAdmin: true,
+        tenant: null,
+      };
+    }
+
+    if (cleanHost === 'admin.appnix.co.in' || cleanHost.startsWith('admin.localhost')) {
+      return {
+        found: true,
+        type: 'STAFF_ADMIN',
+        panel: 'DIRECT_ADMIN',
+        tier: TenantTier.PLATFORM_ROOT,
+        isPlatformAdmin: true,
+        isStaffAdmin: true,
+        tenant: null,
+      };
+    }
+
+    if (cleanHost === 'partners.appnix.co.in' || cleanHost.startsWith('partners.localhost')) {
+      return {
+        found: true,
+        type: 'RESELLER_PORTAL',
+        panel: 'RESELLER_ADMIN',
+        isResellerPortal: true,
+        tenant: null,
+      };
+    }
+
+    if (cleanHost === 'app.appnix.co.in' || cleanHost.startsWith('app.localhost')) {
+      return {
+        found: true,
+        type: 'DIRECT_APP',
+        panel: 'CLIENT_PORTAL',
+        isDirectAppnix: true,
+        tenant: null,
+      };
+    }
+
+    if (
+      cleanHost === 'www.appnix.co.in' ||
+      cleanHost === 'appnix.co.in' ||
+      cleanHost === 'localhost' ||
+      cleanHost === '127.0.0.1'
+    ) {
+      return {
+        found: true,
+        type: 'PUBLIC_MARKETING',
+        panel: 'MARKETING',
+        isMarketing: true,
         tenant: null,
       };
     }

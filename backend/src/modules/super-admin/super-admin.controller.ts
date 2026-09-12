@@ -18,6 +18,7 @@ import { Request, Response } from 'express';
 import { CurrentUser, AuthUser } from '../auth/decorators/current-user.decorator';
 import { JwtAccessGuard } from '../auth/guards/jwt-access.guard';
 import { SuperAdminAuthGuard } from './guards/super-admin-auth.guard';
+import { SuperAdminGuard } from '../../common/guards/super-admin.guard';
 import { SuperAdminService } from './super-admin.service';
 import {
   SuperAdminLoginDto,
@@ -239,6 +240,40 @@ export class SuperAdminController {
     @Body('workspaceId') workspaceId: string,
   ) {
     return this.service.beginWorkspaceInspection(actor, workspaceId);
+  }
+
+  @Post('impersonate')
+  @UseGuards(JwtAccessGuard, SuperAdminGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Tier-0 Super Admin User & Workspace Impersonation (Guest Mode)' })
+  async impersonateUser(
+    @Body('targetUserId') targetUserId: string,
+    @Body('reason') reason: string | undefined,
+    @CurrentUser() actor: AuthUser,
+    @Req() req: Request,
+  ) {
+    const ip =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() ||
+      req.ip ||
+      req.socket.remoteAddress ||
+      '127.0.0.1';
+    return this.service.impersonateUser(actor, targetUserId, reason, ip);
+  }
+
+  @Post('impersonate/terminate')
+  @UseGuards(JwtAccessGuard, SuperAdminGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Terminate active Super Admin impersonation session' })
+  async terminateImpersonation(
+    @CurrentUser() actor: AuthUser,
+    @Req() req: Request,
+  ) {
+    const ip =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() ||
+      req.ip ||
+      req.socket.remoteAddress ||
+      '127.0.0.1';
+    return this.service.terminateImpersonation(actor, ip);
   }
 
   // ==========================================

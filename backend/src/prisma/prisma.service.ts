@@ -15,6 +15,18 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       const model = params.model ? params.model.charAt(0).toLowerCase() + params.model.slice(1) : '';
       if (!context || !TENANT_SCOPED_MODELS.has(model)) return next(params);
 
+      // Super Admin and Direct App Admin without active impersonation operate platform-wide
+      const isPlatformOperator =
+        (context.role === 'SUPER_ADMIN' ||
+          context.role === 'APP_ADMIN' ||
+          context.domainContext === 'SUPER_ADMIN' ||
+          context.domainContext === 'DIRECT_ADMIN') &&
+        !context.impersonatedWorkspaceId;
+
+      if (isPlatformOperator) {
+        return next(params);
+      }
+
       params.args ??= {};
       const args = params.args as { where?: Record<string, unknown>; data?: Record<string, unknown>; create?: Record<string, unknown> };
       const tenantField = tenantFieldForModel(model);

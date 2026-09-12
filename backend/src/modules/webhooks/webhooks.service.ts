@@ -37,7 +37,14 @@ export class WebhooksService {
     const hmac = crypto.createHmac('sha256', appSecret);
     const digest = hmac.update(rawBody).digest('hex');
 
-    return crypto.timingSafeEqual(Buffer.from(expectedSignature, 'hex'), Buffer.from(digest, 'hex'));
+    const expectedBuf = Buffer.from(expectedSignature, 'hex');
+    const digestBuf = Buffer.from(digest, 'hex');
+
+    if (expectedBuf.length !== digestBuf.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(expectedBuf, digestBuf);
   }
 
   async handleMetaWebhook(payload: any, rawBody?: string | Buffer, signatureHeader?: string) {

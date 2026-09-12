@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { Role, TenantTier, TenantStatus } from '@prisma/client';
+import { Role, TenantTier, TenantStatus, SslStatus, DomainVerificationStatus } from '@prisma/client';
 import { randomUUID, randomBytes, randomInt } from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -1994,12 +1994,14 @@ export class SuperAdminService {
         id: randomUUID(),
         tenantId: dto.tenantId,
         domain: cleanDomain,
+        status: DomainVerificationStatus.PENDING,
         isVerified: false,
         sslProvisioned: false,
         dnsRecordType: dto.dnsRecordType || 'CNAME',
         dnsExpectedValue: 'cname.appnix.co.in',
+        expectedDnsTarget: 'cname.appnix.co.in',
         verificationToken: token,
-        sslStatus: 'PENDING',
+        sslStatus: SslStatus.PENDING,
         lastCheckedAt: null,
       },
     });
@@ -2040,13 +2042,26 @@ export class SuperAdminService {
       mapping.verificationToken || undefined,
     );
 
+    const sslStatusEnum: SslStatus =
+      dnsResult.sslStatus === 'ACTIVE'
+        ? SslStatus.ACTIVE
+        : dnsResult.sslStatus === 'PENDING'
+        ? SslStatus.PENDING
+        : SslStatus.FAILED;
+
+    const verificationStatus = dnsResult.isVerified
+      ? DomainVerificationStatus.VERIFIED
+      : DomainVerificationStatus.FAILED;
+
     // Persist verified state
     const updated = await this.prisma.domainMapping.update({
       where: { id: domainId },
       data: {
+        status: verificationStatus,
         isVerified: dnsResult.isVerified,
         sslProvisioned: dnsResult.sslStatus === 'ACTIVE',
-        sslStatus: dnsResult.sslStatus,
+        sslStatus: sslStatusEnum,
+        verifiedAt: dnsResult.isVerified ? new Date() : null,
         lastCheckedAt: new Date(),
       },
     });
@@ -2310,9 +2325,28 @@ export class SuperAdminService {
       // Super Admin: platform-wide access
     } else if (actor.role === Role.RESELLER_ADMIN || actor.role === 'RESELLER_ADMIN') {
       // Reseller Admin: only within their hierarchy tree
-      const callerPath = actor.orgPath || 'root';
+      let callerPath = actor.orgPath;
+      if (!callerPath || callerPath === 'root') {
+        const callerTenant = await this.prisma.tenant.findUnique({
+          where: { id: actor.tenantId },
+          select: { path: true },
+        });
+        callerPath = callerTenant?.path;
+      }
+
+      if (!callerPath || callerPath === 'root') {
+        throw new ForbiddenException('Invalid reseller hierarchy context');
+      }
+
+      // Strictly disallow reseller inspection of platform root
+      if (tenant.id === 'root' || tenant.path === 'root') {
+        throw new ForbiddenException(
+          'Cross-hierarchy violation: Reseller administrators cannot inspect platform root',
+        );
+      }
+
       const isDirectChild = tenant.parentId === actor.tenantId;
-      const isDescendant = callerPath && tenant.path && tenant.path.startsWith(callerPath + '.');
+      const isDescendant = Boolean(tenant.path && tenant.path.startsWith(callerPath + '.'));
 
       if (!isDirectChild && !isDescendant) {
         throw new ForbiddenException(
@@ -2361,6 +2395,168 @@ export class SuperAdminService {
     return {
       impersonationToken: token,
       expiresIn: this.config.get<string>('IMPERSONATION_JWT_EXPIRY') || '15m',
+    };
+  }
+
+  /**
+   * Super Admin Impersonation (Guest Mode)
+   * Generates signed JWT token, writes audit log, and resolves correct redirect URL.
+   */
+  async impersonateUser(
+    actor: { userId: string; email?: string; role?: Role | string },
+    targetUserId: string,
+    reason?: string,
+    ipAddress?: string,
+  ) {
+    if (!targetUserId) {
+      throw new BadRequestException('targetUserId is required');
+    }
+
+    // 1. Fetch target user and their tenant hierarchy
+    const targetUser = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      include: {
+        tenant: {
+          include: {
+            parent: {
+              select: { id: true, name: true, slug: true, tier: true, customDomain: true },
+            },
+            domainMappings: {
+              where: {
+                OR: [{ status: 'VERIFIED' }, { isVerified: true }],
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!targetUser) {
+      throw new NotFoundException(`Target user with ID "${targetUserId}" not found`);
+    }
+
+    const tenant = targetUser.tenant;
+    if (!tenant) {
+      throw new NotFoundException('Target user is not associated with an active workspace');
+    }
+
+    // 2. Generate signed JWT impersonation token containing target user identity
+    const secret =
+      this.config.get<string>('IMPERSONATION_JWT_SECRET') ||
+      this.config.get<string>('JWT_ACCESS_SECRET') ||
+      this.config.get<string>('JWT_SECRET') ||
+      'default-access-secret';
+
+    const tokenPayload = {
+      sub: targetUser.id,
+      email: targetUser.email,
+      role: targetUser.role,
+      tenantId: tenant.id,
+      orgPath: tenant.path,
+      tier: tenant.tier,
+      isImpersonated: true,
+      impersonatorId: actor.userId,
+      purpose: 'super_admin_impersonation',
+    };
+
+    const token = await this.jwt.signAsync(tokenPayload, {
+      secret,
+      expiresIn: '1h',
+    });
+
+    // 3. Insert record into AuditLog
+    await this.audit(
+      actor.userId,
+      tenant.id,
+      'IMPERSONATION_STARTED',
+      'POST /super-admin/impersonate',
+      actor.email,
+      ipAddress,
+      {
+        ip: ipAddress,
+        reason: reason || 'Super Admin diagnostic / guest session',
+        targetUserId: targetUser.id,
+        targetUserEmail: targetUser.email,
+        targetUserRole: targetUser.role,
+        targetWorkspaceId: tenant.id,
+        targetWorkspaceName: tenant.name,
+      },
+    );
+
+    // 4. Determine correct redirect domain
+    const isLocal = process.env.NODE_ENV !== 'production';
+    const isReseller =
+      tenant.tier === TenantTier.PRIMARY_RESELLER ||
+      tenant.tier === TenantTier.SUB_RESELLER ||
+      targetUser.role === Role.RESELLER_ADMIN;
+
+    let redirectUrl = '';
+
+    if (isReseller) {
+      const base = isLocal ? 'http://partners.localhost:3000' : 'https://partners.appnix.co.in';
+      redirectUrl = `${base}/auth/guest-login?token=${token}`;
+    } else {
+      const parentIsReseller =
+        tenant.parent?.tier === TenantTier.PRIMARY_RESELLER ||
+        tenant.parent?.tier === TenantTier.SUB_RESELLER;
+
+      const customDomain =
+        tenant.customDomain ||
+        tenant.domainMappings?.[0]?.domain ||
+        (parentIsReseller ? tenant.parent?.customDomain : null);
+
+      if (customDomain) {
+        const base = isLocal ? `http://${customDomain}:3000` : `https://${customDomain}`;
+        redirectUrl = `${base}/auth/guest-login?token=${token}`;
+      } else {
+        const base = isLocal ? 'http://app.localhost:3000' : 'https://app.appnix.co.in';
+        redirectUrl = `${base}/auth/guest-login?token=${token}`;
+      }
+    }
+
+    return {
+      redirectUrl,
+      token,
+      targetUser: {
+        id: targetUser.id,
+        email: targetUser.email,
+        name: targetUser.name,
+        role: targetUser.role,
+        workspaceId: tenant.id,
+        workspaceName: tenant.name,
+        tier: tenant.tier,
+      },
+    };
+  }
+
+  /**
+   * Terminate active Super Admin impersonation session
+   */
+  async terminateImpersonation(
+    actor: { userId: string; email?: string; tenantId?: string },
+    ipAddress?: string,
+  ) {
+    await this.audit(
+      actor.userId,
+      actor.tenantId || 'platform',
+      'IMPERSONATION_TERMINATED',
+      'POST /super-admin/impersonate/terminate',
+      actor.email,
+      ipAddress,
+      {
+        ip: ipAddress,
+        terminatedBy: actor.userId,
+        timestamp: new Date().toISOString(),
+      },
+    );
+
+    return {
+      success: true,
+      message: 'Impersonation session terminated successfully',
+      redirectUrl:
+        process.env.NODE_ENV !== 'production'
+          ? 'http://superadmin.localhost:3000'
+          : 'https://superadmin.appnix.co.in',
     };
   }
 }

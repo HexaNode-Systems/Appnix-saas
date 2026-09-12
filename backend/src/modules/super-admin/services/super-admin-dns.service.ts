@@ -7,7 +7,7 @@ export interface DnsVerificationResult {
   recordType: 'CNAME' | 'TXT';
   expectedValue: string;
   foundValues: string[];
-  sslStatus: 'ACTIVE' | 'PENDING' | 'ERROR';
+  sslStatus: 'ACTIVE' | 'PENDING' | 'FAILED' | 'ERROR';
   details: string;
   checkedAt: string;
 }
@@ -107,7 +107,7 @@ export class SuperAdminDnsService {
         recordType: (expectedRecordType.toUpperCase() as 'CNAME' | 'TXT') || 'CNAME',
         expectedValue,
         foundValues,
-        sslStatus: 'ERROR',
+        sslStatus: 'FAILED',
         details: `DNS resolution error: ${err.message || 'Unknown network error'}.`,
         checkedAt,
       };
