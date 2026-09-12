@@ -13,6 +13,7 @@ import { CampaignShowcase } from "@/components/landing/campaign-showcase";
 import { WhiteLabel } from "@/components/landing/white-label";
 import { WhyAppnix } from "@/components/landing/why-appnix";
 import { Testimonials } from "@/components/landing/testimonials";
+import { PricingPreview } from "@/components/landing/pricing-preview";
 import { FAQ } from "@/components/landing/faq";
 import { FinalCTA } from "@/components/landing/final-cta";
 import { Footer } from "@/components/landing/footer";
@@ -35,8 +36,8 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col selection:bg-primary selection:text-primary-foreground">
-      {/* 1. Sticky Professional Navbar */}
-      <Navbar onOpenDemoModal={() => handleOpenDemo("Complete Platform (All-in-One)", "Navbar Demo CTA")} />
+      {/* 1. Sticky Professional Navigation Header */}
+      <Navbar onOpenDemoModal={() => handleOpenDemo("Complete Platform (All-in-One)", "Header Demo CTA")} />
 
       {/* 2. Hero Section with Live Product Visual & Dynamic Status Cards */}
       <Hero onOpenDemoModal={() => handleOpenDemo("Complete Platform (All-in-One)", "Hero Demo CTA")} />
@@ -71,7 +72,10 @@ export default function LandingPage() {
       {/* 12. Testimonials & Social Proof */}
       <Testimonials />
 
-      {/* 13. Frequently Asked Questions Accordion */}
+      {/* 13. Transparent Pricing Plans Preview */}
+      <PricingPreview onOpenDemoModal={(plan) => handleOpenDemo(plan ? `Pricing Plan: ${plan}` : "Pricing Inquiry", "Pricing Preview CTA")} />
+
+      {/* 14. Frequently Asked Questions Accordion */}
       <FAQ onOpenDemoModal={() => handleOpenDemo("General Inquiries", "FAQ Section CTA")} />
 
       {/* 15. Final High-Conversion CTA Banner */}

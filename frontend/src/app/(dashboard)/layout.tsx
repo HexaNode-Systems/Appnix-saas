@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { AppNavbar } from "@/components/layout/app-navbar";
 import { GuestModeBanner } from "@/components/layout/GuestModeBanner";
+import { ImpersonationBanner } from "@/components/shared/ImpersonationBanner";
 import { MockCashfreeModalContainer } from "@/components/billing/mock-cashfree-modal";
 import { useAuth } from "@/lib/auth/auth-context";
 import { verifySubscriptionStatus } from "@/lib/subscription";
@@ -122,6 +123,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // OUTER: now flex-col (vertical) instead of flex (horizontal).
     // Navbar comes first, full width, on its own row.
     <div className="dashboard-shell">
+      <ImpersonationBanner />
       <GuestModeBanner />
       <MockCashfreeModalContainer />
       <AppNavbar onMenuClick={() => setSidebarOpen((p) => !p)} />

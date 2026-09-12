@@ -1,24 +1,21 @@
 import { SupportedLanguageCode, TranslationDictionary } from "../types";
 import { en } from "./en";
-import { hi } from "./hi";
-import { bn } from "./bn";
-import { mr } from "./mr";
-import { gu } from "./gu";
-import { ta } from "./ta";
-import { te } from "./te";
-import { kn } from "./kn";
-import { pa } from "./pa";
 
+/**
+ * Base translation dictionary.
+ * Hardcoded regional translation files have been replaced with the dynamic Google Translator CDN.
+ * The application renders English base strings, and the Google Translator CDN translates them in real-time.
+ */
 export const translations: Record<SupportedLanguageCode, TranslationDictionary> = {
   en,
-  hi,
-  bn,
-  mr,
-  gu,
-  ta,
-  te,
-  kn,
-  pa,
+  hi: en,
+  bn: en,
+  mr: en,
+  gu: en,
+  ta: en,
+  te: en,
+  kn: en,
+  pa: en,
 };
 
-export { en, hi, bn, mr, gu, ta, te, kn, pa };
+export { en };

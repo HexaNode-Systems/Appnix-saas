@@ -53,7 +53,7 @@ const adminNavItems: NavItem[] = [
   { id: "dashboard", label: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
   {
     id: "clients",
-    label: "Tenants & Resellers",
+    label: "Clients / Users",
     href: "/admin/clients",
     icon: Building2,
     children: [

@@ -25,8 +25,8 @@ export class HierarchyGuard implements CanActivate {
       throw new UnauthorizedException('Authenticated session required for hierarchy validation');
     }
 
-    // Platform Super Admin has unrestricted cross-tenant oversight
-    if (user.role === Role.SUPER_ADMIN) {
+    // Platform Super Admin and Direct App Admin have platform-level oversight
+    if (user.role === Role.SUPER_ADMIN || user.role === Role.APP_ADMIN) {
       return true;
     }
 
@@ -41,8 +41,8 @@ export class HierarchyGuard implements CanActivate {
       request.query?.workspaceId ||
       user.tenantId;
 
-    // Self-access is always allowed
-    if (targetTenantId === user.tenantId) {
+    // Self-access or active impersonation access is allowed
+    if (targetTenantId === user.tenantId || (user as any).impersonatedWorkspaceId === targetTenantId) {
       return true;
     }
 
@@ -50,16 +50,36 @@ export class HierarchyGuard implements CanActivate {
     if (user.role === Role.RESELLER_ADMIN) {
       const targetTenant = await this.prisma.tenant.findUnique({
         where: { id: targetTenantId },
-        select: { id: true, path: true },
+        select: { id: true, path: true, parentId: true },
       });
 
       if (!targetTenant) {
         throw new ForbiddenException('Target organization does not exist');
       }
 
-      const callerPath = user.orgPath || 'root';
+      // Strictly disallow reseller access to platform root or direct platform tenants
+      if (targetTenant.id === 'root' || targetTenant.path === 'root') {
+        throw new ForbiddenException(
+          'Cross-hierarchy violation: Reseller administrators cannot access platform root',
+        );
+      }
+
+      let callerPath = user.orgPath;
+      if (!callerPath || callerPath === 'root') {
+        const callerTenant = await this.prisma.tenant.findUnique({
+          where: { id: user.tenantId },
+          select: { path: true },
+        });
+        callerPath = callerTenant?.path;
+      }
+
+      if (!callerPath || callerPath === 'root') {
+        throw new ForbiddenException('Invalid reseller hierarchy context');
+      }
+
+      const isDirectChild = targetTenant.parentId === user.tenantId;
       const isDescendant =
-        targetTenant.path.startsWith(callerPath + '.') || targetTenant.path === callerPath;
+        isDirectChild || (targetTenant.path && targetTenant.path.startsWith(callerPath + '.'));
 
       if (!isDescendant) {
         throw new ForbiddenException(
@@ -70,7 +90,7 @@ export class HierarchyGuard implements CanActivate {
       return true;
     }
 
-    // Standard Tenant Admin / Member cannot access other tenants
+    // Standard Tenant Admin / Member / Client User cannot access other tenants
     if (targetTenantId !== user.tenantId) {
       throw new ForbiddenException('Access denied: cross-tenant operation not permitted');
     }

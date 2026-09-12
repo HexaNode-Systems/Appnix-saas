@@ -32,6 +32,7 @@ import { HealthModule } from './modules/health/health.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { MediaModule } from './modules/media/media.module';
 import { SuperAdminModule } from './modules/super-admin/super-admin.module';
+import { PartnerModule } from './modules/partner/partner.module';
 import { SupportAuditInterceptor } from './common/interceptors/support-audit.interceptor';
 import { PrismaModule } from './prisma/prisma.module';
 
@@ -69,6 +70,7 @@ import { PrismaModule } from './prisma/prisma.module';
     WebhooksModule,
     HealthModule,
     SuperAdminModule,
+    PartnerModule,
   ],
   providers: [{ provide: APP_INTERCEPTOR, useClass: SupportAuditInterceptor }],
 })

@@ -71,21 +71,37 @@ model Tenant {
   @@map("tenants")
 }
 
-model DomainMapping {
-  id                String    @id @default(uuid())
-  tenantId          String
-  domain            String    @unique
-  isVerified        Boolean   @default(false)
-  sslProvisioned    Boolean   @default(false)
-  dnsRecordType     String?   @default("CNAME")
-  dnsExpectedValue  String?   @default("cname.appnix.co.in")
-  verificationToken String?
-  sslStatus         String?   @default("PENDING")
-  lastCheckedAt     DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+enum SslStatus {
+  PENDING
+  ACTIVE
+  FAILED
+}
 
+enum DomainVerificationStatus {
+  PENDING
+  VERIFIED
+  FAILED
+}
+
+model DomainMapping {
+  id                 String                   @id @default(uuid())
+  tenantId           String
+  domain             String                   @unique
+  verificationToken  String?                  @default(uuid())
+  status             DomainVerificationStatus @default(PENDING)
+  sslStatus          SslStatus                @default(PENDING)
+  dnsRecordType      String?                  @default("CNAME")
+  expectedDnsTarget  String                   @default("cname.appnix.co.in")
+  verifiedAt         DateTime?
+  isVerified         Boolean                  @default(false)
+  sslProvisioned     Boolean                  @default(false)
+  dnsExpectedValue   String?                  @default("cname.appnix.co.in")
+  lastCheckedAt      DateTime?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  tenant             Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([domain])
   @@index([tenantId])
   @@map("domain_mappings")
 }
@@ -929,8 +945,10 @@ enum TemplateStatus {
 
 enum Role {
   SUPER_ADMIN
+  APP_ADMIN
   RESELLER_ADMIN
   TENANT_ADMIN
+  CLIENT_USER
   MEMBER
 }
 

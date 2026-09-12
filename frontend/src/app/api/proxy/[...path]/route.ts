@@ -18,37 +18,42 @@ const ALLOWED_ORIGINS = [
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ path: string[] }> }
+  context: any
 ) {
-  return handleProxyRequest(request, await params);
+  const params = await context.params;
+  return handleProxyRequest(request, params);
 }
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ path: string[] }> }
+  context: any
 ) {
-  return handleProxyRequest(request, await params);
+  const params = await context.params;
+  return handleProxyRequest(request, params);
 }
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: Promise<{ path: string[] }> }
+  context: any
 ) {
-  return handleProxyRequest(request, await params);
+  const params = await context.params;
+  return handleProxyRequest(request, params);
 }
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: Promise<{ path: string[] }> }
+  context: any
 ) {
-  return handleProxyRequest(request, await params);
+  const params = await context.params;
+  return handleProxyRequest(request, params);
 }
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ path: string[] }> }
+  context: any
 ) {
-  return handleProxyRequest(request, await params);
+  const params = await context.params;
+  return handleProxyRequest(request, params);
 }
 
 async function handleProxyRequest(
