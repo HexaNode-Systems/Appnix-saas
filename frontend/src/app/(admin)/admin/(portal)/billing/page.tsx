@@ -142,12 +142,14 @@ export default function SuperAdminBillingPage() {
 
                 <div className="flex items-baseline gap-1 my-4">
                   <span className="text-3xl font-black text-foreground">
-                    ${plan.monthlyPrice}
+                    ₹{plan.monthlyPrice.toLocaleString("en-IN")}
                   </span>
                   <span className="text-xs text-muted-foreground font-medium">/mo</span>
-                  <span className="text-[10px] text-muted-foreground ml-2">
-                    (${plan.yearlyPrice}/yr)
-                  </span>
+                  {plan.yearlyPrice ? (
+                    <span className="text-[10px] text-muted-foreground ml-2">
+                      (₹{plan.yearlyPrice.toLocaleString("en-IN")}/yr)
+                    </span>
+                  ) : null}
                 </div>
 
                 <div className="space-y-2.5 my-6 text-xs text-muted-foreground">

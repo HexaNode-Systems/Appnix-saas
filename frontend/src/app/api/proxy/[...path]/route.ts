@@ -77,6 +77,18 @@ async function handleProxyRequest(
   headers.set("x-forwarded-proto", request.headers.get("x-forwarded-proto") || "https");
   headers.set("x-forwarded-host", request.headers.get("host") || "localhost");
 
+  // If authorization header is missing, extract token from cookies and inject into upstream request
+  if (!headers.has("authorization")) {
+    const token =
+      request.cookies.get("appnix_admin_token")?.value ||
+      request.cookies.get("appnix_superadmin_token")?.value ||
+      request.cookies.get("appnix_access_token")?.value ||
+      request.cookies.get("appnix_auth_token")?.value;
+    if (token) {
+      headers.set("authorization", `Bearer ${token}`);
+    }
+  }
+
   let body: BodyInit | undefined;
   if (["POST", "PUT", "PATCH"].includes(request.method)) {
     const contentType = request.headers.get("content-type");

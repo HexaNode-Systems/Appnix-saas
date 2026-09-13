@@ -138,6 +138,66 @@ export async function executeGuestLogin(client: any, returnUrl: string): Promise
   window.location.href = "/dashboard";
 }
 
+const CUSTOM_PLANS_COOKIE = "appnix_custom_plans";
+const CUSTOM_PLANS_STORAGE = "appnix_custom_plans";
+
+export function getSharedCustomPlans(): PlanTier[] {
+  if (typeof window === "undefined") return [];
+  try {
+    // 1. Try cookie first (shared across .appnix.co.in subdomains)
+    const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${CUSTOM_PLANS_COOKIE}=([^;]+)`));
+    if (match) {
+      const parsed = JSON.parse(decodeURIComponent(match[1]));
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+    // 2. Try localStorage
+    const stored = localStorage.getItem(CUSTOM_PLANS_STORAGE);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
+export function saveSharedCustomPlan(plan: PlanTier): void {
+  if (typeof window === "undefined") return;
+  try {
+    const existing = getSharedCustomPlans();
+    const idx = existing.findIndex((p) => p.id === plan.id || p.name.toLowerCase() === plan.name.toLowerCase());
+    if (idx !== -1) {
+      existing[idx] = plan;
+    } else {
+      existing.push(plan);
+    }
+    const jsonStr = JSON.stringify(existing);
+    localStorage.setItem(CUSTOM_PLANS_STORAGE, jsonStr);
+
+    const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || "appnix.co.in";
+    const domains = ["", `.${rootDomain}`, window.location.hostname];
+    domains.forEach((d) => {
+      const domainAttr = d ? `; domain=${d}` : "";
+      document.cookie = `${CUSTOM_PLANS_COOKIE}=${encodeURIComponent(jsonStr)}; path=/; max-age=31536000; SameSite=Lax${domainAttr}`;
+    });
+  } catch {}
+}
+
+export function removeSharedCustomPlan(id: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const existing = getSharedCustomPlans().filter((p) => p.id !== id);
+    const jsonStr = JSON.stringify(existing);
+    localStorage.setItem(CUSTOM_PLANS_STORAGE, jsonStr);
+
+    const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || "appnix.co.in";
+    const domains = ["", `.${rootDomain}`, window.location.hostname];
+    domains.forEach((d) => {
+      const domainAttr = d ? `; domain=${d}` : "";
+      document.cookie = `${CUSTOM_PLANS_COOKIE}=${encodeURIComponent(jsonStr)}; path=/; max-age=31536000; SameSite=Lax${domainAttr}`;
+    });
+  } catch {}
+}
+
 export const billingService = {
   getPlans: async (): Promise<PlanTier[]> => {
     try {
@@ -155,6 +215,7 @@ export const billingService = {
       return [];
     }
   },
+
   savePlan: async (plan: PlanTier): Promise<PlanTier> => {
     const isExisting = plan.id && !plan.id.startsWith("mock-") && !plan.id.startsWith("plan_new");
     if (isExisting) {
@@ -176,6 +237,34 @@ export const billingService = {
   },
   deletePlan: async (id: string): Promise<void> => {
     await api.delete(`/billing/plans/${encodeURIComponent(id)}`);
+  },
+
+  deletePlan: async (id: string): Promise<boolean> => {
+    removeSharedCustomPlan(id);
+
+    try {
+      const token =
+        typeof window !== "undefined"
+          ? localStorage.getItem(config.auth.adminTokenKey) ||
+            localStorage.getItem(config.auth.tokenKey) ||
+            localStorage.getItem("appnix_auth_token")
+          : null;
+
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      await fetch(`${config.api.proxyPrefix}/billing/plans/${id}`, {
+        method: "DELETE",
+        headers,
+        credentials: "include",
+      }).catch(() => null);
+    } catch {}
+
+    const index = mockPlans.findIndex((p) => p.id === id);
+    if (index !== -1) {
+      mockPlans.splice(index, 1);
+    }
+    return true;
   },
 };
 

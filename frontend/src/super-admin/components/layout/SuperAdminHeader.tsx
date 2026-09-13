@@ -15,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { executeSuperAdminLogout } from "@/super-admin/services/superAdminApi";
+import { executeSuperAdminLogout, executeAdminLogout } from "@/super-admin/services/superAdminApi";
 import { useAuth } from "@/lib/auth/auth-context";
 import { config } from "@/lib/config";
 import {
@@ -144,39 +144,7 @@ export function SuperAdminHeader({ onMenuClick, isSuperAdmin: propIsSuperAdmin }
 
   const handleLogout = async () => {
     if (confirm(`Sign out from ${isSuperAdmin ? "Super Admin Platform Root" : "Admin Console"}?`)) {
-      if (isSuperAdmin) {
-        await executeSuperAdminLogout();
-      } else {
-        localStorage.removeItem(config.auth.adminTokenKey);
-        localStorage.removeItem(config.auth.adminUserKey);
-        localStorage.removeItem(config.auth.adminRefreshTokenKey);
-        localStorage.removeItem(config.auth.tokenKey);
-        localStorage.removeItem(config.auth.userKey);
-        localStorage.removeItem(config.auth.refreshTokenKey);
-        localStorage.removeItem("appnix_admin_token");
-        localStorage.removeItem("appnix_admin_user");
-        localStorage.removeItem("appnix_auth_token");
-        localStorage.removeItem("appnix_user");
-        localStorage.removeItem("appnix_admin_refresh_token");
-        localStorage.removeItem("appnix_refresh_token");
-        const domains = ["", ".appnix.co.in", typeof window !== "undefined" ? window.location.hostname : ""];
-        const cookiesToClear = [
-          "appnix_admin_token",
-          "appnix_admin_refresh_token",
-          "appnix_access_token",
-          "appnix_auth_token",
-          "appnix_refresh_token",
-          "appnix_superadmin_token",
-          "appnix_superadmin_refresh_token",
-        ];
-        cookiesToClear.forEach((c) => {
-          domains.forEach((d) => {
-            const domainAttr = d ? `; domain=${d}` : "";
-            document.cookie = `${c}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT${domainAttr}`;
-          });
-        });
-        window.location.href = isSuperAdminSubdomain ? "/logout" : "/admin/logout";
-      }
+      await executeAdminLogout(isSuperAdmin);
     }
   };
 

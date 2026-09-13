@@ -87,6 +87,28 @@ export class BillingController {
     return { success: true, data, message: data.message };
   }
 
+  @Post('plans')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Create or update a subscription plan' })
+  savePlan(
+    @CurrentUser() user: AuthUser,
+    @Body() planData: any,
+  ) {
+    return this.billingService.savePlan(planData, user);
+  }
+
+  @Delete('plans/:id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Delete or deactivate a subscription plan' })
+  deletePlan(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.billingService.deletePlan(id, user);
+  }
+
   @Get('subscription')
   @ApiBearerAuth()
   @UseGuards(JwtAccessGuard)

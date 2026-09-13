@@ -41,9 +41,10 @@ function getSubdomainUrl(
   const [hostWithoutPort, port] = hostname.split(":");
   const portSuffix = port ? `:${port}` : "";
   const isLocal =
-    hostWithoutPort.includes("localhost") ||
-    hostWithoutPort.includes("127.0.0.1") ||
-    hostWithoutPort.endsWith(".local");
+    process.env.NODE_ENV !== "production" &&
+    (hostWithoutPort.includes("localhost") ||
+      hostWithoutPort.includes("127.0.0.1") ||
+      hostWithoutPort.endsWith(".local"));
 
   if (isLocal) {
     return `${req.nextUrl.protocol}//${subdomain}.localhost${portSuffix}${pathWithSearch}`;
@@ -51,7 +52,13 @@ function getSubdomainUrl(
 
   // Production
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || "appnix.co.in";
-  return `https://${subdomain}.${rootDomain}${pathWithSearch}`;
+  const envDomainMap: Record<string, string | undefined> = {
+    app: process.env.NEXT_PUBLIC_APP_DOMAIN,
+    admin: process.env.NEXT_PUBLIC_ADMIN_DOMAIN,
+    superadmin: process.env.NEXT_PUBLIC_SUPERADMIN_DOMAIN,
+  };
+  const targetDomain = envDomainMap[subdomain] || `${subdomain}.${rootDomain}`;
+  return `https://${targetDomain}${pathWithSearch}`;
 }
 
 const protectedClientPrefixes = [
@@ -87,12 +94,19 @@ export function proxy(request: NextRequest) {
   }
 
   // 2. Identify Subdomain & Domain Topology
+  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || "appnix.co.in";
+  const superAdminDomain = (process.env.NEXT_PUBLIC_SUPERADMIN_DOMAIN || `superadmin.${rootDomain}`).toLowerCase();
+  const adminDomain = (process.env.NEXT_PUBLIC_ADMIN_DOMAIN || `admin.${rootDomain}`).toLowerCase();
+  const appDomain = (process.env.NEXT_PUBLIC_APP_DOMAIN || `app.${rootDomain}`).toLowerCase();
+
   const isSuperAdminSubdomain =
+    host === superAdminDomain ||
     host === "superadmin.appnix.co.in" ||
     host.startsWith("superadmin.localhost") ||
     host === "superadmin.local";
 
   const isStaffAdminSubdomain =
+    host === adminDomain ||
     host === "admin.appnix.co.in" ||
     host.startsWith("admin.localhost") ||
     host === "admin.local";
@@ -103,6 +117,7 @@ export function proxy(request: NextRequest) {
     host === "partners.local";
 
   const isAppSubdomain =
+    host === appDomain ||
     host === "app.appnix.co.in" ||
     host.startsWith("app.localhost") ||
     host === "app.local";
@@ -387,7 +402,9 @@ export function proxy(request: NextRequest) {
     const isLoginPath =
       pathname === "/login" ||
       pathname === "/signin" ||
-      pathname === "/admin/login";
+      pathname === "/signup" ||
+      pathname === "/admin/login" ||
+      pathname === "/admin/signup";
 
     if (isLoginPath) {
       if (isPartnerAuth && isResellerRole) {

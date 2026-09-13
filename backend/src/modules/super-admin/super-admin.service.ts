@@ -1175,11 +1175,14 @@ export class SuperAdminService {
       return clean.endsWith('/admin') || clean.endsWith('/login') ? clean : `${clean}/login`;
     }
 
-    const frontendUrl = this.config.get<string>('FRONTEND_URL') || 'http://localhost:3000';
-    if (frontendUrl.includes('localhost')) {
+    const isProd = process.env.NODE_ENV === 'production';
+    const frontendUrl =
+      this.config.get<string>('FRONTEND_URL') ||
+      (isProd ? 'https://app.appnix.co.in' : 'http://localhost:3000');
+    if (!isProd && frontendUrl.includes('localhost')) {
       return 'http://admin.localhost:3000/login';
     }
-    if (frontendUrl.includes('appnix.co.in')) {
+    if (frontendUrl.includes('appnix.co.in') || isProd) {
       return 'https://admin.appnix.co.in/login';
     }
     return `${frontendUrl.replace(/\/+$/, '')}/admin/login`;

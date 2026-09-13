@@ -96,15 +96,26 @@ function clearAccessToken() {
   localStorage.removeItem("appnix_access_token");
   localStorage.removeItem("token");
   const secure = window.location.protocol === "https:" ? "; Secure" : "";
-  const isProdDomain = typeof window !== "undefined" && window.location.hostname.endsWith("appnix.co.in");
-  const domainAttr = isProdDomain ? "; Domain=.appnix.co.in" : "";
+  const rootDomain = config.app.domains.root || "appnix.co.in";
+  const isProdDomain = typeof window !== "undefined" && window.location.hostname.endsWith(rootDomain);
+  const domainAttr = isProdDomain ? `; Domain=.${rootDomain}` : "";
 
-  document.cookie = `appnix_access_token=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
-  document.cookie = `appnix_auth_token=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
-  if (domainAttr) {
-    document.cookie = `appnix_access_token=; Path=/; Max-Age=0; SameSite=Lax${domainAttr}${secure}`;
-    document.cookie = `appnix_auth_token=; Path=/; Max-Age=0; SameSite=Lax${domainAttr}${secure}`;
-  }
+  const allCookies = [
+    "appnix_access_token",
+    "appnix_auth_token",
+    "appnix_refresh_token",
+    "appnix_admin_token",
+    "appnix_admin_refresh_token",
+    "appnix_superadmin_token",
+    "appnix_superadmin_refresh_token",
+  ];
+
+  allCookies.forEach((name) => {
+    document.cookie = `${name}=; Path=/; Max-Age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax${secure}`;
+    if (domainAttr) {
+      document.cookie = `${name}=; Path=/; Max-Age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT${domainAttr}; SameSite=Lax${secure}`;
+    }
+  });
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -307,7 +318,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     setState((prev) => ({ ...prev, isLoading: true }));
     try {
-      await api.post(apiEndpoints.auth.logout);
+      await fetch("/api/v1/auth/logout", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(localStorage.getItem(config.auth.tokenKey)
+            ? { Authorization: `Bearer ${localStorage.getItem(config.auth.tokenKey)}` }
+            : {}),
+        },
+      }).catch(() => {});
+      await api.post(apiEndpoints.auth.logout).catch(() => {});
     } catch {
     } finally {
       clearAccessToken();
