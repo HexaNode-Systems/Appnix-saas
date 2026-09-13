@@ -63,7 +63,21 @@ export class AuthController {
   }
 
   private resolveClientPortalUrl(req: Request): string {
-    // 1. Explicit Client Portal URL configured in environment
+    // 1. If state param originated from localhost, return that origin directly
+    const stateParam = req.query?.state as string | undefined;
+    if (stateParam) {
+      try {
+        const parsed = new URL(stateParam);
+        const hostname = parsed.hostname.toLowerCase();
+        if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.localhost')) {
+          return parsed.origin;
+        }
+      } catch {
+        // Invalid state URL format, continue
+      }
+    }
+
+    // 2. Explicit Client Portal URL configured in environment
     const clientAppUrl =
       this.configService.get<string>('CLIENT_APP_URL') ||
       this.configService.get<string>('APP_URL');
@@ -71,8 +85,7 @@ export class AuthController {
       return clientAppUrl.replace(/\/+$/, '');
     }
 
-    // 2. Validate state param if passed during OAuth initiation
-    const stateParam = req.query?.state as string | undefined;
+    // 3. Validate state param if passed during OAuth initiation
     if (stateParam) {
       try {
         const parsed = new URL(stateParam);

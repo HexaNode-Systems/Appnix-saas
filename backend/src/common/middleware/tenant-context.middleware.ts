@@ -61,6 +61,25 @@ export class TenantContextMiddleware implements NestMiddleware {
         normalizedHost = normalizedHost.substring(4);
       }
 
+      // If incoming request is directly to the API domain or Render host, inspect Origin or Referer
+      if (
+        normalizedHost === 'api.appnix.co.in' ||
+        normalizedHost.endsWith('.onrender.com') ||
+        normalizedHost === 'localhost' ||
+        normalizedHost === '127.0.0.1'
+      ) {
+        const originHeader = (req.headers['origin'] || req.headers['referer']) as string | undefined;
+        if (originHeader) {
+          try {
+            const parsedUrl = new URL(originHeader);
+            const originHost = parsedUrl.hostname.toLowerCase().trim();
+            normalizedHost = originHost.startsWith('www.') ? originHost.substring(4) : originHost;
+          } catch {
+            // keep normalizedHost as-is
+          }
+        }
+      }
+
       const explicitTenantId = (req.headers['x-tenant-id'] || req.headers['x-workspace-id'] || req.query.tenantId) as string | undefined;
 
       let resolvedTenant: ResolvedTenant | null = null;
@@ -69,6 +88,8 @@ export class TenantContextMiddleware implements NestMiddleware {
       // Resolution priority:
       if (
         normalizedHost === 'appnix.co.in' ||
+        normalizedHost === 'api.appnix.co.in' ||
+        normalizedHost.endsWith('.onrender.com') ||
         normalizedHost === 'localhost' ||
         normalizedHost === '127.0.0.1' ||
         !normalizedHost
@@ -232,10 +253,11 @@ export class TenantContextMiddleware implements NestMiddleware {
             isWhiteLabel: true,
             domainContext: 'CUSTOM_DOMAIN',
           });
-        } else if (!isBypassPath) {
-          // If not found or unverified: throw NotFoundException('Custom domain not verified or inactive.')
-          throw new NotFoundException('Custom domain not verified or inactive.');
         }
+        // } else if (!isBypassPath) {
+        //   // If not found or unverified: throw NotFoundException('Custom domain not verified or inactive.')
+        //   throw new NotFoundException('Custom domain not verified or inactive.');
+        // }
       }
 
       // If explicit tenant ID is provided and not in a conflicting custom domain, enrich context

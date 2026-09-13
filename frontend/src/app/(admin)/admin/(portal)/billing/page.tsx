@@ -15,21 +15,32 @@ import {
   Plus,
   CheckCircle2,
   Edit2,
+  Trash2,
   TrendingUp,
   Shield,
   Zap,
   Users,
   Server,
   BarChart3,
+  Loader2,
 } from "lucide-react";
 
 export default function SuperAdminBillingPage() {
   const [plans, setPlans] = useState<PlanTier[]>([]);
+  const [loading, setLoading] = useState(true);
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<PlanTier | null>(null);
 
-  const fetchPlans = () => {
-    billingService.getPlans().then(setPlans);
+  const fetchPlans = async () => {
+    try {
+      setLoading(true);
+      const data = await billingService.getPlans();
+      setPlans(data);
+    } catch (err) {
+      console.error("Failed to load plans:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -46,16 +57,28 @@ export default function SuperAdminBillingPage() {
     setIsPlanModalOpen(true);
   };
 
+  const handleDeletePlan = async (plan: PlanTier) => {
+    if (!window.confirm(`Are you sure you want to delete or archive plan "${plan.name}"?`)) {
+      return;
+    }
+    try {
+      await billingService.deletePlan(plan.id);
+      fetchPlans();
+    } catch (err: any) {
+      alert(err.response?.data?.message || err.message || "Failed to delete plan");
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Breadcrumb Back Navigation */}
       <div className="flex items-center text-xs text-muted-foreground gap-1.5">
         <Link
-          href="/super-admin/dashboard"
+          href="/admin/dashboard"
           className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          <span>Super Admin</span>
+          <span>Admin Portal</span>
         </Link>
         <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
         <span className="font-semibold text-foreground">Billing & Plans</span>
@@ -159,15 +182,24 @@ export default function SuperAdminBillingPage() {
                 </div>
               </div>
 
-              <div className="pt-6 border-t mt-6">
+              <div className="pt-6 border-t mt-6 flex gap-2">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => handleEditPlan(plan)}
-                  className="w-full text-xs font-semibold gap-1.5 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 dark:hover:bg-emerald-950"
+                  className="flex-1 text-xs font-semibold gap-1.5 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 dark:hover:bg-emerald-950"
                 >
                   <Edit2 className="h-3.5 w-3.5" />
                   Edit Plan
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDeletePlan(plan)}
+                  className="text-xs font-semibold text-destructive hover:bg-destructive/10 hover:border-destructive/30 px-2.5"
+                  title="Delete or Archive Plan"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
             </div>
@@ -200,11 +232,13 @@ export default function SuperAdminBillingPage() {
         isOpen={isPlanModalOpen}
         plan={editingPlan}
         onClose={() => setIsPlanModalOpen(false)}
-        onSavePlan={(saved) => {
-          billingService.savePlan(saved).then(() => {
-            fetchPlans();
-            alert(`Plan ${saved.name} saved successfully!`);
-          });
+        onSavePlan={async (saved) => {
+          try {
+            await billingService.savePlan(saved);
+            await fetchPlans();
+          } catch (err: any) {
+            alert(err.response?.data?.message || err.message || "Failed to save plan");
+          }
         }}
       />
     </div>

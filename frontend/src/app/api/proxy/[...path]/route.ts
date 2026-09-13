@@ -75,6 +75,7 @@ async function handleProxyRequest(
 
   headers.set("x-forwarded-for", request.headers.get("x-forwarded-for") || "unknown");
   headers.set("x-forwarded-proto", request.headers.get("x-forwarded-proto") || "https");
+  headers.set("x-forwarded-host", request.headers.get("host") || "localhost");
 
   let body: BodyInit | undefined;
   if (["POST", "PUT", "PATCH"].includes(request.method)) {

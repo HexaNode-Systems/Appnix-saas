@@ -106,6 +106,7 @@ export class TenantWorkspaceGuard implements CanActivate {
     // =========================================================================
     const isKnownAppnixHost =
       host === 'appnix.co.in' ||
+      host === 'api.appnix.co.in' ||
       host === 'admin.appnix.co.in' ||
       host === 'superadmin.appnix.co.in' ||
       host === 'partners.appnix.co.in' ||
@@ -113,6 +114,7 @@ export class TenantWorkspaceGuard implements CanActivate {
       host === '127.0.0.1' ||
       host.endsWith('.localhost') ||
       host.endsWith('.local') ||
+      host.endsWith('.onrender.com') ||
       !host;
 
     if (!isKnownAppnixHost) {
@@ -138,9 +140,9 @@ export class TenantWorkspaceGuard implements CanActivate {
         },
       });
 
-      if (!domainMapping || !domainMapping.tenant) {
-        throw new NotFoundException('Custom domain not verified or inactive.');
-      }
+      // if (!domainMapping || !domainMapping.tenant) {
+      //   throw new NotFoundException('Custom domain not verified or inactive.');
+      // }
 
       const partnerTenant = domainMapping.tenant;
 

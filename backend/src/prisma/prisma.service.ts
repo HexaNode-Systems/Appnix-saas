@@ -1,4 +1,5 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit, OnModuleDestroy, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaClient } from '@prisma/client';
 import { NotFoundException } from '@nestjs/common';
 import { TenantContextStore } from '../lib/auth/tenant-context.store';
@@ -8,8 +9,12 @@ import { TENANT_SCOPED_MODELS, tenantFieldForModel } from './tenant-scope';
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PrismaService.name);
 
-  constructor(private readonly tenantContextStore: TenantContextStore) {
-    super();
+  constructor(
+    private readonly tenantContextStore: TenantContextStore,
+    @Optional() private readonly configService?: ConfigService,
+  ) {
+    const dbUrl = configService?.get<string>('DATABASE_URL') || process.env.DATABASE_URL;
+    super(dbUrl ? { datasources: { db: { url: dbUrl } } } : undefined);
     this.$use(async (params, next) => {
       const context = this.tenantContextStore.get();
       const model = params.model ? params.model.charAt(0).toLowerCase() + params.model.slice(1) : '';
@@ -65,7 +70,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     while (retries > 0) {
       try {
         await this.$connect();
-        this.logger.log('Database connected successfully.');
+        const dbUrl = this.configService?.get<string>('DATABASE_URL') || process.env.DATABASE_URL || '';
+        const targetDb = dbUrl.split('/').pop()?.split('?')[0] || 'appnix_saas';
+        this.logger.log(`Database connected successfully to [${targetDb}].`);
         break;
       } catch (err: any) {
         retries -= 1;

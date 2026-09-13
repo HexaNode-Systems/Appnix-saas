@@ -25,6 +25,7 @@ import { MockCashfreeModalContainer } from "@/components/billing/mock-cashfree-m
 
 interface PlanConfig {
   id: string;
+  slug?: string;
   name: string;
   monthlyPrice: number;
   yearlyPrice: number;
@@ -35,6 +36,7 @@ interface PlanConfig {
 const AVAILABLE_PLANS: Record<string, PlanConfig> = {
   starter: {
     id: "starter",
+    slug: "starter",
     name: "Starter Tier",
     monthlyPrice: 999,
     yearlyPrice: 9590, // ~20% off
@@ -49,6 +51,7 @@ const AVAILABLE_PLANS: Record<string, PlanConfig> = {
   },
   pro: {
     id: "pro",
+    slug: "pro",
     name: "Professional Tier",
     monthlyPrice: 2999,
     yearlyPrice: 28790,
@@ -64,6 +67,7 @@ const AVAILABLE_PLANS: Record<string, PlanConfig> = {
   },
   enterprise: {
     id: "enterprise",
+    slug: "enterprise",
     name: "Enterprise Custom",
     monthlyPrice: 8999,
     yearlyPrice: 86390,
@@ -90,8 +94,70 @@ function CheckoutContent() {
   const [billingCycle, setBillingCycle] = useState<"monthly" | "quarterly" | "half_yearly" | "yearly">(cycleParam);
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [dynamicPlans, setDynamicPlans] = useState<PlanConfig[]>([]);
+  const [isLoadingPlans, setIsLoadingPlans] = useState(true);
 
-  const plan = AVAILABLE_PLANS[planParam.toLowerCase()] || AVAILABLE_PLANS.starter;
+  useEffect(() => {
+    let isMounted = true;
+    async function loadPlans() {
+      try {
+        const token =
+          typeof window !== "undefined"
+            ? localStorage.getItem("appnix_auth_token") ||
+              localStorage.getItem("token") ||
+              localStorage.getItem("appnix_token")
+            : null;
+
+        const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+        const res = await fetch("/api/proxy/billing/plans", { headers, cache: "no-store" });
+        if (res.ok) {
+          const json = await res.json();
+          const list = Array.isArray(json) ? json : Array.isArray(json.data) ? json.data : [];
+          if (isMounted && list.length > 0) {
+            const mapped: PlanConfig[] = list.map((p: any) => ({
+              id: p.id,
+              slug: p.slug || p.id,
+              name: p.name,
+              monthlyPrice: Number(p.monthlyPrice ?? p.price ?? 999),
+              yearlyPrice: Number(p.yearlyPrice ?? ((p.monthlyPrice ?? 999) * 10)),
+              description: p.description || "",
+              features: Array.isArray(p.features)
+                ? p.features
+                : typeof p.features === "string"
+                ? JSON.parse(p.features || "[]")
+                : [
+                    `Up to ${(p.limits?.maxMessages || 2000).toLocaleString()} monthly messages`,
+                    `${p.limits?.maxBots || 1} Automation Botflow`,
+                    `${p.limits?.maxUsers || 2} Team Members`,
+                    `${p.limits?.supportLevel || "Standard Support"}`,
+                  ],
+            }));
+            setDynamicPlans(mapped);
+          }
+        }
+      } catch (e) {
+        console.warn("[Checkout] Could not load dynamic plans from backend:", e);
+      } finally {
+        if (isMounted) setIsLoadingPlans(false);
+      }
+    }
+    loadPlans();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const matchedDynamic = dynamicPlans.find(
+    (p) =>
+      p.slug?.toLowerCase() === planParam.toLowerCase() ||
+      p.id?.toLowerCase() === planParam.toLowerCase() ||
+      p.name?.toLowerCase() === planParam.toLowerCase()
+  );
+
+  const plan: PlanConfig =
+    matchedDynamic ||
+    AVAILABLE_PLANS[planParam.toLowerCase()] ||
+    (dynamicPlans.length > 0 ? dynamicPlans[0] : AVAILABLE_PLANS.starter);
 
   // Calculation
   let basePrice = plan.monthlyPrice;
@@ -118,12 +184,14 @@ function CheckoutContent() {
     setIsProcessing(true);
     setErrorMessage(null);
 
+    const targetPlanKey = plan.slug || plan.id;
+
     try {
-      const returnUrl = `${window.location.origin}/workspace/billing/status?order_id={order_id}&plan=${plan.id}&amount=${totalAmount}`;
+      const returnUrl = `${window.location.origin}/workspace/billing/status?order_id={order_id}&plan=${targetPlanKey}&amount=${totalAmount}`;
 
       // 1. Request Cashfree payment session
       const session = await createPaymentSession({
-        planId: plan.id,
+        planId: targetPlanKey,
         billingCycle,
         returnUrl,
       });
@@ -136,13 +204,13 @@ function CheckoutContent() {
       await checkout({
         paymentSessionId: session.paymentSessionId,
         orderId: session.orderId,
-        planId: plan.id,
+        planId: targetPlanKey,
         planName: plan.name,
         amount: totalAmount,
         isMock: session.isMock,
         fallbackPaymentLink: session.paymentLink,
         redirectTarget: "modal",
-        returnUrl: `${window.location.origin}/workspace/billing/status?order_id=${session.orderId}&plan=${plan.id}&amount=${totalAmount}`,
+        returnUrl: `${window.location.origin}/workspace/billing/status?order_id=${session.orderId}&plan=${targetPlanKey}&amount=${totalAmount}`,
       });
     } catch (err: any) {
       console.error("[Checkout] Payment failed:", err);
@@ -150,6 +218,15 @@ function CheckoutContent() {
       setIsProcessing(false);
     }
   };
+
+  if (isLoadingPlans) {
+    return (
+      <div className="flex h-96 items-center justify-center flex-col gap-3">
+        <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+        <p className="text-xs text-muted-foreground">Loading checkout details...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">

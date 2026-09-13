@@ -1,19 +1,90 @@
-import { BadRequestException, Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { BillingService } from './billing.service';
 import { JwtAccessGuard } from '../auth/guards/jwt-access.guard';
 import { CurrentUser, AuthUser } from '../auth/decorators/current-user.decorator';
 import { SuperAdminGuard } from '../auth/guards/super-admin.guard';
+import { CreatePlanDto, UpdatePlanDto } from './dto/plan.dto';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 
 @ApiTags('Billing')
 @Controller(['billing', 'workspace/billing'])
 export class BillingController {
-  constructor(private readonly billingService: BillingService) {}
+  constructor(
+    private readonly billingService: BillingService,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+  ) {}
 
   @Get('plans')
-  @ApiOperation({ summary: 'Get available subscription tiers and feature list' })
-  getPlans() {
-    return this.billingService.getPlans();
+  @ApiOperation({ summary: 'Get available subscription tiers or reseller-scoped plans' })
+  async getPlans(@Req() req: any) {
+    let user: any = req.user;
+    if (!user) {
+      const authHeader = req.headers['authorization'];
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.substring(7);
+        try {
+          const secret =
+            this.configService.get<string>('JWT_ACCESS_SECRET') ||
+            this.configService.get<string>('JWT_SECRET') ||
+            'default-access-secret';
+          user = this.jwtService.verify(token, { secret });
+        } catch {
+          // invalid or expired token: proceed unauthenticated
+        }
+      }
+    }
+    return this.billingService.getPlans(user);
+  }
+
+  @Post('plans')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Create a new plan for the authenticated reseller' })
+  async createPlan(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreatePlanDto,
+  ) {
+    const data = await this.billingService.createResellerPlan(user, dto);
+    return { success: true, data, message: 'Plan created successfully' };
+  }
+
+  @Patch('plans/:id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Update an existing plan owned by authenticated reseller' })
+  async updatePlan(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdatePlanDto,
+  ) {
+    const data = await this.billingService.updateResellerPlan(user, id, dto);
+    return { success: true, data, message: 'Plan updated successfully' };
+  }
+
+  @Delete('plans/:id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Delete or archive a plan owned by authenticated reseller' })
+  async deletePlan(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    const data = await this.billingService.deleteResellerPlan(user, id);
+    return { success: true, data, message: data.message };
   }
 
   @Get('subscription')

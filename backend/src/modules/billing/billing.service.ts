@@ -1,149 +1,373 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PostgresService } from '../../database/postgres.service';
+import { AuthUser } from '../auth/decorators/current-user.decorator';
+import { CreatePlanDto, UpdatePlanDto } from './dto/plan.dto';
+
+function formatPlanRow(p: any) {
+  const mPrice = Number(p.monthlyPrice ?? p.price ?? 0);
+  const yPrice = Number(p.yearlyPrice ?? (mPrice * 10));
+  const trialDays = Number(p.trialDays || 0);
+  const maxUsers = p.maxUsers >= 999999 ? 'Unlimited' : (p.maxUsers || 5);
+  const features = Array.isArray(p.features)
+    ? p.features
+    : typeof p.features === 'string'
+    ? JSON.parse(p.features || '[]')
+    : [];
+
+  return {
+    id: p.id,
+    planRefId: p.id,
+    name: p.name,
+    slug: p.slug || p.id,
+    description: p.description || '',
+    monthlyPrice: mPrice,
+    yearlyPrice: yPrice,
+    price: `₹${mPrice.toLocaleString('en-IN')}`,
+    period: '/month',
+    currency: p.currency || 'INR',
+    trialDays,
+    hasTrial: trialDays > 0,
+    isPopular: Boolean(p.isPopular),
+    userLimit: maxUsers,
+    apiLimit: p.apiLimit || (p.apiQuota ? `${p.apiQuota.toLocaleString()} req/mo` : '100,000 req/mo'),
+    storageLimit: p.storageLimit || (p.storageQuotaMb ? `${Math.round(p.storageQuotaMb / 1024)} GB` : '10 GB'),
+    supportSla: p.supportSla || p.supportLevel || '24h Support Response',
+    supportLevel: p.supportLevel || p.supportSla || 'Community Support',
+    customDomain: Boolean(p.customDomain),
+    sso: Boolean(p.sso),
+    advancedAnalytics: Boolean(p.advancedAnalytics),
+    prioritySupport: Boolean(p.prioritySupport),
+    status: p.status || 'ACTIVE',
+    tenantId: p.tenantId || null,
+    features,
+    limits: {
+      maxMessages: p.maxMessages || 2000,
+      maxBots: p.maxBots || 1,
+      maxUsers: typeof maxUsers === 'number' ? maxUsers : 5,
+      maxContacts: p.maxContacts || 500,
+      maxCampaigns: p.maxCampaigns || 5,
+      apiQuota: p.apiQuota || 10000,
+      storageQuotaMb: p.storageQuotaMb || 2048,
+      supportLevel: p.supportLevel || 'Community Support',
+    },
+  };
+}
 
 @Injectable()
 export class BillingService {
   private readonly logger = new Logger(BillingService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly postgres: PostgresService,
+  ) {}
 
   /**
-   * Fetches all active subscription plans configured by Super Admin in the database.
+   * Fetches plans from PostgreSQL with tenant isolation.
+   * If user is a Reseller Admin, returns plans belonging to their tenant (or defaults if none created yet).
+   * If user is an End Client under a Reseller, returns active plans configured by their Reseller.
+   * If user is Super Admin, returns all active/configurable plans.
+   * Otherwise, returns active platform plans.
    */
-  async getPlans() {
+  async getPlans(user?: any) {
     try {
-      const plans: any[] = await this.prisma.$queryRaw`
-        SELECT id, name, slug, description, "monthlyPrice", "yearlyPrice", currency, status,
-               "maxUsers", "maxContacts", "maxCampaigns", "maxBots", "maxMessages",
-               "apiQuota", "storageQuotaMb", "supportLevel", "trialDays", "isPopular",
-               features
-        FROM plans
-        WHERE status = 'ACTIVE'
-        ORDER BY "monthlyPrice" ASC;
-      `;
+      const isSuperAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'owner';
+      const tenantId = user?.tenantId;
 
-      if (plans && plans.length > 0) {
+      let result;
+      if (isSuperAdmin) {
+        result = await this.postgres.query(
+          `SELECT * FROM plans WHERE status != 'DELETED' ORDER BY "monthlyPrice" ASC;`
+        );
+      } else if (user?.role === 'RESELLER_ADMIN' && tenantId) {
+        result = await this.postgres.query(
+          `SELECT * FROM plans WHERE "tenantId" = $1 AND status != 'DELETED' ORDER BY "monthlyPrice" ASC;`,
+          [tenantId]
+        );
+
+        // Fallback to platform plans if reseller has not created custom plans yet
+        if (result.rows.length === 0) {
+          result = await this.postgres.query(
+            `SELECT * FROM plans WHERE "tenantId" IS NULL AND status = 'ACTIVE' ORDER BY "monthlyPrice" ASC;`
+          );
+        }
+      } else if (tenantId && tenantId !== 'root' && tenantId !== 'APPNIX_DIRECT') {
+        const tenantRes = await this.postgres.query(
+          `SELECT id, "parentId", tier FROM tenants WHERE id = $1 LIMIT 1;`,
+          [tenantId]
+        );
+        const tenant = tenantRes.rows[0];
+        const effectiveResellerId = tenant?.parentId && tenant.tier === 'END_CLIENT' ? tenant.parentId : null;
+
+        if (effectiveResellerId) {
+          result = await this.postgres.query(
+            `SELECT * FROM plans WHERE "tenantId" = $1 AND status = 'ACTIVE' ORDER BY "monthlyPrice" ASC;`,
+            [effectiveResellerId]
+          );
+        }
+
+        if (!result || result.rows.length === 0) {
+          result = await this.postgres.query(
+            `SELECT * FROM plans WHERE "tenantId" IS NULL AND status = 'ACTIVE' ORDER BY "monthlyPrice" ASC;`
+          );
+        }
+      } else {
+        result = await this.postgres.query(
+          `SELECT * FROM plans WHERE "tenantId" IS NULL AND status = 'ACTIVE' ORDER BY "monthlyPrice" ASC;`
+        );
+      }
+
+      if (result.rows && result.rows.length > 0) {
         return {
           success: true,
-          data: plans.map((p) => {
-            const mPrice = Number(p.monthlyPrice || 0);
-            const yPrice = Number(p.yearlyPrice || mPrice * 10);
-            const trialDays = Number(p.trialDays || 0);
-
-            return {
-              id: p.slug || p.id,
-              planRefId: p.id,
-              name: p.name,
-              slug: p.slug || p.id,
-              description: p.description || '',
-              monthlyPrice: mPrice,
-              yearlyPrice: yPrice,
-              price: `₹${mPrice.toLocaleString('en-IN')}`,
-              period: '/month',
-              currency: p.currency || 'INR',
-              trialDays,
-              hasTrial: trialDays > 0,
-              isPopular: Boolean(p.isPopular),
-              features: Array.isArray(p.features)
-                ? p.features
-                : typeof p.features === 'string'
-                ? JSON.parse(p.features)
-                : [],
-              limits: {
-                maxMessages: p.maxMessages || 2000,
-                maxBots: p.maxBots || 1,
-                maxUsers: p.maxUsers || 2,
-                maxContacts: p.maxContacts || 500,
-                maxCampaigns: p.maxCampaigns || 5,
-                apiQuota: p.apiQuota || 10000,
-                storageQuotaMb: p.storageQuotaMb || 2048,
-                supportLevel: p.supportLevel || 'Community Support',
-              },
-            };
-          }),
+          data: result.rows.map(formatPlanRow),
         };
       }
     } catch (err: any) {
       this.logger.warn(`Failed to query database plans table: ${err.message}. Using fallback.`);
     }
 
-    // Fallback static plans if database plans table is empty
+    try {
+      const fallbackResult = await this.postgres.query(
+        `SELECT * FROM plans WHERE "tenantId" IS NULL AND status = 'ACTIVE' ORDER BY "monthlyPrice" ASC;`
+      );
+      if (fallbackResult.rows && fallbackResult.rows.length > 0) {
+        return {
+          success: true,
+          data: fallbackResult.rows.map(formatPlanRow),
+        };
+      }
+    } catch {}
+
     return {
       success: true,
-      data: [
-        {
-          id: 'starter',
-          name: 'Starter',
-          slug: 'starter',
-          price: '₹999',
-          monthlyPrice: 999,
-          yearlyPrice: 9990,
-          period: '/month',
-          trialDays: 0,
-          hasTrial: false,
-          isPopular: false,
-          description: 'Essential messaging and contact management for growing businesses.',
-          features: [
-            'Up to 2,000 monthly messages',
-            '2 WhatsApp / Social channels',
-            '1 Automation Botflow',
-            '2 Team Members',
-            'Community Support',
-          ],
-          limits: { maxMessages: 2000, maxBots: 1, maxUsers: 2, maxContacts: 500 },
-        },
-        {
-          id: 'pro',
-          name: 'Professional Tier',
-          slug: 'pro',
-          price: '₹2,999',
-          monthlyPrice: 2999,
-          yearlyPrice: 29990,
-          period: '/month',
-          trialDays: 14,
-          hasTrial: true,
-          isPopular: true,
-          description: 'For fast-scaling teams automating campaigns, custom botflows, and customer care.',
-          features: [
-            'Up to 25,000 monthly messages',
-            'Unlimited Channels (WhatsApp, IG, FB, RCS)',
-            '5 Advanced AI Botflows',
-            '10 Team Member Seats',
-            'Priority Live Support & SLA',
-            'Custom Webhooks & REST API',
-          ],
-          limits: { maxMessages: 25000, maxBots: 5, maxUsers: 10, maxContacts: 5000 },
-        },
-        {
-          id: 'enterprise',
-          name: 'Enterprise',
-          slug: 'enterprise',
-          price: '₹8,999',
-          monthlyPrice: 8999,
-          yearlyPrice: 89990,
-          period: '/month',
-          trialDays: 0,
-          hasTrial: false,
-          isPopular: false,
-          description: 'Dedicated enterprise messaging infrastructure, Voice AI agents, SSO, and custom SLA.',
-          features: [
-            'Unlimited Monthly Messages',
-            'Custom AI Voice Agent streaming',
-            'Unlimited Automation Botflows',
-            'Unlimited Team Seats & SSO',
-            'Dedicated Account Manager',
-            'Custom SLA & On-premise deployment',
-          ],
-          limits: { maxMessages: 250000, maxBots: 50, maxUsers: 50, maxContacts: 50000 },
-        },
-      ],
+      data: [],
     };
   }
 
   /**
-   * Retrieves active subscription for the given workspace/tenant.
-   * NOTE: Does NOT automatically create any fake/90-day subscription.
-   * If the workspace has no subscription or is expired, hasActiveSubscription is false.
+   * Creates a new plan in PostgreSQL scoped to the authenticated reseller tenant.
+   * Parameterized direct PostgreSQL query — no Prisma.
+   */
+  async createResellerPlan(user: AuthUser, dto: CreatePlanDto) {
+    if (!dto.name || !dto.name.trim()) {
+      throw new BadRequestException('Plan name is required');
+    }
+
+    const isSuperAdmin = user.role === 'SUPER_ADMIN';
+    const tenantId = isSuperAdmin ? (dto as any).tenantId || null : user.tenantId;
+
+    if (!tenantId && !isSuperAdmin) {
+      throw new ForbiddenException('Tenant context missing from authentication session');
+    }
+
+    const id = dto.id && dto.id.trim() && !dto.id.startsWith('mock-') && dto.id !== 'new' && dto.id !== 'plan_new'
+      ? dto.id.trim()
+      : `plan_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    const baseSlug = (dto.slug || dto.name)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const slug = `${baseSlug}-${id.slice(-6)}`;
+
+    const monthlyPrice = Number(dto.monthlyPrice) || 0;
+    const yearlyPrice = Number(dto.yearlyPrice) || (monthlyPrice * 10);
+    const maxUsers = dto.userLimit === 'Unlimited' ? 999999 : (Number(dto.userLimit) || 5);
+    const featuresJson = JSON.stringify(dto.features || []);
+
+    const sql = `
+      INSERT INTO plans (
+        "id", "tenantId", "name", "slug", "description", "price", "monthlyPrice", "yearlyPrice",
+        "currency", "billingCycle", "maxUsers", "apiLimit", "storageLimit", "supportSla", "supportLevel",
+        "customDomain", "sso", "advancedAnalytics", "prioritySupport", "isPopular", "status", "features",
+        "createdAt", "updatedAt"
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8,
+        $9, $10, $11, $12, $13, $14, $15,
+        $16, $17, $18, $19, $20, $21, $22,
+        NOW(), NOW()
+      )
+      RETURNING *;
+    `;
+
+    const params = [
+      id,
+      tenantId,
+      dto.name.trim(),
+      slug,
+      dto.description || `${dto.name.trim()} tier with dedicated workspace limits.`,
+      monthlyPrice,
+      monthlyPrice,
+      yearlyPrice,
+      dto.currency || 'INR',
+      'monthly',
+      maxUsers,
+      dto.apiLimit || '100,000 req/mo',
+      dto.storageLimit || '10 GB',
+      dto.supportSla || '24h Support Response',
+      dto.supportSla || 'Standard',
+      Boolean(dto.customDomain),
+      Boolean(dto.sso),
+      Boolean(dto.advancedAnalytics),
+      Boolean(dto.prioritySupport),
+      Boolean(dto.isPopular),
+      'ACTIVE',
+      featuresJson,
+    ];
+
+    const { rows } = await this.postgres.query(sql, params);
+    return formatPlanRow(rows[0]);
+  }
+
+  /**
+   * Updates an existing plan in PostgreSQL after verifying tenant ownership.
+   */
+  async updateResellerPlan(user: AuthUser, id: string, dto: UpdatePlanDto) {
+    const isSuperAdmin = user.role === 'SUPER_ADMIN';
+
+    // Verify tenant ownership with parameterized query (check both id and slug)
+    const checkSql = isSuperAdmin
+      ? `SELECT * FROM plans WHERE (id = $1 OR slug = $1) AND status != 'DELETED';`
+      : `SELECT * FROM plans WHERE (id = $1 OR slug = $1) AND "tenantId" = $2 AND status != 'DELETED';`;
+    const checkParams = isSuperAdmin ? [id] : [id, user.tenantId];
+    const existing = await this.postgres.query(checkSql, checkParams);
+
+    if (existing.rows.length === 0) {
+      // If plan not found in reseller scope, but full plan configuration is provided, auto-provision/upsert
+      if (dto.name && dto.name.trim()) {
+        const upsertId = id && id !== 'new' && !id.startsWith('mock-') ? id : dto.id;
+        return this.createResellerPlan(user, {
+          ...dto,
+          id: upsertId,
+          name: dto.name,
+        } as CreatePlanDto);
+      }
+      throw new NotFoundException('Plan not found or you do not have permission to modify this plan');
+    }
+
+    const current = existing.rows[0];
+    const targetId = current.id;
+    const name = dto.name !== undefined ? dto.name.trim() : current.name;
+    const description = dto.description !== undefined ? dto.description : current.description;
+    const monthlyPrice = dto.monthlyPrice !== undefined ? Number(dto.monthlyPrice) : Number(current.monthlyPrice);
+    const yearlyPrice = dto.yearlyPrice !== undefined ? Number(dto.yearlyPrice) : Number(current.yearlyPrice);
+    const maxUsers = dto.userLimit !== undefined
+      ? (dto.userLimit === 'Unlimited' ? 999999 : Number(dto.userLimit))
+      : current.maxUsers;
+    const apiLimit = dto.apiLimit !== undefined ? dto.apiLimit : current.apiLimit;
+    const storageLimit = dto.storageLimit !== undefined ? dto.storageLimit : current.storageLimit;
+    const supportSla = dto.supportSla !== undefined ? dto.supportSla : current.supportSla;
+    const customDomain = dto.customDomain !== undefined ? Boolean(dto.customDomain) : current.customDomain;
+    const sso = dto.sso !== undefined ? Boolean(dto.sso) : current.sso;
+    const advancedAnalytics = dto.advancedAnalytics !== undefined ? Boolean(dto.advancedAnalytics) : current.advancedAnalytics;
+    const prioritySupport = dto.prioritySupport !== undefined ? Boolean(dto.prioritySupport) : current.prioritySupport;
+    const isPopular = dto.isPopular !== undefined ? Boolean(dto.isPopular) : current.isPopular;
+    const status = dto.status !== undefined ? dto.status : current.status;
+    const currency = dto.currency !== undefined ? dto.currency : (current.currency || 'INR');
+    const featuresJson = dto.features !== undefined
+      ? JSON.stringify(dto.features)
+      : (typeof current.features === 'string' ? current.features : JSON.stringify(current.features ?? []));
+
+    const sql = `
+      UPDATE plans SET
+        "name" = $1,
+        "description" = $2,
+        "price" = $3,
+        "monthlyPrice" = $4,
+        "yearlyPrice" = $5,
+        "maxUsers" = $6,
+        "teamSeats" = $6,
+        "apiLimit" = $7,
+        "storageLimit" = $8,
+        "supportSla" = $9,
+        "supportLevel" = $10,
+        "customDomain" = $11,
+        "sso" = $12,
+        "advancedAnalytics" = $13,
+        "prioritySupport" = $14,
+        "isPopular" = $15,
+        "status" = $16,
+        "features" = $17::jsonb,
+        "currency" = $18,
+        "updatedAt" = NOW()
+      WHERE id = $19
+      RETURNING *;
+    `;
+
+    const params = [
+      name,
+      description,
+      monthlyPrice,
+      monthlyPrice,
+      yearlyPrice,
+      maxUsers,
+      apiLimit,
+      storageLimit,
+      supportSla,
+      supportSla,
+      customDomain,
+      sso,
+      advancedAnalytics,
+      prioritySupport,
+      isPopular,
+      status,
+      featuresJson,
+      currency,
+      targetId,
+    ];
+
+    const { rows } = await this.postgres.query(sql, params);
+    return formatPlanRow(rows[0]);
+  }
+
+  /**
+   * Deletes or safely archives a plan in PostgreSQL after checking foreign key references.
+   */
+  async deleteResellerPlan(user: AuthUser, id: string) {
+    const isSuperAdmin = user.role === 'SUPER_ADMIN';
+
+    // Verify tenant ownership with parameterized query
+    const checkSql = isSuperAdmin
+      ? `SELECT * FROM plans WHERE id = $1 AND status != 'DELETED';`
+      : `SELECT * FROM plans WHERE id = $1 AND "tenantId" = $2 AND status != 'DELETED';`;
+    const checkParams = isSuperAdmin ? [id] : [id, user.tenantId];
+    const existing = await this.postgres.query(checkSql, checkParams);
+
+    if (existing.rows.length === 0) {
+      throw new NotFoundException('Plan not found or you do not have permission to delete this plan');
+    }
+
+    // Inspect references to protect historical records
+    const refCheck = await this.postgres.query(
+      `SELECT 
+         (SELECT COUNT(*) FROM subscriptions WHERE "planRefId" = $1 OR "planId" = $1) AS sub_count,
+         (SELECT COUNT(*) FROM payment_orders WHERE "planId" = $1) AS order_count;`,
+      [id]
+    );
+
+    const subCount = Number(refCheck.rows[0]?.sub_count || 0);
+    const orderCount = Number(refCheck.rows[0]?.order_count || 0);
+
+    if (subCount > 0 || orderCount > 0) {
+      // Historical references exist - archive rather than breaking foreign keys
+      await this.postgres.query(
+        `UPDATE plans SET status = 'ARCHIVED', "updatedAt" = NOW() WHERE id = $1;`,
+        [id]
+      );
+      return { success: true, archived: true, message: 'Plan has active subscriptions or payment history and was safely archived.' };
+    }
+
+    // Mark DELETED
+    await this.postgres.query(`UPDATE plans SET status = 'DELETED', "updatedAt" = NOW() WHERE id = $1;`, [id]);
+    return { success: true, archived: false, message: 'Plan removed successfully.' };
+  }
+
+  /**
+   * Retrieves active subscription for the given workspace/tenant from PostgreSQL directly.
+   * Parameterized queries — no Prisma.
+   * If the workspace has no subscription, or is expired/cancelled/suspended, hasActiveSubscription is false.
    */
   async getSubscription(tenantId: string) {
     if (!tenantId || tenantId === 'default' || tenantId === 'tenant_default') {
@@ -157,12 +381,11 @@ export class BillingService {
 
     const queryTenantId = tenantId;
 
-    const tenant = await this.prisma.tenant
-      .findUnique({
-        where: { id: queryTenantId },
-        select: { id: true, status: true },
-      })
-      .catch(() => null);
+    const tenantRes = await this.postgres.query(
+      `SELECT id, status FROM tenants WHERE id = $1 LIMIT 1;`,
+      [queryTenantId]
+    ).catch(() => ({ rows: [] }));
+    const tenant = tenantRes.rows[0];
 
     if (tenant && tenant.status === 'SUSPENDED') {
       return {
@@ -184,12 +407,11 @@ export class BillingService {
       };
     }
 
-    const sub = await this.prisma.subscription.findFirst({
-      where: {
-        tenantId: queryTenantId,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const subRes = await this.postgres.query(
+      `SELECT * FROM subscriptions WHERE "tenantId" = $1 ORDER BY "createdAt" DESC LIMIT 1;`,
+      [queryTenantId]
+    ).catch(() => ({ rows: [] }));
+    const sub = subRes.rows[0];
 
     // 1. Unsubscribed / Brand New User
     if (!sub) {
@@ -202,7 +424,7 @@ export class BillingService {
     }
 
     // 2. Cancelled Subscription Check
-    if (sub.status === ('CANCELLED' as any)) {
+    if (sub.status === 'CANCELLED') {
       return {
         success: true,
         hasActiveSubscription: false,
@@ -219,7 +441,7 @@ export class BillingService {
     }
 
     // 3. Suspended Subscription Check
-    if ((sub as any).status === 'SUSPENDED') {
+    if (sub.status === 'SUSPENDED') {
       return {
         success: true,
         hasActiveSubscription: false,
@@ -237,13 +459,12 @@ export class BillingService {
 
     const now = new Date();
     // 4. Expired Subscription Check
-    if (sub.status === ('PAST_DUE' as any) || (sub.currentPeriodEnd && new Date(sub.currentPeriodEnd) < now)) {
-      await this.prisma.subscription
-        .update({
-          where: { id: sub.id },
-          data: { status: 'PAST_DUE' as any },
-        })
-        .catch(() => {});
+    const periodEnd = sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd) : null;
+    if (sub.status === 'PAST_DUE' || sub.status === 'EXPIRED' || (periodEnd && periodEnd < now)) {
+      await this.postgres.query(
+        `UPDATE subscriptions SET status = 'PAST_DUE', "updatedAt" = NOW() WHERE id = $1;`,
+        [sub.id]
+      ).catch(() => {});
 
       return {
         success: true,
@@ -254,7 +475,7 @@ export class BillingService {
           planId: sub.planId,
           planName: sub.planName,
           status: 'EXPIRED',
-          isTrial: sub.isTrial || sub.status === 'TRIALING',
+          isTrial: Boolean(sub.isTrial || sub.status === 'TRIALING'),
           currentPeriodEnd: sub.currentPeriodEnd,
         },
         message:
@@ -281,18 +502,30 @@ export class BillingService {
     }
 
     // 6. Active or Trialing Subscription
-    const [usedBots, usedTeamSeats, usedMessages] = await Promise.all([
-      this.prisma.bot.count({ where: { tenantId } }),
-      this.prisma.user.count({ where: { tenantId } }),
-      this.prisma.message.count({ where: { tenantId } }),
-    ]);
+    const countRes = await this.postgres.query(`
+      SELECT 
+        (SELECT COUNT(*)::int FROM bots WHERE "tenantId" = $1) AS used_bots,
+        (SELECT COUNT(*)::int FROM users WHERE "tenantId" = $1) AS used_team_seats,
+        (SELECT COUNT(*)::int FROM channel_transactions WHERE "tenantId" = $1) AS used_messages;
+    `, [tenantId]).catch(() => ({ rows: [{ used_bots: 0, used_team_seats: 1, used_messages: 0 }] }));
 
-    const isTrial = sub.status === 'TRIALING' || sub.isTrial;
+    const usedBots = Number(countRes.rows[0]?.used_bots || 0);
+    const usedTeamSeats = Math.max(1, Number(countRes.rows[0]?.used_team_seats || 1));
+    const usedMessages = Number(countRes.rows[0]?.used_messages || 0);
+
+    const isTrial = sub.status === 'TRIALING' || Boolean(sub.isTrial);
     const totalDays = sub.totalDays || (isTrial ? 7 : 30);
-    const remainingDays = Math.max(
-      0,
-      Math.ceil((new Date(sub.currentPeriodEnd).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
-    );
+    const remainingDays = periodEnd
+      ? Math.max(0, Math.ceil((periodEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+      : 0;
+
+    const formattedNextBillingDate = periodEnd
+      ? periodEnd.toLocaleDateString('en-GB', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        })
+      : 'N/A';
 
     return {
       success: true,
@@ -314,13 +547,9 @@ export class BillingService {
         maxBots: sub.maxBots,
         usedBots,
         maxTeamSeats: sub.maxTeamSeats,
-        usedTeamSeats: Math.max(1, usedTeamSeats),
-        nextBillingDate: sub.currentPeriodEnd.toLocaleDateString('en-GB', {
-          day: '2-digit',
-          month: 'short',
-          year: 'numeric',
-        }),
-        paymentMethod: (sub as any).paymentProvider || (isTrial ? 'Free Trial' : 'Cashfree UPI / NetBanking'),
+        usedTeamSeats,
+        nextBillingDate: formattedNextBillingDate,
+        paymentMethod: sub.paymentProvider || (isTrial ? 'Free Trial' : 'Cashfree UPI / NetBanking'),
       },
     };
   }
@@ -503,6 +732,7 @@ export class BillingService {
 
   /**
    * Idempotently activates or upgrades a workspace subscription after verified server-side payment.
+   * Parameterized PostgreSQL queries — direct database layer.
    */
   async activateSubscriptionFromPayment(params: {
     tenantId: string;
@@ -532,143 +762,150 @@ export class BillingService {
       throw new BadRequestException('orderId is required to activate subscription.');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      // 1. Idempotency check: verify if this order was already processed
-      const existingInvoice = await tx.invoice.findFirst({
-        where: { tenantId: effectiveTenantId, invoiceNumber: orderId },
-      });
+    // 1. Idempotency check: verify if this order was already processed
+    const existingInvoice = await this.postgres.query(
+      `SELECT id FROM invoices WHERE "tenantId" = $1 AND "invoiceNumber" = $2 LIMIT 1;`,
+      [effectiveTenantId, orderId]
+    );
 
-      if (existingInvoice) {
-        const currentSub = await tx.subscription.findFirst({
-          where: { tenantId: effectiveTenantId, status: 'ACTIVE' },
-          orderBy: { createdAt: 'desc' },
-        });
-        return {
-          success: true,
-          alreadyProcessed: true,
-          subscription: currentSub,
-          message: 'Order already processed.',
-        };
-      }
-
-      // 2. Fetch Plan limits and details from DB
-      const planRows: any[] = await tx.$queryRaw`
-        SELECT * FROM plans WHERE slug = ${planId} OR id = ${planId} LIMIT 1;
-      `;
-      const plan = planRows?.[0];
-
-      const planName =
-        plan?.name ||
-        (planId === 'enterprise'
-          ? 'Enterprise Custom'
-          : planId === 'pro'
-          ? 'Professional Tier'
-          : 'Starter Tier');
-
-      const maxMsgs =
-        plan?.maxMessages ||
-        (planId === 'enterprise' ? 250000 : planId === 'pro' ? 25000 : 2000);
-      const maxBots =
-        plan?.maxBots ||
-        (planId === 'enterprise' ? 50 : planId === 'pro' ? 5 : 1);
-      const maxSeats =
-        plan?.maxUsers ||
-        (planId === 'enterprise' ? 50 : planId === 'pro' ? 10 : 2);
-
-      let daysToAdd = 30;
-      let cycleSuffix = '/mo';
-      const cycle = (billingCycle || 'monthly').toLowerCase();
-
-      if (cycle === 'yearly' || cycle === 'annual' || cycle === '12_months') {
-        daysToAdd = 365;
-        cycleSuffix = '/yr';
-      } else if (cycle === 'half_yearly' || cycle === '6_months' || cycle === 'semi_annual') {
-        daysToAdd = 180;
-        cycleSuffix = '/6mo';
-      } else if (cycle === 'quarterly' || cycle === '3_months') {
-        daysToAdd = 90;
-        cycleSuffix = '/3mo';
-      } else {
-        daysToAdd = 30;
-        cycleSuffix = '/mo';
-      }
-
-      const now = new Date();
-      const periodEnd = new Date();
-      periodEnd.setDate(now.getDate() + daysToAdd);
-
-      // 3. Mark any previous subscriptions as CANCELLED
-      await tx.subscription.updateMany({
-        where: { tenantId: effectiveTenantId, status: { in: ['ACTIVE', 'TRIALING'] } },
-        data: { status: 'CANCELLED' as any },
-      });
-
-      // 4. Create new verified ACTIVE subscription
-      const newSub = await tx.subscription.create({
-        data: {
-          tenantId: effectiveTenantId,
-          planId: plan?.slug || planId,
-          planName,
-          price: `₹${amount.toLocaleString('en-IN')}${cycleSuffix}`,
-          status: 'ACTIVE' as any,
-          totalDays: daysToAdd,
-          remainingDays: daysToAdd,
-          currentPeriodStart: now,
-          currentPeriodEnd: periodEnd,
-          maxMessages: maxMsgs,
-          usedMessages: 0,
-          maxBots: maxBots,
-          usedBots: 0,
-          maxTeamSeats: maxSeats,
-          usedTeamSeats: 1,
-          stripeSubscriptionId: orderId,
-          stripeCustomerId: paymentId || 'CASHFREE',
-        },
-      });
-
-      // 5. Create Official Tax Invoice
-      await tx.invoice.create({
-        data: {
-          tenantId: effectiveTenantId,
-          invoiceNumber: orderId,
-          plan: `${planName} (${cycle.toUpperCase()})`,
-          amount: `₹${amount.toLocaleString('en-IN')}`,
-          status: 'Paid',
-        },
-      });
-
-      // 6. Record in payment_ledgers if table exists
-      await tx
-        .$executeRaw`
-          INSERT INTO payment_ledgers (
-            id, "tenantId", "orderId", "paymentId", amount, currency,
-            type, method, status, "createdAt", "updatedAt"
-          ) VALUES (
-            ${`pl_${Date.now()}`}, ${effectiveTenantId}, ${orderId}, ${paymentId},
-            ${amount}, 'INR', 'SUBSCRIPTION', ${paymentMethod},
-            'SUCCESS', NOW(), NOW()
-          );
-        `
-        .catch((e) => this.logger.warn(`Payment ledger record notice: ${e.message}`));
-
+    if (existingInvoice.rows.length > 0) {
+      const currentSub = await this.postgres.query(
+        `SELECT * FROM subscriptions WHERE "tenantId" = $1 AND status = 'ACTIVE' ORDER BY "createdAt" DESC LIMIT 1;`,
+        [effectiveTenantId]
+      );
       return {
         success: true,
-        alreadyProcessed: false,
-        subscription: newSub,
-        message: `Successfully activated ${planName} for workspace.`,
+        alreadyProcessed: true,
+        subscription: currentSub.rows[0],
+        message: 'Order already processed.',
       };
-    }, { timeout: 25000, maxWait: 15000 });
+    }
+
+    // 2. Fetch Plan limits and details from PostgreSQL plans table
+    const planRows = await this.postgres.query(
+      `SELECT * FROM plans WHERE slug = $1 OR id = $1 LIMIT 1;`,
+      [planId]
+    );
+    const plan = planRows.rows[0];
+
+    const planName =
+      plan?.name ||
+      (planId === 'enterprise'
+        ? 'Enterprise Custom'
+        : planId === 'pro'
+        ? 'Professional Tier'
+        : 'Starter Tier');
+
+    const maxMsgs =
+      plan?.maxMessages ||
+      (planId === 'enterprise' ? 250000 : planId === 'pro' ? 25000 : 2000);
+    const maxBots =
+      plan?.maxBots ||
+      (planId === 'enterprise' ? 50 : planId === 'pro' ? 5 : 1);
+    const maxSeats =
+      plan?.maxUsers ||
+      (planId === 'enterprise' ? 50 : planId === 'pro' ? 10 : 2);
+
+    let daysToAdd = 30;
+    let cycleSuffix = '/mo';
+    const cycle = (billingCycle || 'monthly').toLowerCase();
+
+    if (cycle === 'yearly' || cycle === 'annual' || cycle === '12_months') {
+      daysToAdd = 365;
+      cycleSuffix = '/yr';
+    } else if (cycle === 'half_yearly' || cycle === '6_months' || cycle === 'semi_annual') {
+      daysToAdd = 180;
+      cycleSuffix = '/6mo';
+    } else if (cycle === 'quarterly' || cycle === '3_months') {
+      daysToAdd = 90;
+      cycleSuffix = '/3mo';
+    } else {
+      daysToAdd = 30;
+      cycleSuffix = '/mo';
+    }
+
+    const now = new Date();
+    const periodEnd = new Date();
+    periodEnd.setDate(now.getDate() + daysToAdd);
+
+    // 3. Mark any previous active/trialing subscriptions as CANCELLED
+    await this.postgres.query(
+      `UPDATE subscriptions SET status = 'CANCELLED', "updatedAt" = NOW() WHERE "tenantId" = $1 AND status IN ('ACTIVE', 'TRIALING');`,
+      [effectiveTenantId]
+    );
+
+    // 4. Create new verified ACTIVE subscription in subscriptions table
+    const newSubId = `sub_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const newSubRes = await this.postgres.query(`
+      INSERT INTO subscriptions (
+        id, "tenantId", "planId", "planRefId", "planName", price, status,
+        "totalDays", "remainingDays", "currentPeriodStart", "currentPeriodEnd",
+        "maxMessages", "usedMessages", "maxBots", "usedBots", "maxTeamSeats", "usedTeamSeats",
+        "stripeSubscriptionId", "stripeCustomerId", "isTrial", "createdAt", "updatedAt"
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, 'ACTIVE',
+        $7, $8, $9, $10,
+        $11, 0, $12, 0, $13, 1,
+        $14, $15, false, NOW(), NOW()
+      ) RETURNING *;
+    `, [
+      newSubId,
+      effectiveTenantId,
+      plan?.slug || planId,
+      plan?.id || null,
+      planName,
+      `₹${amount.toLocaleString('en-IN')}${cycleSuffix}`,
+      daysToAdd,
+      daysToAdd,
+      now,
+      periodEnd,
+      maxMsgs,
+      maxBots,
+      maxSeats,
+      orderId,
+      paymentId || 'CASHFREE',
+    ]);
+
+    // 5. Create Official Tax Invoice
+    const invoiceId = `inv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    await this.postgres.query(`
+      INSERT INTO invoices (
+        id, "tenantId", "invoiceNumber", date, plan, amount, status, "createdAt"
+      ) VALUES (
+        $1, $2, $3, NOW(), $4, $5, 'Paid', NOW()
+      );
+    `, [
+      invoiceId,
+      effectiveTenantId,
+      orderId,
+      `${planName} (${cycle.toUpperCase()})`,
+      `₹${amount.toLocaleString('en-IN')}`
+    ]);
+
+    // 6. Update payment_orders status if orderId exists
+    await this.postgres.query(
+      `UPDATE payment_orders SET status = 'SUCCESS', "cfPaymentId" = $1, "paymentMethod" = $2, "updatedAt" = NOW() WHERE "orderId" = $3;`,
+      [paymentId || 'CASHFREE', paymentMethod, orderId]
+    ).catch(() => {});
+
+    return {
+      success: true,
+      alreadyProcessed: false,
+      subscription: newSubRes.rows[0],
+      message: `Successfully activated ${planName} for workspace.`,
+    };
   }
 
   /**
    * Super Admin manual subscription assignment.
-   * Enables Super Admin to provision or assign a subscription to any tenant client.
+   * Parameterized PostgreSQL queries.
    */
   async assignSubscriptionManually(tenantId: string, planId: string, days: number = 30) {
-    const planRows: any[] = await this.prisma.$queryRaw`
-      SELECT * FROM plans WHERE slug = ${planId} OR id = ${planId} LIMIT 1;
-    `;
-    const plan = planRows?.[0];
+    const planRows = await this.postgres.query(
+      `SELECT * FROM plans WHERE slug = $1 OR id = $1 LIMIT 1;`,
+      [planId]
+    );
+    const plan = planRows.rows[0];
 
     const planName = plan?.name || (planId === 'enterprise' ? 'Enterprise' : planId === 'pro' ? 'Professional Tier' : 'Starter');
     const maxMsgs = plan?.maxMessages || (planId === 'enterprise' ? 250000 : planId === 'pro' ? 25000 : 2000);
@@ -679,51 +916,59 @@ export class BillingService {
     const periodEnd = new Date();
     periodEnd.setDate(now.getDate() + days);
 
-    await this.prisma.subscription.updateMany({
-      where: { tenantId, status: { in: ['ACTIVE', 'TRIALING'] } },
-      data: { status: 'CANCELLED' as any },
-    });
+    await this.postgres.query(
+      `UPDATE subscriptions SET status = 'CANCELLED', "updatedAt" = NOW() WHERE "tenantId" = $1 AND status IN ('ACTIVE', 'TRIALING');`,
+      [tenantId]
+    );
 
-    const sub = await (this.prisma.subscription as any).create({
-      data: {
-        tenantId,
-        planId: plan?.slug || planId,
-        planName,
-        price: `₹${(plan?.monthlyPrice || 2999).toLocaleString('en-IN')}/mo (Admin Assigned)`,
-        status: 'ACTIVE' as any,
-        totalDays: days,
-        remainingDays: days,
-        currentPeriodStart: now,
-        currentPeriodEnd: periodEnd,
-        maxMessages: maxMsgs,
-        usedMessages: 0,
-        maxBots: maxBots,
-        usedBots: 0,
-        maxTeamSeats: maxSeats,
-        usedTeamSeats: 1,
-        stripeCustomerId: 'SUPER_ADMIN_MANUAL',
-      },
-    });
+    const subId = `sub_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const subRes = await this.postgres.query(`
+      INSERT INTO subscriptions (
+        id, "tenantId", "planId", "planRefId", "planName", price, status,
+        "totalDays", "remainingDays", "currentPeriodStart", "currentPeriodEnd",
+        "maxMessages", "usedMessages", "maxBots", "usedBots", "maxTeamSeats", "usedTeamSeats",
+        "stripeCustomerId", "isTrial", "createdAt", "updatedAt"
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, 'ACTIVE',
+        $7, $8, $9, $10,
+        $11, 0, $12, 0, $13, 1,
+        'SUPER_ADMIN_MANUAL', false, NOW(), NOW()
+      ) RETURNING *;
+    `, [
+      subId,
+      tenantId,
+      plan?.slug || planId,
+      plan?.id || null,
+      planName,
+      `₹${(Number(plan?.monthlyPrice) || 2999).toLocaleString('en-IN')}/mo (Admin Assigned)`,
+      days,
+      days,
+      now,
+      periodEnd,
+      maxMsgs,
+      maxBots,
+      maxSeats,
+    ]);
 
     return {
       success: true,
-      data: sub,
+      data: subRes.rows[0],
       message: `Super Admin successfully assigned ${planName} (${days} days) to tenant.`,
     };
   }
 
   async getInvoices(tenantId: string) {
-    const invoices = await this.prisma.invoice.findMany({
-      where: { tenantId },
-      orderBy: { date: 'desc' },
-    });
+    const res = await this.postgres.query(
+      `SELECT * FROM invoices WHERE "tenantId" = $1 ORDER BY date DESC;`,
+      [tenantId]
+    );
 
     return {
       success: true,
-      data: invoices.map((inv) => ({
+      data: res.rows.map((inv: any) => ({
         id: inv.invoiceNumber,
         invoiceNumber: inv.invoiceNumber,
-        date: inv.date.toLocaleDateString('en-GB', {
+        date: new Date(inv.date).toLocaleDateString('en-GB', {
           day: '2-digit',
           month: 'short',
           year: 'numeric',
@@ -737,10 +982,10 @@ export class BillingService {
   }
 
   async cancelSubscription(tenantId: string) {
-    await this.prisma.subscription.updateMany({
-      where: { tenantId, status: 'ACTIVE' },
-      data: { status: 'CANCELLED' as any },
-    });
+    await this.postgres.query(
+      `UPDATE subscriptions SET status = 'CANCELLED', "updatedAt" = NOW() WHERE "tenantId" = $1 AND status = 'ACTIVE';`,
+      [tenantId]
+    );
 
     return {
       success: true,

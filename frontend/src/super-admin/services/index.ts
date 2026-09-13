@@ -1,7 +1,6 @@
 import { api } from "@/lib/api/axios";
 import { config } from "@/lib/config";
 import {
-  mockPlans,
   mockTickets,
   mockStaff,
   mockAuditLogs,
@@ -141,16 +140,42 @@ export async function executeGuestLogin(client: any, returnUrl: string): Promise
 
 export const billingService = {
   getPlans: async (): Promise<PlanTier[]> => {
-    return [...mockPlans];
+    try {
+      const res = await api.get("/billing/plans");
+      const payload = res.data?.data || res.data;
+      if (Array.isArray(payload)) {
+        return payload;
+      }
+      if (payload && Array.isArray(payload.data)) {
+        return payload.data;
+      }
+      return [];
+    } catch (err) {
+      console.error("[BillingService] Failed to load plans:", err);
+      return [];
+    }
   },
   savePlan: async (plan: PlanTier): Promise<PlanTier> => {
-    const index = mockPlans.findIndex((p) => p.id === plan.id);
-    if (index !== -1) {
-      mockPlans[index] = plan;
+    const isExisting = plan.id && !plan.id.startsWith("mock-") && !plan.id.startsWith("plan_new");
+    if (isExisting) {
+      try {
+        const res = await api.patch(`/billing/plans/${encodeURIComponent(plan.id)}`, plan);
+        return res.data?.data || res.data;
+      } catch (err: any) {
+        if (err.response?.status === 404) {
+          // If not found in reseller scope, create as a new tenant plan
+          const res = await api.post("/billing/plans", plan);
+          return res.data?.data || res.data;
+        }
+        throw err;
+      }
     } else {
-      mockPlans.push(plan);
+      const res = await api.post("/billing/plans", plan);
+      return res.data?.data || res.data;
     }
-    return plan;
+  },
+  deletePlan: async (id: string): Promise<void> => {
+    await api.delete(`/billing/plans/${encodeURIComponent(id)}`);
   },
 };
 

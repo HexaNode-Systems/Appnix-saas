@@ -308,13 +308,14 @@ export function proxy(request: NextRequest) {
     const isLoginPath =
       pathname === "/login" ||
       pathname === "/signin" ||
+      pathname === "/admin/login" ||
       pathname === "/direct-admin/login";
 
     if (isLoginPath) {
       if (isStaffAuth && isStaffRole) {
-        return NextResponse.redirect(new URL("/direct-admin/dashboard", request.url));
+        return NextResponse.redirect(new URL("/admin/dashboard", request.url));
       }
-      return NextResponse.rewrite(new URL(`/direct-admin/login${search}`, request.url));
+      return NextResponse.rewrite(new URL(`/admin/login${search}`, request.url));
     }
 
     if (!isStaffAuth || !isStaffRole) {
@@ -336,22 +337,22 @@ export function proxy(request: NextRequest) {
     }
 
     if (pathname === "/" || pathname === "/dashboard") {
-      return NextResponse.rewrite(new URL(`/direct-admin/dashboard${search}`, request.url));
+      return NextResponse.rewrite(new URL(`/admin/dashboard${search}`, request.url));
     }
     if (pathname === "/clients") {
-      return NextResponse.rewrite(new URL(`/direct-admin/clients${search}`, request.url));
+      return NextResponse.rewrite(new URL(`/admin/clients${search}`, request.url));
     }
     if (pathname === "/system-health") {
-      return NextResponse.rewrite(new URL(`/direct-admin/system-health${search}`, request.url));
+      return NextResponse.rewrite(new URL(`/admin/system-health${search}`, request.url));
     }
     if (pathname === "/audit-logs") {
-      return NextResponse.rewrite(new URL(`/direct-admin/audit-logs${search}`, request.url));
+      return NextResponse.rewrite(new URL(`/admin/audit-logs${search}`, request.url));
     }
     if (pathname === "/support") {
-      return NextResponse.rewrite(new URL(`/direct-admin/support${search}`, request.url));
+      return NextResponse.rewrite(new URL(`/admin/support${search}`, request.url));
     }
-    if (!pathname.startsWith("/direct-admin")) {
-      return NextResponse.rewrite(new URL(`/direct-admin${pathname}${search}`, request.url));
+    if (!pathname.startsWith("/admin")) {
+      return NextResponse.rewrite(new URL(`/admin${pathname}${search}`, request.url));
     }
     return NextResponse.next();
   }

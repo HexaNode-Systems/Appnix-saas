@@ -12,7 +12,7 @@ import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useAuth } from "@/lib/auth/auth-context";
-import { verifySubscriptionStatus } from "@/lib/subscription";
+import { verifySubscriptionStatus, hasActiveSubscription } from "@/lib/subscription";
 import { useTranslation } from "@/lib/i18n";
 import { LanguageSelector } from "@/components/landing/language-selector";
 import { config } from "@/lib/config";
@@ -94,8 +94,8 @@ function SignInContent() {
         router.replace("/admin/dashboard");
         return;
       }
-      verifySubscriptionStatus(user.workspaceId).then((subResult) => {
-        if (subResult.hasActiveSubscription) {
+      hasActiveSubscription(user.workspaceId).then((active) => {
+        if (active) {
           router.replace(callbackUrl);
         } else {
           router.replace("/subscription");
@@ -148,11 +148,11 @@ function SignInContent() {
             ? localStorage.getItem("appnix_auth_token") || localStorage.getItem("token") || undefined
             : undefined;
 
-        const subResult = await verifySubscriptionStatus(workspaceId, token);
+        const active = await hasActiveSubscription(workspaceId, token);
 
         // Active subscription: go directly to dashboard on every login.
         // Inactive / expired / cancelled / suspended: show subscription page.
-        if (subResult.hasActiveSubscription) {
+        if (active) {
           router.push(callbackUrl);
         } else {
           router.push("/subscription");

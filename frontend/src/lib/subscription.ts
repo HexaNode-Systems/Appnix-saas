@@ -59,6 +59,23 @@ export function clearSubscriptionCache(): void {
 }
 
 /**
+ * Checks if the authenticated user/workspace currently has an ACTIVE subscription
+ * verified directly against the backend/database.
+ * Returns true ONLY if the subscription status is currently active or trialing.
+ */
+export async function hasActiveSubscription(
+  explicitWorkspaceId?: string,
+  explicitToken?: string
+): Promise<boolean> {
+  try {
+    const result = await verifySubscriptionStatus(explicitWorkspaceId, explicitToken);
+    return Boolean(result && result.hasActiveSubscription);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Robustly verifies workspace subscription status against:
  * 1. Backend direct check endpoint (/api/v1/billing/check?tenantId=...)
  * 2. Backend authenticated endpoint (/api/v1/billing/subscription)
@@ -137,49 +154,41 @@ export async function verifySubscriptionStatus(
             message: "Active subscription verified via backend authentication.",
           };
         }
-        if (subData.isExpired) isExpiredFound = true;
-        if (subData.isCancelled) isCancelledFound = true;
-        if (subData.isSuspended) isSuspendedFound = true;
-        if (subData.data?.status) lastStatus = subData.data.status;
-        if (subData.data) lastActivePlan = subData.data;
-      }
-    } catch {
-      // Continue to next check
-    }
-  }
 
-  // ================= SOURCE 2: Next.js Payments & Subscription DB Endpoint =================
-  try {
-    const historyQuery = resolvedWorkspaceId ? `?workspace_id=${encodeURIComponent(resolvedWorkspaceId)}` : "";
-    const res = await fetch(`/api/v1/payments/cashfree/history${historyQuery}`, {
-      headers: authHeaders,
-      cache: "no-store",
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.hasActiveSubscription && data.activePlan) {
-        markSubscriptionActive(data.activePlan.id);
+        clearSubscriptionCache();
+        const isExp = Boolean(subData.isExpired);
+        const isCanc = Boolean(subData.isCancelled);
+        const isSusp = Boolean(subData.isSuspended);
+        const resolvedSt: SubscriptionStatusResult["status"] = isCanc
+          ? "CANCELLED"
+          : isSusp
+          ? "SUSPENDED"
+          : isExp
+          ? "EXPIRED"
+          : subData.data?.status || "NONE";
+
         return {
-          hasActiveSubscription: true,
-          isExpired: false,
-          isCancelled: false,
-          isSuspended: false,
-          status: data.status || "ACTIVE",
-          activePlan: data.activePlan,
-          message: "Active subscription verified via workspace payments.",
+          hasActiveSubscription: false,
+          isExpired: isExp,
+          isCancelled: isCanc,
+          isSuspended: isSusp,
+          status: resolvedSt,
+          activePlan: subData.data || null,
+          message: subData.message || (isCanc
+            ? "Subscription has been cancelled."
+            : isSusp
+            ? "Workspace is currently suspended."
+            : isExp
+            ? "Subscription has expired."
+            : "No active subscription found for workspace."),
         };
       }
-      if (data.isExpired) isExpiredFound = true;
-      if (data.isCancelled) isCancelledFound = true;
-      if (data.isSuspended) isSuspendedFound = true;
-      if (data.status) lastStatus = data.status;
-      if (data.activePlan) lastActivePlan = data.activePlan;
+    } catch (err) {
+      console.warn("[Subscription] Backend subscription endpoint error, attempting check fallback:", err);
     }
-  } catch {
-    // Continue to next check
   }
 
-  // ================= SOURCE 3: Backend Direct Check Endpoint =================
+  // ================= SOURCE 2: Backend Direct Check Endpoint =================
   if (token || resolvedWorkspaceId) {
     try {
       const checkUrl = `${backendUrl}/billing/check${
@@ -203,42 +212,44 @@ export async function verifySubscriptionStatus(
             message: "Active subscription verified.",
           };
         }
-        if (json.isExpired) isExpiredFound = true;
-        if (json.isCancelled) isCancelledFound = true;
-        if (json.isSuspended) isSuspendedFound = true;
-        if (json.data?.status) lastStatus = json.data.status;
+
+        clearSubscriptionCache();
+        const isExp = Boolean(json.isExpired);
+        const isCanc = Boolean(json.isCancelled);
+        const isSusp = Boolean(json.isSuspended);
+        const resolvedSt: SubscriptionStatusResult["status"] = isCanc
+          ? "CANCELLED"
+          : isSusp
+          ? "SUSPENDED"
+          : isExp
+          ? "EXPIRED"
+          : json.data?.status || "NONE";
+
+        return {
+          hasActiveSubscription: false,
+          isExpired: isExp,
+          isCancelled: isCanc,
+          isSuspended: isSusp,
+          status: resolvedSt,
+          activePlan: json.data || null,
+          message: json.message || "No active subscription found for workspace.",
+        };
       }
     } catch {
-      // All checks exhausted
+      // Backend unreachable
     }
   }
 
-  // If none verified active: clear active cache
+  // If unauthenticated or backend unreachable: clear active cache
   clearSubscriptionCache();
-
-  const resolvedStatus: SubscriptionStatusResult["status"] = isCancelledFound
-    ? "CANCELLED"
-    : isSuspendedFound
-    ? "SUSPENDED"
-    : isExpiredFound
-    ? "EXPIRED"
-    : lastStatus !== "ACTIVE" && lastStatus !== "TRIALING"
-    ? lastStatus
-    : "NONE";
 
   return {
     hasActiveSubscription: false,
     isExpired: isExpiredFound,
     isCancelled: isCancelledFound,
     isSuspended: isSuspendedFound,
-    status: resolvedStatus,
-    activePlan: lastActivePlan,
-    message: isCancelledFound
-      ? "Subscription has been cancelled."
-      : isSuspendedFound
-      ? "Workspace is currently suspended."
-      : isExpiredFound
-      ? "Subscription has expired."
-      : "No active subscription found for workspace.",
+    status: "NONE",
+    activePlan: null,
+    message: "No active subscription found for workspace.",
   };
 }

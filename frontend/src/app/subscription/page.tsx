@@ -68,67 +68,11 @@ function getBackendUrl(): string {
   return "https://api.appnix.co.in/api/v1";
 }
 
-const DEFAULT_PLANS: PlanItem[] = [
-  {
-    id: "starter",
-    name: "Starter",
-    slug: "starter",
-    description: "",
-    monthlyPrice: 999,
-    yearlyPrice: 9990,
-    trialDays: 0,
-    hasTrial: false,
-    isPopular: false,
-    features: [
-      "2,000 monthly messages",
-      "2 WhatsApp & social channels",
-      "1 Automation Botflow",
-      "2 Team members",
-    ],
-    limits: { maxMessages: 2000, maxBots: 1, maxUsers: 2, maxContacts: 500 },
-  },
-  {
-    id: "pro",
-    name: "Professional",
-    slug: "pro",
-    description: "",
-    monthlyPrice: 2999,
-    yearlyPrice: 29990,
-    trialDays: 0,
-    hasTrial: false,
-    isPopular: true,
-    features: [
-      "25,000 monthly messages",
-      "Unlimited social channels",
-      "5 Advanced AI Botflows",
-      "10 Team member seats",
-    ],
-    limits: { maxMessages: 25000, maxBots: 5, maxUsers: 10, maxContacts: 5000 },
-  },
-  {
-    id: "enterprise",
-    name: "Enterprise",
-    slug: "enterprise",
-    description: "",
-    monthlyPrice: 8999,
-    yearlyPrice: 89990,
-    trialDays: 0,
-    hasTrial: false,
-    isPopular: false,
-    features: [
-      "Unlimited monthly messages",
-      "Unlimited AI Botflows & Agents",
-      "Unlimited team seats & SSO",
-      "Dedicated account manager",
-    ],
-    limits: { maxMessages: 250000, maxBots: 50, maxUsers: 50, maxContacts: 50000 },
-  },
-];
-
 export default function SubscriptionSelectionPage() {
   const router = useRouter();
   const { user, logout, isLoading: isAuthLoading } = useAuth();
-  const [plans, setPlans] = useState<PlanItem[]>(DEFAULT_PLANS);
+  const [plans, setPlans] = useState<PlanItem[]>([]);
+  const [isLoadingPlans, setIsLoadingPlans] = useState<boolean>(true);
   const [billingCycle, setBillingCycle] = useState<"monthly" | "quarterly" | "half_yearly" | "yearly">("monthly");
   const [isVerifying, setIsVerifying] = useState<boolean>(true);
   const [isExpired, setIsExpired] = useState<boolean>(false);
@@ -215,20 +159,35 @@ export default function SubscriptionSelectionPage() {
         }
       }
 
-      // Fetch dynamic plan tiers from backend (proxy first, then direct API fallback)
+      // Fetch dynamic plan tiers from backend with authentication
+      setIsLoadingPlans(true);
       try {
-        let planRes = await fetch(`${getBackendUrl()}/billing/plans`);
+        const planHeaders: Record<string, string> = token
+          ? { Authorization: `Bearer ${token}` }
+          : {};
+
+        let planRes = await fetch(`${getBackendUrl()}/billing/plans`, {
+          headers: planHeaders,
+          cache: "no-store",
+        });
         if (!planRes.ok && typeof window !== "undefined" && !window.location.hostname.includes("localhost")) {
-          planRes = await fetch("https://api.appnix.co.in/api/v1/billing/plans");
+          planRes = await fetch("https://api.appnix.co.in/api/v1/billing/plans", {
+            headers: planHeaders,
+            cache: "no-store",
+          });
         }
         if (planRes.ok) {
           const json = await planRes.json();
-          if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+          if (json.success && Array.isArray(json.data)) {
             setPlans(json.data);
           }
         }
-      } catch {
-        // Fallback plans already initialized
+      } catch (err) {
+        console.warn("[SubscriptionPage] Could not load plans from backend:", err);
+      } finally {
+        if (isMounted) {
+          setIsLoadingPlans(false);
+        }
       }
     }
 
@@ -514,10 +473,20 @@ export default function SubscriptionSelectionPage() {
         )}
 
         {/* Plans Grid */}
-        {plans.length === 0 ? (
+        {isLoadingPlans ? (
           <div className="py-20 flex flex-col items-center justify-center gap-3">
             <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
-            <p className="text-xs text-muted-foreground">Loading workspace subscription tiers...</p>
+            <p className="text-xs text-muted-foreground font-medium">
+              Loading available workspace subscription plans...
+            </p>
+          </div>
+        ) : plans.length === 0 ? (
+          <div className="py-16 text-center space-y-3">
+            <AlertCircle className="h-10 w-10 text-muted-foreground mx-auto" />
+            <h3 className="text-base font-semibold text-foreground">No subscription plans currently available</h3>
+            <p className="text-xs text-muted-foreground max-w-md mx-auto">
+              There are no active plans currently available for your workspace. Please contact support or your account administrator.
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">

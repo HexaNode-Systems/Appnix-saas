@@ -35,10 +35,15 @@ import { SuperAdminModule } from './modules/super-admin/super-admin.module';
 import { PartnerModule } from './modules/partner/partner.module';
 import { SupportAuditInterceptor } from './common/interceptors/support-audit.interceptor';
 import { PrismaModule } from './prisma/prisma.module';
+import { DatabaseModule } from './database/database.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: ['.env.local', '.env'],
+    }),
+    DatabaseModule,
     PrismaModule,
     StorageModule,
     MediaModule,

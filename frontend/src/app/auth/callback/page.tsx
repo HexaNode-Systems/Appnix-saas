@@ -4,6 +4,7 @@ import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { config } from "@/lib/config";
 import { useAuth } from "@/lib/auth/auth-context";
+import { hasActiveSubscription } from "@/lib/subscription";
 import { Loader2, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -75,14 +76,46 @@ function AuthCallbackContent() {
         // 4. Provision and sync authenticated user data with AuthContext
         await refreshUser();
 
-        // 5. DIRECT navigation to Client Portal dashboard
-        // Avoid router.replace client-side RSC fetching across domains or stale router caches
-        const targetDashboard =
-          hostname.includes("appnix.co.in") && !hostname.startsWith("app.")
-            ? `https://${config.app.domains.app}/dashboard`
-            : "/dashboard";
+        // 5. Determine post-authentication destination based on real subscription status from backend
+        const storedUser = typeof window !== "undefined" ? localStorage.getItem(config.auth.userKey) : null;
+        let parsedUser: any = null;
+        try {
+          parsedUser = storedUser ? JSON.parse(storedUser) : null;
+        } catch {}
 
-        window.location.replace(targetDashboard);
+        let destination = "/dashboard";
+        if (parsedUser?.role === "owner" || parsedUser?.role === "SUPER_ADMIN") {
+          destination = "/super-admin/dashboard";
+        } else if (
+          parsedUser?.role === "admin" ||
+          parsedUser?.role === "RESELLER_ADMIN" ||
+          parsedUser?.tier === "PRIMARY_RESELLER" ||
+          parsedUser?.tier === "SUB_RESELLER"
+        ) {
+          destination = "/admin/dashboard";
+        } else {
+          let workspaceId = parsedUser?.workspaceId || parsedUser?.tenantId;
+          if (!workspaceId && token) {
+            try {
+              const parts = token.split(".");
+              if (parts.length === 3) {
+                const payload = JSON.parse(atob(parts[1]));
+                workspaceId = payload.tenantId || payload.workspaceId;
+              }
+            } catch {}
+          }
+          const active = await hasActiveSubscription(workspaceId, token);
+          destination = active ? "/dashboard" : "/subscription";
+        }
+
+        // 6. DIRECT navigation to resolved destination
+        // Avoid router.replace client-side RSC fetching across domains or stale router caches
+        const targetUrl =
+          hostname.includes("appnix.co.in") && !hostname.startsWith("app.")
+            ? `https://${config.app.domains.app}${destination}`
+            : destination;
+
+        window.location.replace(targetUrl);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Failed to finalize authentication session.";
         setError(message);
