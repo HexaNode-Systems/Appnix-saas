@@ -118,16 +118,22 @@ export default function SubscriptionSelectionPage() {
       if (isAuthLoading) return;
 
       // 1. Administrative bypass: Super Admin & Reseller Admins never need retail subscriptions
-      if (user?.role === "owner" || (user as any)?.role === "SUPER_ADMIN") {
+      if (
+        user?.role === "owner" ||
+        (user as any)?.role === "SUPER_ADMIN" ||
+        (user as any)?.rawRole === "SUPER_ADMIN"
+      ) {
         router.replace("/super-admin/dashboard");
         return;
       }
-      if (
-        user?.role === "admin" ||
+      const isReseller =
         (user as any)?.role === "RESELLER_ADMIN" ||
+        (user as any)?.rawRole === "RESELLER_ADMIN" ||
+        (user as any)?.systemRole === "RESELLER_ADMIN" ||
         (user as any)?.tier === "PRIMARY_RESELLER" ||
-        (user as any)?.tier === "SUB_RESELLER"
-      ) {
+        (user as any)?.tier === "SUB_RESELLER";
+
+      if (isReseller) {
         router.replace("/admin/dashboard");
         return;
       }

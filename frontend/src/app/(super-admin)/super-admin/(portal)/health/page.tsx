@@ -55,18 +55,11 @@ export default function SuperAdminHealthPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-5">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
-              Core Platform Telemetry
-            </span>
-          </div>
+
           <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
             System, API & Webhook Health
           </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Real-time ping telemetry, database latency, process memory allocations, and webhook worker loops.
-          </p>
+    
         </div>
 
         <Button

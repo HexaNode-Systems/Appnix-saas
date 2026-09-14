@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsEmail, IsNumber, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsEmail, IsNumber, Min, MinLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateClientDto {
@@ -22,6 +22,17 @@ export class CreateClientDto {
   @IsOptional()
   phone?: string;
 
+  @ApiPropertyOptional({ description: 'Account password. Minimum 8 characters.', minLength: 8 })
+  @IsString()
+  @MinLength(8)
+  @IsOptional()
+  password?: string;
+
+  @ApiPropertyOptional({ description: 'Initial admin temporary password (alias for password)' })
+  @IsString()
+  @IsOptional()
+  adminPassword?: string;
+
   @ApiPropertyOptional({ description: 'Subscription plan tier', example: 'Pro', default: 'Pro' })
   @IsString()
   @IsOptional()
@@ -42,11 +53,6 @@ export class CreateClientDto {
   @IsString()
   @IsOptional()
   slug?: string;
-
-  @ApiPropertyOptional({ description: 'Initial admin temporary password' })
-  @IsString()
-  @IsOptional()
-  adminPassword?: string;
 
   @ApiPropertyOptional({ description: 'WhatsApp BSP connection status', default: 'Connected' })
   @IsString()

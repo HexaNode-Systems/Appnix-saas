@@ -22,6 +22,8 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from '../auth/auth.service';
 
+import { PostgresService } from '../../database/postgres.service';
+
 export interface HierarchyNode {
   id: string;
   name: string;
@@ -42,6 +44,7 @@ export class TenantsService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly postgres: PostgresService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly authService: AuthService,
@@ -548,103 +551,138 @@ export class TenantsService {
     },
   ): Promise<PaginatedResult<any>> {
     const { page, limit, skip, take } = parsePagination(params?.page, params?.limit);
-    const where: any = {
-      tier: TenantTier.END_CLIENT,
-    };
+
+    const conditions: string[] = [`t.tier = 'END_CLIENT'::"TenantTier"`];
+    const queryParams: any[] = [];
 
     if (actor.role === Role.RESELLER_ADMIN) {
-      where.parentId = actor.tenantId;
+      queryParams.push(actor.tenantId);
+      conditions.push(`t."parentId" = $${queryParams.length}`);
     } else if (actor.role !== Role.SUPER_ADMIN) {
-      where.id = actor.tenantId;
+      queryParams.push(actor.tenantId);
+      conditions.push(`t.id = $${queryParams.length}`);
     }
 
     if (params?.status && params.status !== 'ALL' && params.status !== 'All') {
       const upper = params.status.toUpperCase();
-      if (upper === 'ACTIVE') where.status = TenantStatus.ACTIVE;
-      else if (upper === 'SUSPENDED') where.status = TenantStatus.SUSPENDED;
-      else if (upper === 'CANCELLED' || upper === 'INACTIVE') where.status = TenantStatus.CANCELLED;
+      let dbStatus = 'ACTIVE';
+      if (upper === 'SUSPENDED') dbStatus = 'SUSPENDED';
+      else if (upper === 'CANCELLED' || upper === 'INACTIVE') dbStatus = 'CANCELLED';
+      queryParams.push(dbStatus);
+      conditions.push(`t.status = $${queryParams.length}::"TenantStatus"`);
     }
 
     if (params?.plan && params.plan !== 'ALL' && params.plan !== 'All') {
-      where.subscriptions = {
-        some: {
-          planName: { contains: params.plan, mode: 'insensitive' },
-        },
-      };
+      queryParams.push(`%${params.plan}%`);
+      conditions.push(
+        `EXISTS (SELECT 1 FROM subscriptions s WHERE s."tenantId" = t.id AND s."planName" ILIKE $${queryParams.length})`,
+      );
     }
 
     if (params?.search && params.search.trim()) {
-      const q = params.search.trim();
-      where.AND = where.AND || [];
-      where.AND.push({
-        OR: [
-          { name: { contains: q, mode: 'insensitive' } },
-          { slug: { contains: q, mode: 'insensitive' } },
-          {
-            users: {
-              some: {
-                OR: [
-                  { name: { contains: q, mode: 'insensitive' } },
-                  { email: { contains: q, mode: 'insensitive' } },
-                  { phone: { contains: q, mode: 'insensitive' } },
-                ],
-              },
-            },
-          },
-        ],
-      });
+      const q = `%${params.search.trim()}%`;
+      queryParams.push(q);
+      const pIndex = queryParams.length;
+      conditions.push(`(
+        t.name ILIKE $${pIndex} OR
+        t.slug ILIKE $${pIndex} OR
+        EXISTS (
+          SELECT 1 FROM users u
+          WHERE u."tenantId" = t.id AND (
+            u.name ILIKE $${pIndex} OR
+            u.email ILIKE $${pIndex} OR
+            u.phone ILIKE $${pIndex}
+          )
+        )
+      )`);
     }
 
-    const [total, clients] = await Promise.all([
-      this.prisma.tenant.count({ where }),
-      this.prisma.tenant.findMany({
-        where,
-        skip,
-        take,
-        include: {
-          parent: { select: { id: true, name: true, slug: true } },
-          users: { where: { role: Role.TENANT_ADMIN }, take: 1 },
-          subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 },
-          wallet: true,
-          _count: { select: { users: true, workflows: true, campaigns: true, crmContacts: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-      }),
-    ]);
+    const whereClause = conditions.join(' AND ');
 
-    const formatted = clients.map((c) => {
-      const adminUser = c.users[0] || null;
-      const sub = c.subscriptions[0] || null;
-      const planName = sub?.planName || 'Pro';
+    // 1. Count query
+    const countSql = `SELECT COUNT(*)::int as total FROM tenants t WHERE ${whereClause}`;
+    const countRes = await this.postgres.query(countSql, queryParams);
+    const total = countRes.rows[0]?.total || 0;
+
+    // 2. Data query
+    queryParams.push(take);
+    const limitIdx = queryParams.length;
+    queryParams.push(skip);
+    const offsetIdx = queryParams.length;
+
+    const dataSql = `
+      SELECT
+        t.id,
+        t.name,
+        t.slug,
+        t.status,
+        t."createdAt",
+        t."updatedAt",
+        p.id as parent_id,
+        p.name as parent_name,
+        p.slug as parent_slug,
+        u.id as user_id,
+        u.name as user_name,
+        u.email as user_email,
+        u.phone as user_phone,
+        s."planName" as plan_name,
+        w.balance as wallet_balance,
+        (SELECT COUNT(*)::int FROM users usr WHERE usr."tenantId" = t.id) as user_count
+      FROM tenants t
+      LEFT JOIN tenants p ON p.id = t."parentId"
+      LEFT JOIN LATERAL (
+        SELECT id, name, email, phone
+        FROM users
+        WHERE "tenantId" = t.id AND role = 'TENANT_ADMIN'::"Role"
+        ORDER BY "createdAt" ASC
+        LIMIT 1
+      ) u ON true
+      LEFT JOIN LATERAL (
+        SELECT "planName"
+        FROM subscriptions
+        WHERE "tenantId" = t.id
+        ORDER BY "createdAt" DESC
+        LIMIT 1
+      ) s ON true
+      LEFT JOIN wallets w ON w."tenantId" = t.id
+      WHERE ${whereClause}
+      ORDER BY t."createdAt" DESC
+      LIMIT $${limitIdx} OFFSET $${offsetIdx}
+    `;
+
+    const rowsRes = await this.postgres.query(dataSql, queryParams);
+
+    const formatted = rowsRes.rows.map((r) => {
+      const planName = r.plan_name || 'Pro';
       const mrr = planName === 'Enterprise' ? 4500 : planName === 'Pro' ? 1200 : planName === 'Growth' ? 99 : 29;
 
       let mappedStatus: 'Active' | 'Suspended' | 'Trial' | 'Inactive' = 'Active';
-      if (c.status === TenantStatus.ACTIVE) mappedStatus = 'Active';
-      else if (c.status === TenantStatus.SUSPENDED) mappedStatus = 'Suspended';
+      if (r.status === 'ACTIVE') mappedStatus = 'Active';
+      else if (r.status === 'SUSPENDED') mappedStatus = 'Suspended';
       else mappedStatus = 'Inactive';
 
       return {
-        id: c.id,
-        name: c.name,
-        slug: c.slug,
-        ownerName: adminUser?.name || 'Account Admin',
-        email: adminUser?.email || '',
-        phone: adminUser?.phone || '',
+        id: r.id,
+        name: r.name,
+        slug: r.slug,
+        ownerName: r.user_name || 'Account Admin',
+        email: r.user_email || '',
+        phone: r.user_phone || '',
         plan: planName,
         status: mappedStatus,
         whatsappStatus: 'Connected',
-        walletBalance: c.wallet?.balance || 0,
-        signupDate: c.createdAt.toLocaleDateString('en-US', {
+        walletBalance: Number(r.wallet_balance) || 0,
+        signupDate: new Date(r.createdAt).toLocaleDateString('en-US', {
           month: 'short',
           day: 'numeric',
           year: 'numeric',
         }),
         mrr,
-        totalUsers: c._count.users || 1,
+        totalUsers: r.user_count || 1,
         lastActive: 'Active recently',
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt,
-        partner: c.parent ? { id: c.parent.id, name: c.parent.name, slug: c.parent.slug } : null,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+        partner: r.parent_id ? { id: r.parent_id, name: r.parent_name, slug: r.parent_slug } : null,
       };
     });
 
@@ -652,20 +690,24 @@ export class TenantsService {
   }
 
   async getClientById(id: string, actor: SessionContext) {
-    const client = await this.prisma.tenant.findUnique({
-      where: { id },
-      include: {
-        parent: { select: { id: true, name: true, slug: true } },
-        users: { select: { id: true, name: true, email: true, phone: true, role: true, createdAt: true } },
-        subscriptions: { orderBy: { createdAt: 'desc' } },
-        wallet: true,
-        channelConfigs: true,
-        _count: { select: { users: true, workflows: true, campaigns: true, crmContacts: true } },
-      },
-    });
+    const clientRes = await this.postgres.query(
+      `SELECT
+        t.id, t.name, t.slug, t.status, t."createdAt", t."updatedAt", t."parentId",
+        p.id as parent_id, p.name as parent_name, p.slug as parent_slug,
+        w.balance as wallet_balance, w.currency as wallet_currency
+       FROM tenants t
+       LEFT JOIN tenants p ON p.id = t."parentId"
+       LEFT JOIN wallets w ON w."tenantId" = t.id
+       WHERE t.id = $1`,
+      [id],
+    );
 
-    if (!client) throw new NotFoundException('Client not found');
+    if (clientRes.rows.length === 0) {
+      throw new NotFoundException('Client not found');
+    }
+    const client = clientRes.rows[0];
 
+    // Tenant isolation check
     if (actor.role !== Role.SUPER_ADMIN) {
       const isParent = client.parentId === actor.tenantId;
       const isSelf = client.id === actor.tenantId;
@@ -674,8 +716,24 @@ export class TenantsService {
       }
     }
 
-    const adminUser = client.users.find((u) => u.role === Role.TENANT_ADMIN) || client.users[0] || null;
-    const sub = client.subscriptions[0] || null;
+    const usersRes = await this.postgres.query(
+      `SELECT id, name, email, phone, role, "createdAt"
+       FROM users
+       WHERE "tenantId" = $1
+       ORDER BY "createdAt" ASC`,
+      [id],
+    );
+    const adminUser = usersRes.rows.find((u) => u.role === 'TENANT_ADMIN') || usersRes.rows[0] || null;
+
+    const subsRes = await this.postgres.query(
+      `SELECT id, "planName", price, status, "currentPeriodStart", "currentPeriodEnd"
+       FROM subscriptions
+       WHERE "tenantId" = $1
+       ORDER BY "createdAt" DESC
+       LIMIT 1`,
+      [id],
+    );
+    const sub = subsRes.rows[0] || null;
 
     return {
       id: client.id,
@@ -685,27 +743,27 @@ export class TenantsService {
       email: adminUser?.email || '',
       phone: adminUser?.phone || '',
       plan: sub?.planName || 'Pro',
-      status: client.status === TenantStatus.ACTIVE ? 'Active' : 'Suspended',
+      status: client.status === 'ACTIVE' ? 'Active' : 'Suspended',
       whatsappStatus: 'Connected',
-      walletBalance: client.wallet?.balance || 0,
-      signupDate: client.createdAt.toLocaleDateString('en-US', {
+      walletBalance: Number(client.wallet_balance) || 0,
+      signupDate: new Date(client.createdAt).toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
         year: 'numeric',
       }),
       mrr: 1999,
-      totalUsers: client._count.users,
+      totalUsers: usersRes.rows.length,
       lastActive: 'Active recently',
       createdAt: client.createdAt,
-      partner: client.parent,
-      adminUser,
+      partner: client.parent_id ? { id: client.parent_id, name: client.parent_name, slug: client.parent_slug } : null,
+      adminUser: adminUser ? { id: adminUser.id, name: adminUser.name, email: adminUser.email, phone: adminUser.phone } : null,
       subscription: sub,
-      wallet: client.wallet,
-      channels: client.channelConfigs,
+      wallet: { balance: Number(client.wallet_balance) || 0, currency: client.wallet_currency || 'INR' },
     };
   }
 
   async createClient(data: CreateClientDto, actor: SessionContext) {
+    // 1. Derive partnerId strictly from authenticated session
     let partnerId: string;
     if (actor.role === Role.RESELLER_ADMIN) {
       if (!actor.tenantId) {
@@ -721,50 +779,65 @@ export class TenantsService {
       throw new ForbiddenException('Only White-Label Partners and Super Admins can provision client accounts');
     }
 
-    const partner = await this.prisma.tenant.findUnique({
-      where: { id: partnerId },
-      include: {
-        partnerConfig: true,
-      },
-    });
-    if (!partner) throw new NotFoundException('Partner organization not found');
-
-    // Check client quota
-    const clientLimit = partner.maxEndClients || partner.partnerConfig?.clientLimit || 50;
-    const currentCount = await this.prisma.tenant.count({
-      where: { parentId: partner.id, tier: TenantTier.END_CLIENT },
-    });
-    if (clientLimit > 0 && currentCount >= clientLimit) {
-      throw new BadRequestException(
-        `Partner organization has reached its maximum quota of ${clientLimit} clients. Contact platform administrator to upgrade.`,
-      );
+    // 2. Validate password (minimum 8 characters required)
+    const rawPassword = (data.password || data.adminPassword || '').trim();
+    if (!rawPassword || rawPassword.length < 8) {
+      throw new BadRequestException('Password is required and must be at least 8 characters long');
     }
 
+    // 3. Find partner details using direct PostgreSQL
+    const partnerRes = await this.postgres.query(
+      `SELECT t.id, t.name, t.slug, t.path, t.depth, t."primaryColor", t."maxEndClients", pc."clientLimit"
+       FROM tenants t
+       LEFT JOIN partner_configs pc ON pc."tenantId" = t.id
+       WHERE t.id = $1`,
+      [partnerId],
+    );
+    if (partnerRes.rows.length === 0) {
+      throw new NotFoundException('Partner organization not found');
+    }
+    const partner = partnerRes.rows[0];
+
+    // 4. Check client quota
+    const clientLimit = partner.maxEndClients || partner.clientLimit || 50;
+    if (clientLimit > 0) {
+      const countRes = await this.postgres.query(
+        `SELECT COUNT(*)::int as count FROM tenants WHERE "parentId" = $1 AND tier = 'END_CLIENT'::"TenantTier"`,
+        [partner.id],
+      );
+      const currentCount = countRes.rows[0]?.count || 0;
+      if (currentCount >= clientLimit) {
+        throw new BadRequestException(
+          `Partner organization has reached its maximum quota of ${clientLimit} clients. Contact platform administrator to upgrade.`,
+        );
+      }
+    }
+
+    // 5. Check duplicate email in PostgreSQL users table
     const cleanEmail = data.email.toLowerCase().trim();
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email: cleanEmail },
-    });
-    if (existingUser) {
+    const existingUserRes = await this.postgres.query(
+      `SELECT id FROM users WHERE LOWER(email) = LOWER($1)`,
+      [cleanEmail],
+    );
+    if (existingUserRes.rows.length > 0) {
       throw new ConflictException(`User email ${cleanEmail} is already registered.`);
     }
 
+    // 6. Generate IDs and hierarchy fields
     const slug = data.slug ? this.generateSlug(data.slug) : this.generateSlug(data.name);
     const clientId = randomUUID();
     const cleanId = clientId.replace(/-/g, '_');
     const path = `${partner.path}.t_${cleanId}`;
-    const depth = partner.depth + 1;
+    const depth = (partner.depth || 0) + 1;
 
-    const rawPassword =
-      data.adminPassword && data.adminPassword.trim().length >= 6
-        ? data.adminPassword.trim()
-        : Math.random().toString(36).slice(-8) + 'Aa1!';
+    // 7. Hash password using project's standard bcrypt (12 rounds)
     const passwordHash = await bcrypt.hash(rawPassword, 12);
 
-    let tenantStatus: TenantStatus = TenantStatus.ACTIVE;
+    let tenantStatus = 'ACTIVE';
     if (data.status) {
       const s = data.status.toUpperCase();
-      if (s === 'SUSPENDED') tenantStatus = TenantStatus.SUSPENDED;
-      else if (s === 'CANCELLED' || s === 'INACTIVE') tenantStatus = TenantStatus.CANCELLED;
+      if (s === 'SUSPENDED') tenantStatus = 'SUSPENDED';
+      else if (s === 'CANCELLED' || s === 'INACTIVE') tenantStatus = 'CANCELLED';
     }
 
     const planName = data.plan || 'Pro';
@@ -774,83 +847,130 @@ export class TenantsService {
     else if (planName.toLowerCase().includes('pro')) price = '₹2,999/mo';
     else if (planName.toLowerCase().includes('enterprise')) price = '₹4,999/mo';
 
-    return this.prisma.$transaction(async (tx) => {
-      // 1. Create Client Tenant
-      const clientTenant = await tx.tenant.create({
-        data: {
-          id: clientId,
-          name: data.name.trim(),
+    const planSlug = planName.toLowerCase().replace(/\s+/g, '-');
+    const planMatchRes = await this.postgres.query(
+      `SELECT id FROM plans WHERE slug = $1 OR LOWER(name) = LOWER($2) LIMIT 1`,
+      [planSlug, planName],
+    );
+    const matchedPlanId = planMatchRes.rows[0]?.id || null;
+
+    // 8. Execute transactional direct PostgreSQL insert
+    const pgClient = await this.postgres.getPool().connect();
+    try {
+      await pgClient.query('BEGIN');
+
+      const now = new Date();
+
+      // Insert tenant
+      await pgClient.query(
+        `INSERT INTO tenants (
+          id, name, slug, status, tier, path, depth, "parentId", "primaryColor",
+          "maxSubResellers", "maxEndClients", "maxUsers", "trialUsed", "twoFactorEnabled",
+          "createdAt", "updatedAt"
+        ) VALUES (
+          $1, $2, $3, $4::"TenantStatus", 'END_CLIENT'::"TenantTier", $5, $6, $7, $8,
+          0, 10, 5, false, false,
+          $9, $9
+        )`,
+        [
+          clientId,
+          data.name.trim(),
           slug,
-          tier: TenantTier.END_CLIENT,
+          tenantStatus,
           path,
           depth,
-          parentId: partner.id,
-          status: tenantStatus,
-          primaryColor: partner.primaryColor || '#0f172a',
-        },
-      });
+          partner.id,
+          partner.primaryColor || '#0f172a',
+          now,
+        ],
+      );
 
-      // 2. Create Owner User
-      const ownerUser = await tx.user.create({
-        data: {
-          email: cleanEmail,
+      // Insert owner user with hashed password
+      const userId = randomUUID();
+      const ownerName = data.ownerName?.trim() || `${data.name.trim()} Admin`;
+      const phone = data.phone?.trim() || null;
+      await pgClient.query(
+        `INSERT INTO users (
+          id, email, "passwordHash", name, phone, role, "tenantId",
+          language, theme, "twoFactorEnabled", "createdAt", "updatedAt"
+        ) VALUES (
+          $1, $2, $3, $4, $5, 'TENANT_ADMIN'::"Role", $6,
+          'en', 'system', false, $7, $7
+        )`,
+        [
+          userId,
+          cleanEmail,
           passwordHash,
-          name: data.ownerName?.trim() || `${data.name.trim()} Admin`,
-          phone: data.phone?.trim() || null,
-          role: Role.TENANT_ADMIN,
-          tenantId: clientTenant.id,
-        },
-      });
+          ownerName,
+          phone,
+          clientId,
+          now,
+        ],
+      );
 
-      // 3. Create Subscription
-      const now = new Date();
+      // Insert subscription
+      const subId = randomUUID();
       const totalDays = 90;
       const currentPeriodEnd = new Date(now.getTime() + totalDays * 24 * 60 * 60 * 1000);
-      const planSlug = planName.toLowerCase().replace(/\s+/g, '-');
-      const matchedPlan = await tx.plan.findFirst({
-        where: {
-          OR: [{ slug: planSlug }, { name: { equals: planName, mode: 'insensitive' } }],
-        },
-      });
-
-      const subscription = await tx.subscription.create({
-        data: {
-          tenantId: clientTenant.id,
+      await pgClient.query(
+        `INSERT INTO subscriptions (
+          id, "tenantId", "planId", "planName", "planRefId", price, status,
+          "totalDays", "remainingDays", "currentPeriodStart", "currentPeriodEnd",
+          "maxBots", "maxMessages", "maxTeamSeats", "usedBots", "usedMessages", "usedTeamSeats",
+          "isTrial", "createdAt", "updatedAt"
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, 'ACTIVE'::"SubscriptionStatus",
+          $7, $7, $8, $9,
+          5, 10000, 5, 0, 0, 1,
+          false, $8, $8
+        )`,
+        [
+          subId,
+          clientId,
+          planSlug,
           planName,
-          planId: planSlug,
-          planRefId: matchedPlan?.id || null,
+          matchedPlanId,
           price,
-          status: 'ACTIVE',
           totalDays,
-          remainingDays: totalDays,
-          currentPeriodStart: now,
+          now,
           currentPeriodEnd,
-        },
-      });
+        ],
+      );
 
-      // 4. Create Wallet
-      const wallet = await tx.wallet.create({
-        data: {
-          tenantId: clientTenant.id,
-          balance: data.walletBalance !== undefined ? Number(data.walletBalance) : 0,
-          currency: 'INR',
-        },
-      });
+      // Insert wallet
+      const walletId = randomUUID();
+      const initialBalance = data.walletBalance !== undefined ? Number(data.walletBalance) : 0;
+      await pgClient.query(
+        `INSERT INTO wallets (
+          id, "tenantId", balance, currency, "minThreshold", "autoRechargeEnabled",
+          "autoRechargeAmount", "defaultPaymentMethod", "createdAt", "updatedAt"
+        ) VALUES (
+          $1, $2, $3, 'INR', 100.0, false, 500.0, 'WALLET', $4, $4
+        )`,
+        [
+          walletId,
+          clientId,
+          initialBalance,
+          now,
+        ],
+      );
+
+      await pgClient.query('COMMIT');
 
       const mrr = planName === 'Enterprise' ? 4500 : planName === 'Pro' ? 1200 : planName === 'Growth' ? 99 : 29;
 
       return {
-        id: clientTenant.id,
-        name: clientTenant.name,
-        slug: clientTenant.slug,
-        ownerName: ownerUser.name,
-        email: ownerUser.email,
-        phone: ownerUser.phone || '',
+        id: clientId,
+        name: data.name.trim(),
+        slug,
+        ownerName,
+        email: cleanEmail,
+        phone: phone || '',
         plan: planName,
-        status: tenantStatus === TenantStatus.ACTIVE ? 'Active' : 'Suspended',
+        status: tenantStatus === 'ACTIVE' ? 'Active' : 'Suspended',
         whatsappStatus: data.whatsappStatus || 'Connected',
-        walletBalance: wallet.balance,
-        signupDate: clientTenant.createdAt.toLocaleDateString('en-US', {
+        walletBalance: initialBalance,
+        signupDate: now.toLocaleDateString('en-US', {
           month: 'short',
           day: 'numeric',
           year: 'numeric',
@@ -859,124 +979,192 @@ export class TenantsService {
         totalUsers: 1,
         lastActive: 'Just now',
         partner: { id: partner.id, name: partner.name, slug: partner.slug },
-        adminUser: { id: ownerUser.id, name: ownerUser.name, email: ownerUser.email, phone: ownerUser.phone },
-        subscription: { planName: subscription.planName, price: subscription.price, status: subscription.status },
-        wallet: { balance: wallet.balance, currency: wallet.currency },
-        createdAt: clientTenant.createdAt,
+        adminUser: { id: userId, name: ownerName, email: cleanEmail, phone: phone || '' },
+        subscription: { planName, price, status: 'ACTIVE' },
+        wallet: { balance: initialBalance, currency: 'INR' },
+        createdAt: now,
       };
-    });
+    } catch (error) {
+      await pgClient.query('ROLLBACK');
+      throw error;
+    } finally {
+      pgClient.release();
+    }
   }
 
   async updateClient(id: string, data: UpdateClientDto, actor: SessionContext) {
-    const client = await this.prisma.tenant.findUnique({
-      where: { id },
-      include: { users: true, subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 }, wallet: true },
-    });
-    if (!client) throw new NotFoundException('Client not found');
+    // 1. Check client existence and tenant isolation
+    const clientRes = await this.postgres.query(
+      `SELECT id, name, slug, status, tier, "parentId" FROM tenants WHERE id = $1`,
+      [id],
+    );
+    if (clientRes.rows.length === 0) {
+      throw new NotFoundException('Client not found');
+    }
+    const clientTenant = clientRes.rows[0];
 
-    if (actor.role !== Role.SUPER_ADMIN && client.parentId !== actor.tenantId) {
+    if (actor.role !== Role.SUPER_ADMIN && clientTenant.parentId !== actor.tenantId) {
       throw new ForbiddenException('Access denied: Client does not belong to your organization');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const pgClient = await this.postgres.getPool().connect();
+    try {
+      await pgClient.query('BEGIN');
+
+      // Update tenant name / status
       if (data.name || data.status) {
-        const updateData: any = {};
-        if (data.name) updateData.name = data.name.trim();
+        let tenantStatus = null;
         if (data.status) {
           const s = data.status.toUpperCase();
-          if (s === 'ACTIVE') updateData.status = TenantStatus.ACTIVE;
-          else if (s === 'SUSPENDED') updateData.status = TenantStatus.SUSPENDED;
-          else if (s === 'CANCELLED' || s === 'INACTIVE') updateData.status = TenantStatus.CANCELLED;
+          if (s === 'ACTIVE') tenantStatus = 'ACTIVE';
+          else if (s === 'SUSPENDED') tenantStatus = 'SUSPENDED';
+          else if (s === 'CANCELLED' || s === 'INACTIVE') tenantStatus = 'CANCELLED';
         }
-        await tx.tenant.update({ where: { id }, data: updateData });
+
+        await pgClient.query(
+          `UPDATE tenants
+           SET name = COALESCE($1, name),
+               status = COALESCE($2::"TenantStatus", status),
+               "updatedAt" = NOW()
+           WHERE id = $3`,
+          [data.name ? data.name.trim() : null, tenantStatus, id],
+        );
       }
 
+      // Update admin user (name, email, phone)
       if (data.ownerName || data.email || data.phone !== undefined) {
-        const adminUser = client.users.find((u) => u.role === Role.TENANT_ADMIN) || client.users[0];
+        const userRes = await pgClient.query(
+          `SELECT id, email, name, phone FROM users WHERE "tenantId" = $1 AND role = 'TENANT_ADMIN'::"Role" LIMIT 1`,
+          [id],
+        );
+        const adminUser = userRes.rows[0];
         if (adminUser) {
-          const userUpdate: any = {};
-          if (data.ownerName) userUpdate.name = data.ownerName.trim();
-          if (data.phone !== undefined) userUpdate.phone = data.phone?.trim() || null;
+          let newEmail = adminUser.email;
           if (data.email && data.email.toLowerCase().trim() !== adminUser.email.toLowerCase().trim()) {
             const cleanEmail = data.email.toLowerCase().trim();
-            const exists = await tx.user.findFirst({ where: { email: cleanEmail, NOT: { id: adminUser.id } } });
-            if (exists) throw new BadRequestException(`Email ${cleanEmail} is already in use`);
-            userUpdate.email = cleanEmail;
+            const dupRes = await pgClient.query(
+              `SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND id != $2`,
+              [cleanEmail, adminUser.id],
+            );
+            if (dupRes.rows.length > 0) {
+              throw new BadRequestException(`Email ${cleanEmail} is already in use`);
+            }
+            newEmail = cleanEmail;
           }
-          await tx.user.update({ where: { id: adminUser.id }, data: userUpdate });
+
+          await pgClient.query(
+            `UPDATE users
+             SET name = COALESCE($1, name),
+                 email = COALESCE($2, email),
+                 phone = COALESCE($3, phone),
+                 "updatedAt" = NOW()
+             WHERE id = $4`,
+            [
+              data.ownerName ? data.ownerName.trim() : null,
+              newEmail,
+              data.phone !== undefined ? (data.phone ? data.phone.trim() : null) : null,
+              adminUser.id,
+            ],
+          );
         }
       }
 
+      // Update subscription plan
       if (data.plan) {
-        const existingSub = client.subscriptions[0];
-        if (existingSub) {
-          await tx.subscription.update({
-            where: { id: existingSub.id },
-            data: {
-              planName: data.plan,
-              planId: data.plan.toLowerCase().replace(/\s+/g, '-'),
-            },
-          });
+        const subRes = await pgClient.query(
+          `SELECT id FROM subscriptions WHERE "tenantId" = $1 ORDER BY "createdAt" DESC LIMIT 1`,
+          [id],
+        );
+        if (subRes.rows.length > 0) {
+          const subId = subRes.rows[0].id;
+          const planSlug = data.plan.toLowerCase().replace(/\s+/g, '-');
+          await pgClient.query(
+            `UPDATE subscriptions
+             SET "planName" = $1,
+                 "planId" = $2,
+                 "updatedAt" = NOW()
+             WHERE id = $3`,
+            [data.plan, planSlug, subId],
+          );
         }
       }
 
+      // Update wallet balance
       if (data.walletBalance !== undefined) {
-        await tx.wallet.upsert({
-          where: { tenantId: id },
-          create: {
-            id: randomUUID(),
-            tenantId: id,
-            balance: Number(data.walletBalance) || 0,
-            currency: 'INR',
-          },
-          update: {
-            balance: Number(data.walletBalance) || 0,
-          },
-        });
+        const balanceNum = Number(data.walletBalance) || 0;
+        await pgClient.query(
+          `INSERT INTO wallets (
+            id, "tenantId", balance, currency, "minThreshold", "autoRechargeEnabled",
+            "autoRechargeAmount", "defaultPaymentMethod", "createdAt", "updatedAt"
+          ) VALUES (
+            $1, $2, $3, 'INR', 100.0, false, 500.0, 'WALLET', NOW(), NOW()
+          )
+          ON CONFLICT ("tenantId") DO UPDATE
+          SET balance = EXCLUDED.balance, "updatedAt" = NOW()`,
+          [randomUUID(), id, balanceNum],
+        );
       }
 
+      await pgClient.query('COMMIT');
       return { success: true, message: 'Client updated successfully' };
-    });
+    } catch (error) {
+      await pgClient.query('ROLLBACK');
+      throw error;
+    } finally {
+      pgClient.release();
+    }
   }
 
   async updateClientStatus(id: string, status: string, actor: SessionContext) {
-    const client = await this.prisma.tenant.findUnique({ where: { id } });
-    if (!client) throw new NotFoundException('Client not found');
+    const clientRes = await this.postgres.query(
+      `SELECT id, "parentId" FROM tenants WHERE id = $1`,
+      [id],
+    );
+    if (clientRes.rows.length === 0) {
+      throw new NotFoundException('Client not found');
+    }
+    const client = clientRes.rows[0];
 
     if (actor.role !== Role.SUPER_ADMIN && client.parentId !== actor.tenantId) {
       throw new ForbiddenException('Access denied: Client does not belong to your organization');
     }
 
     const upper = status.toUpperCase();
-    let tenantStatus: TenantStatus = TenantStatus.ACTIVE;
-    if (upper === 'ACTIVE') tenantStatus = TenantStatus.ACTIVE;
-    else if (upper === 'SUSPENDED') tenantStatus = TenantStatus.SUSPENDED;
-    else if (upper === 'CANCELLED' || upper === 'INACTIVE') tenantStatus = TenantStatus.CANCELLED;
+    let tenantStatus = 'ACTIVE';
+    if (upper === 'ACTIVE') tenantStatus = 'ACTIVE';
+    else if (upper === 'SUSPENDED') tenantStatus = 'SUSPENDED';
+    else if (upper === 'CANCELLED' || upper === 'INACTIVE') tenantStatus = 'CANCELLED';
 
-    const updated = await this.prisma.tenant.update({
-      where: { id },
-      data: { status: tenantStatus },
-    });
+    const updateRes = await this.postgres.query(
+      `UPDATE tenants SET status = $1::"TenantStatus", "updatedAt" = NOW() WHERE id = $2 RETURNING *`,
+      [tenantStatus, id],
+    );
 
-    return { success: true, client: updated };
+    return { success: true, client: updateRes.rows[0] };
   }
 
   async deleteClient(id: string, actor: SessionContext) {
-    const client = await this.prisma.tenant.findUnique({ where: { id } });
-    if (!client) throw new NotFoundException('Client not found');
+    const clientRes = await this.postgres.query(
+      `SELECT id, "parentId" FROM tenants WHERE id = $1`,
+      [id],
+    );
+    if (clientRes.rows.length === 0) {
+      throw new NotFoundException('Client not found');
+    }
+    const client = clientRes.rows[0];
 
     if (actor.role !== Role.SUPER_ADMIN && client.parentId !== actor.tenantId) {
       throw new ForbiddenException('Access denied: Client does not belong to your organization');
     }
 
     try {
-      await this.prisma.tenant.delete({ where: { id } });
+      await this.postgres.query(`DELETE FROM tenants WHERE id = $1`, [id]);
       return { success: true, message: 'Client organization deleted successfully' };
     } catch {
-      await this.prisma.tenant.update({
-        where: { id },
-        data: { status: TenantStatus.CANCELLED },
-      });
+      await this.postgres.query(
+        `UPDATE tenants SET status = 'CANCELLED'::"TenantStatus", "updatedAt" = NOW() WHERE id = $1`,
+        [id],
+      );
       return { success: true, message: 'Client organization cancelled successfully' };
     }
   }
@@ -986,19 +1174,16 @@ export class TenantsService {
   // ==========================================
   async loginAsGuest(clientId: string, actor: SessionContext, ip?: string) {
     // 1. Fetch target client organization
-    const client = await this.prisma.tenant.findUnique({
-      where: { id: clientId },
-      include: {
-        parent: { select: { id: true, name: true, slug: true, tier: true, path: true } },
-        users: { where: { role: Role.TENANT_ADMIN }, take: 1 },
-        subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 },
-        wallet: true,
-      },
-    });
+    const clientRes = await this.postgres.query(
+      `SELECT t.id, t.name, t.slug, t.tier, t.path, t."parentId"
+       FROM tenants t WHERE t.id = $1`,
+      [clientId],
+    );
 
-    if (!client) {
+    if (clientRes.rows.length === 0) {
       throw new NotFoundException('Client organization not found');
     }
+    const client = clientRes.rows[0];
 
     // 2. Strict Role & Tenant Hierarchy Verification
     if (actor.role === Role.SUPER_ADMIN || (actor as any).role === 'SUPER_ADMIN' || (actor as any).role === 'owner') {
@@ -1023,25 +1208,69 @@ export class TenantsService {
     }
 
     // 3. Resolve target client primary administrative user
-    let clientAdminUser = client.users[0];
+    const userRes = await this.postgres.query(
+      `SELECT id, name, email, role, "tenantId" FROM users
+       WHERE "tenantId" = $1 AND role = 'TENANT_ADMIN'::"Role"
+       ORDER BY "createdAt" ASC LIMIT 1`,
+      [client.id],
+    );
+    let clientAdminUser = userRes.rows[0];
     if (!clientAdminUser) {
-      clientAdminUser = await this.prisma.user.findFirst({
-        where: { tenantId: client.id },
-      });
+      const fallbackUserRes = await this.postgres.query(
+        `SELECT id, name, email, role, "tenantId" FROM users
+         WHERE "tenantId" = $1 ORDER BY "createdAt" ASC LIMIT 1`,
+        [client.id],
+      );
+      clientAdminUser = fallbackUserRes.rows[0];
     }
 
     if (!clientAdminUser) {
       const tempEmail = `admin.${client.slug}@workspace.local`;
       const tempPasswordHash = await bcrypt.hash(randomUUID(), 12);
-      clientAdminUser = await this.prisma.user.create({
-        data: {
-          email: tempEmail,
-          passwordHash: tempPasswordHash,
-          name: `${client.name} Administrator`,
-          role: Role.TENANT_ADMIN,
-          tenantId: client.id,
-        },
-      });
+      const newUserId = randomUUID();
+      const insertUserRes = await this.postgres.query(
+        `INSERT INTO users (
+          id, email, "passwordHash", name, role, "tenantId",
+          language, theme, "twoFactorEnabled", "createdAt", "updatedAt"
+        ) VALUES (
+          $1, $2, $3, $4, 'TENANT_ADMIN'::"Role", $5,
+          'en', 'system', false, NOW(), NOW()
+        ) RETURNING id, name, email, role, "tenantId"`,
+        [newUserId, tempEmail, tempPasswordHash, `${client.name} Administrator`, client.id],
+      );
+      clientAdminUser = insertUserRes.rows[0];
+    }
+
+    // Ensure the client workspace has an active subscription record
+    let activePlanName = 'Professional Tier';
+    try {
+      const subCheck = await this.postgres.query(
+        `SELECT id, "planName" FROM subscriptions WHERE "tenantId" = $1 AND status IN ('ACTIVE', 'TRIALING') LIMIT 1`,
+        [client.id],
+      );
+      if (subCheck.rows.length === 0) {
+        const subId = randomUUID();
+        const totalDays = 90;
+        const currentPeriodEnd = new Date(Date.now() + totalDays * 24 * 60 * 60 * 1000);
+        await this.postgres.query(
+          `INSERT INTO subscriptions (
+            id, "tenantId", "planId", "planName", "price", status,
+            "totalDays", "remainingDays", "currentPeriodStart", "currentPeriodEnd",
+            "maxBots", "maxMessages", "maxTeamSeats", "usedBots", "usedMessages", "usedTeamSeats",
+            "isTrial", "createdAt", "updatedAt"
+          ) VALUES (
+            $1, $2, 'pro', 'Professional Tier', '₹2,999/mo', 'ACTIVE'::"SubscriptionStatus",
+            $3, $3, NOW(), $4,
+            5, 10000, 5, 0, 0, 1,
+            false, NOW(), NOW()
+          ) ON CONFLICT (id) DO NOTHING`,
+          [subId, client.id, totalDays, currentPeriodEnd],
+        );
+      } else {
+        activePlanName = subCheck.rows[0].planName || 'Professional Tier';
+      }
+    } catch (err: any) {
+      this.logger.warn(`Failed to verify/auto-seed client subscription on guest login: ${err.message}`);
     }
 
     // 4. Generate client workspace JWT tokens
@@ -1054,6 +1283,8 @@ export class TenantsService {
       clientAdminUser.role,
       clientOrgPath,
       clientTier,
+      ['*'],
+      { impersonatedWorkspaceId: client.id, isImpersonated: true },
     );
 
     // 5. Generate short-lived support impersonation token for audit context & headers
@@ -1104,7 +1335,7 @@ export class TenantsService {
 
     // 7. Format user and client organization context
     const formattedUser = this.authService.formatUser(clientAdminUser, client.name);
-    const activeSub = client.subscriptions[0] || null;
+    const activeSub = client.subscriptions?.[0] || null;
 
     return {
       accessToken: tokens.accessToken,
@@ -1124,11 +1355,10 @@ export class TenantsService {
         slug: client.slug,
         ownerName: clientAdminUser.name || 'Account Admin',
         email: clientAdminUser.email,
-        plan: activeSub?.planName || 'Pro',
+        plan: activeSub?.planName || activePlanName || 'Professional Tier',
         walletBalance: client.wallet?.balance || 0,
         whatsappStatus: 'Connected',
       },
     };
   }
 }
-

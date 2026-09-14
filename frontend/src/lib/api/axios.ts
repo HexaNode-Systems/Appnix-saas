@@ -15,6 +15,8 @@ const createAxiosInstance = (): AxiosInstance => {
     (requestConfig: InternalAxiosRequestConfig) => {
       if (typeof window !== "undefined") {
         const token =
+          localStorage.getItem("appnix_superadmin_token") ||
+          localStorage.getItem(config.auth.superAdminTokenKey) ||
           localStorage.getItem(config.auth.tokenKey) ||
           localStorage.getItem(config.auth.adminTokenKey) ||
           localStorage.getItem("appnix_admin_token");
@@ -22,11 +24,38 @@ const createAxiosInstance = (): AxiosInstance => {
           requestConfig.headers.Authorization = `Bearer ${token}`;
         }
 
+        const url = requestConfig.url || "";
+        const isAuthOrImpersonateEndpoint =
+          url.includes("/guest-login") ||
+          url.includes("/impersonate") ||
+          url.includes("/auth/");
+
         const impersonationToken =
           sessionStorage.getItem("appnix_impersonation_token") ||
           localStorage.getItem("appnix_impersonation_token");
-        if (impersonationToken && requestConfig.headers) {
-          requestConfig.headers["X-Impersonation-Token"] = impersonationToken;
+
+        if (impersonationToken && !isAuthOrImpersonateEndpoint && requestConfig.headers) {
+          let isExpired = false;
+          try {
+            const parts = impersonationToken.split(".");
+            if (parts.length >= 2) {
+              const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+              if (payload.exp && typeof payload.exp === "number") {
+                isExpired = payload.exp * 1000 < Date.now();
+              }
+            } else {
+              isExpired = true;
+            }
+          } catch {
+            isExpired = true;
+          }
+
+          if (isExpired) {
+            sessionStorage.removeItem("appnix_impersonation_token");
+            localStorage.removeItem("appnix_impersonation_token");
+          } else {
+            requestConfig.headers["X-Impersonation-Token"] = impersonationToken;
+          }
         }
       }
       return requestConfig;

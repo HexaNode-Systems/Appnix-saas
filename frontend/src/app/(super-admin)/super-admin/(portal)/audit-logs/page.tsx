@@ -80,17 +80,11 @@ export default function SuperAdminAuditLogsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-5">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
-              Append-Only Security Ledger
-            </span>
-          </div>
+
           <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
             Audit Logs & Super Admin Activity
           </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Immutable security ledger tracking platform-level administrative mutations, partner activations, and inspection sessions.
-          </p>
+
         </div>
 
         <Button

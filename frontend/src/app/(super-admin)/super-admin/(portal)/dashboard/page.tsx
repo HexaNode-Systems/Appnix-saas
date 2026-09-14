@@ -51,18 +51,11 @@ export default function SuperAdminDashboardPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-5">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[11px] font-mono font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
-              Tier-0 Hardware Clearance Active
-            </span>
-          </div>
+       
           <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
             Platform Infrastructure & Super Admin Console
           </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Root multitenant control plane, white-label wholesale economics, and channel telemetry.
-          </p>
+        
         </div>
 
         <div className="flex items-center gap-2">
@@ -195,43 +188,6 @@ export default function SuperAdminDashboardPage() {
             <div className="flex items-center gap-1.5 mt-1.5 text-xs text-muted-foreground">
               <span>Retained by partners</span>
             </div>
-          </div>
-        </div>
-      </div>
-
-      {/* White-Label Wholesale Business Model Explainer Card */}
-      <div className="rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-500/5 via-amber-500/10 to-transparent p-5">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="space-y-1.5 max-w-3xl">
-            <div className="flex items-center gap-2">
-              <Badge className="bg-amber-500/20 text-amber-800 dark:text-amber-300 hover:bg-amber-500/30 text-[10px] font-bold">
-                WHITE-LABEL LIFETIME LICENSE MODEL
-              </Badge>
-              <span className="text-xs font-mono text-muted-foreground">Permanent Access • No Expiration</span>
-            </div>
-            <h3 className="text-sm font-bold text-foreground">
-              One-Time Lifetime White-Label License + Recurring Per-Client Commission
-            </h3>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              White-Label Partners pay a <strong>one-time lifetime White-Label license fee</strong> for permanent platform access without any recurring license renewals or expiration.
-              Separately, Appnix earns a contracted recurring commission for active end-clients onboarded.
-              Partners configure their own retail packages and retain their full operating margins.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2.5">
-            <Link href="/super-admin/wholesale-plans">
-              <Button size="sm" variant="outline" className="h-8.5 text-xs gap-1.5 border-amber-500/40 text-amber-900 dark:text-amber-200">
-                <Layers className="h-3.5 w-3.5" />
-                <span>Configure Wholesale Plans</span>
-              </Button>
-            </Link>
-            <Link href="/super-admin/partners">
-              <Button size="sm" className="h-8.5 text-xs gap-1.5 bg-amber-600 hover:bg-amber-700 text-white font-medium">
-                <span>Manage Partners</span>
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Button>
-            </Link>
           </div>
         </div>
       </div>

@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { LogoutConfirmModal } from "@/components/shared/LogoutConfirmModal";
 import { FaWhatsapp } from "react-icons/fa";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -46,12 +48,21 @@ export function AppNavbar({ onMenuClick }: AppNavbarProps) {
   const router = useRouter();
   const { t } = useTranslation();
 
-  const handleLogout = async () => {
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleOpenLogoutModal = () => {
+    setIsLogoutModalOpen(true);
+  };
+
+  const handleConfirmLogout = async () => {
+    setIsLoggingOut(true);
     try {
       await logout();
     } catch {
       // ignore
     } finally {
+      setIsLoggingOut(false);
       router.push("/signin");
     }
   };
@@ -65,7 +76,8 @@ export function AppNavbar({ onMenuClick }: AppNavbarProps) {
   };
 
   return (
-    <header className="app-surface sticky top-0 z-30 flex h-16 items-stretch border-b">
+    <>
+      <header className="app-surface sticky top-0 z-30 flex h-16 items-stretch border-b">
       {/* Brand column: width-matched to the sidebar (w-64) on desktop so the
           right border lines up with the sidebar's border below it. */}
       <div className="hidden shrink-0 items-center gap-2 border-r border-border px-4 lg:flex lg:w-64">
@@ -351,7 +363,7 @@ export function AppNavbar({ onMenuClick }: AppNavbarProps) {
 
                 {/* Logout Option */}
                 <DropdownMenuItem
-                  onClick={handleLogout}
+                  onClick={handleOpenLogoutModal}
                   className="flex items-center gap-2.5 px-2.5 py-2 cursor-pointer rounded-md text-sm text-destructive focus:text-destructive focus:bg-destructive/10 transition-colors"
                 >
                   <LogOut className="h-4 w-4 text-destructive" />
@@ -363,5 +375,17 @@ export function AppNavbar({ onMenuClick }: AppNavbarProps) {
         </div>
       </div>
     </header>
-  );
+
+    <LogoutConfirmModal
+      isOpen={isLogoutModalOpen}
+      onClose={() => setIsLogoutModalOpen(false)}
+      onConfirm={handleConfirmLogout}
+      title="Log out"
+      message="Are you sure you want to log out of your account?"
+      confirmText="Log out"
+      cancelText="Cancel"
+      isLoading={isLoggingOut}
+    />
+  </>
+);
 }

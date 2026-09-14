@@ -2323,7 +2323,19 @@ export class SuperAdminService {
   ) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: targetWorkspaceId },
-      select: { id: true, name: true, path: true, tier: true, parentId: true },
+      select: {
+        id: true,
+        name: true,
+        path: true,
+        tier: true,
+        parentId: true,
+        customDomain: true,
+        users: {
+          select: { id: true, email: true, role: true },
+          orderBy: { createdAt: 'asc' },
+          take: 10,
+        },
+      },
     });
     if (!tenant) throw new NotFoundException('Workspace not found');
 
@@ -2368,23 +2380,43 @@ export class SuperAdminService {
       throw new ForbiddenException('Only Super Admins and Reseller Admins may use delegated inspection');
     }
 
-    const tokenRole = isSuper ? Role.SUPER_ADMIN : Role.RESELLER_ADMIN;
+    const partnerAdminUser =
+      tenant.users?.find((u) => u.role === Role.RESELLER_ADMIN) ||
+      tenant.users?.find((u) => u.role === Role.TENANT_ADMIN) ||
+      tenant.users?.[0];
+
+    const targetUserId = partnerAdminUser?.id || actor.userId;
+    const targetEmail = partnerAdminUser?.email || actor.email || 'partner@appnix.local';
+    const targetRole =
+      tenant.tier === TenantTier.PRIMARY_RESELLER || tenant.tier === TenantTier.SUB_RESELLER
+        ? Role.RESELLER_ADMIN
+        : (partnerAdminUser?.role || (isSuper ? Role.SUPER_ADMIN : Role.RESELLER_ADMIN));
+
     const tokenPurpose = isSuper ? 'super_admin_impersonation' : 'reseller_impersonation';
+
+    const secret =
+      this.config.get<string>('JWT_ACCESS_SECRET') ||
+      this.config.get<string>('JWT_SECRET') ||
+      this.config.get<string>('IMPERSONATION_JWT_SECRET') ||
+      'default-access-secret';
 
     const token = await this.jwt.signAsync(
       {
-        sub: actor.userId,
-        role: tokenRole,
+        sub: targetUserId,
+        email: targetEmail,
+        role: targetRole,
+        tenantId: tenant.id,
         targetWorkspaceId,
         targetOrgPath: tenant.path,
+        orgPath: tenant.path,
         targetTier: tenant.tier,
+        tier: tenant.tier,
+        isImpersonated: true,
+        impersonatorId: actor.userId,
         purpose: tokenPurpose,
       },
       {
-        secret:
-          this.config.get<string>('IMPERSONATION_JWT_SECRET') ||
-          this.config.get<string>('JWT_ACCESS_SECRET') ||
-          this.config.get<string>('JWT_SECRET'),
+        secret,
         expiresIn: this.config.get<string>('IMPERSONATION_JWT_EXPIRY') || '15m',
       },
     );
@@ -2403,8 +2435,30 @@ export class SuperAdminService {
       },
     );
 
+    const isLocal = process.env.NODE_ENV !== 'production';
+    const isReseller =
+      tenant.tier === TenantTier.PRIMARY_RESELLER ||
+      tenant.tier === TenantTier.SUB_RESELLER ||
+      targetRole === Role.RESELLER_ADMIN;
+
+    let redirectUrl = '';
+    if (isReseller) {
+      const base = isLocal ? 'http://partners.localhost:3000' : 'https://partners.appnix.co.in';
+      redirectUrl = `${base}/auth/guest-login?token=${token}`;
+    } else {
+      const customDomain = tenant.customDomain;
+      if (customDomain) {
+        const base = isLocal ? `http://${customDomain}:3000` : `https://${customDomain}`;
+        redirectUrl = `${base}/auth/guest-login?token=${token}`;
+      } else {
+        const base = isLocal ? 'http://app.localhost:3000' : 'https://app.appnix.co.in';
+        redirectUrl = `${base}/auth/guest-login?token=${token}`;
+      }
+    }
+
     return {
       impersonationToken: token,
+      redirectUrl,
       expiresIn: this.config.get<string>('IMPERSONATION_JWT_EXPIRY') || '15m',
     };
   }

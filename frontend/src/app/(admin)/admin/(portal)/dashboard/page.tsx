@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { clientService, analyticsService } from "@/super-admin/services";
-import { AddClientModal } from "@/super-admin/components/clients/AddClientModal";
 import { useAuth } from "@/lib/auth/auth-context";
 import { config } from "@/lib/config";
 import {
@@ -42,7 +41,6 @@ import {
 export default function SuperAdminDashboardPage() {
   const { user: authUser } = useAuth();
   const [adminName, setAdminName] = useState<string>("");
-  const [isAddClientOpen, setIsAddClientOpen] = useState(false);
   const [chartData, setChartData] = useState<any[]>([]);
   const [totalClientsCount, setTotalClientsCount] = useState(2481);
 
@@ -58,35 +56,35 @@ export default function SuperAdminDashboardPage() {
           setAdminName(u.name);
         }
       }
-    } catch {}
+    } catch {
+      // ignore
+    }
+  }, [authUser]);
 
+  useEffect(() => {
     analyticsService.getGrowthChartData().then(setChartData);
     clientService.getAll().then((clients) => {
-      if (clients.length > 0) {
+      if (clients && clients.length > 0) {
         setTotalClientsCount(2481 + clients.length - 7);
       }
     });
   }, []);
 
-  const displayName =
-    authUser?.name ||
-    adminName ||
-    (authUser?.email ? authUser.email.split("@")[0] : "Admin");
-
   return (
-    <div className="space-y-6">
-      {/* Super Admin Welcome Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-5">
+    <div className="space-y-8">
+      {/* Header & Quick Action Row */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-6">
         <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
-            Hey {displayName}, here&apos;s your platform today.
+          <h1 className="text-2xl font-black tracking-tight text-foreground flex items-center gap-2.5">
+            <span>Welcome back{adminName ? `, ${adminName}` : ""}</span>
+            <span className="inline-block animate-pulse text-emerald-600">👋</span>
           </h1>
           <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
-            Real-time multi-tenant analytics, infrastructure utilization, and client operations.
+            Platform control center, system metrics, tenant overview, and real-time operations.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2.5">
           {/* Quick Sub-Navigation Tabs */}
           <div className="inline-flex items-center gap-1 bg-muted/60 p-1 rounded-lg border text-xs font-semibold">
             <Link
@@ -110,11 +108,13 @@ export default function SuperAdminDashboardPage() {
           </div>
 
           <Button
-            onClick={() => setIsAddClientOpen(true)}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold gap-1.5 shadow-sm"
+            asChild
+            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold gap-1.5 shadow-sm cursor-pointer"
           >
-            <Plus className="h-4 w-4" />
-            New Client
+            <Link href="/admin/clients/new">
+              <Plus className="h-4 w-4" />
+              New Client
+            </Link>
           </Button>
         </div>
       </div>
@@ -311,18 +311,6 @@ export default function SuperAdminDashboardPage() {
           </div>
         </div>
       </div>
-
-      {/* Add Client Modal */}
-      <AddClientModal
-        isOpen={isAddClientOpen}
-        onClose={() => setIsAddClientOpen(false)}
-        onClientAdded={(newClient) => {
-          clientService.create(newClient).then(() => {
-            setTotalClientsCount((prev) => prev + 1);
-            alert(`Client ${newClient.name} provisioned successfully!`);
-          });
-        }}
-      />
     </div>
   );
 }

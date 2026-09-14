@@ -26,6 +26,7 @@ function GuestLoginContent() {
 
       // Store credentials
       localStorage.setItem("appnix_access_token", token);
+      localStorage.setItem("appnix_auth_token", token);
       localStorage.setItem("appnix_impersonation_token", token);
       sessionStorage.setItem("appnix_impersonation_token", token);
 
@@ -36,23 +37,57 @@ function GuestLoginContent() {
         email: payload.email,
         role: payload.role,
         tenantId: payload.tenantId,
+        clientId: payload.tenantId,
+        clientName: payload.workspaceName || payload.name || "Client Account",
+        clientEmail: payload.email,
+        ownerName: payload.name || payload.email?.split("@")[0] || "Client User",
+        plan: payload.tier || "Professional Tier",
         impersonatorId: payload.impersonatorId,
       };
       localStorage.setItem("appnix_guest_impersonation", JSON.stringify(guestData));
+
+      const syntheticUser = {
+        id: payload.sub,
+        email: payload.email,
+        name: payload.name || payload.email?.split("@")[0] || "Client User",
+        role: payload.role || "owner",
+        tenantId: payload.tenantId,
+        workspaceId: payload.tenantId,
+      };
+      localStorage.setItem("appnix_user", JSON.stringify(syntheticUser));
 
       // Set cookies for middleware and server-side authentication
       const isProd = window.location.protocol === "https:";
       const secureAttr = isProd ? "; Secure" : "";
       document.cookie = `appnix_access_token=${token}; path=/; max-age=3600; SameSite=Lax${secureAttr}`;
+      document.cookie = `appnix_auth_token=${token}; path=/; max-age=3600; SameSite=Lax${secureAttr}`;
       document.cookie = `appnix_impersonation_token=${token}; path=/; max-age=3600; SameSite=Lax${secureAttr}`;
 
       if (payload.role === "RESELLER_ADMIN") {
         localStorage.setItem("appnix_admin_token", token);
         document.cookie = `appnix_admin_token=${token}; path=/; max-age=3600; SameSite=Lax${secureAttr}`;
+
+        const host = window.location.hostname;
+        if (host.startsWith("superadmin.")) {
+          const targetHost = host.replace("superadmin.", "partners.");
+          const portSuffix = window.location.port ? `:${window.location.port}` : "";
+          window.location.href = `${window.location.protocol}//${targetHost}${portSuffix}/auth/guest-login?token=${token}`;
+          return;
+        }
+
         // Redirect to partner admin dashboard
         window.location.href = "/admin/dashboard";
       } else {
         // Redirect to client operations dashboard
+        const host = window.location.hostname;
+        if (host.startsWith("superadmin.") || host.startsWith("partners.") || host.startsWith("admin.")) {
+          const isLocal = host.includes("localhost") || host.endsWith(".local");
+          const portSuffix = window.location.port ? `:${window.location.port}` : "";
+          const targetHost = isLocal ? `app.localhost${portSuffix}` : (process.env.NEXT_PUBLIC_APP_DOMAIN || "app.appnix.co.in");
+          window.location.href = `${window.location.protocol}//${targetHost}/auth/guest-login?token=${token}`;
+          return;
+        }
+
         window.location.href = "/dashboard";
       }
     } catch (err: any) {

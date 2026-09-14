@@ -327,7 +327,7 @@ export default function CreatePartnerPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-12">
+    <div className="space-y-6  mx-auto pb-12">
       {/* Header & Back Link */}
       <div className="space-y-3">
         <Link href="/super-admin/partners">
@@ -343,17 +343,10 @@ export default function CreatePartnerPage() {
 
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-5">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
-                Wholesale Provisioning
-              </span>
-            </div>
             <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
               Provision White-Label Partner
             </h1>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Provision an isolated reseller tenant with custom wholesale economics, administrator credentials, and subsystem access.
-            </p>
+
           </div>
         </div>
       </div>

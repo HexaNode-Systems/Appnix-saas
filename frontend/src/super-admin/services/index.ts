@@ -43,7 +43,7 @@ export const clientService = {
       return undefined;
     }
   },
-  create: async (newClient: Omit<Client, "id" | "mrr" | "totalUsers" | "lastActive">): Promise<Client> => {
+  create: async (newClient: Omit<Client, "id" | "mrr" | "totalUsers" | "lastActive"> & { password?: string }): Promise<Client> => {
     const { signupDate, mrr, totalUsers, lastActive, id, ...payload } = newClient as any;
     const res = await api.post("/tenants/clients", payload);
     return res.data?.data || res.data;
@@ -62,7 +62,11 @@ export const clientService = {
     return true;
   },
   loginAsGuest: async (id: string): Promise<any> => {
-    const res = await api.post(`/tenants/clients/${id}/guest-login`);
+    const res = await api.post(`/tenants/clients/${id}/guest-login`, {}, {
+      headers: {
+        "X-Impersonation-Token": "",
+      },
+    });
     return res.data?.data || res.data;
   },
 };
@@ -79,7 +83,11 @@ export interface GuestLoginResult {
 export async function executeGuestLogin(client: any, returnUrl: string): Promise<void> {
   if (typeof window === "undefined") return;
 
-  // 1. Back up current administrative session credentials
+  // 1. Clear any stale support impersonation token from previous inspection sessions
+  sessionStorage.removeItem("appnix_impersonation_token");
+  localStorage.removeItem("appnix_impersonation_token");
+
+  // 2. Back up current administrative session credentials
   const backup = {
     authToken: localStorage.getItem(config.auth.tokenKey),
     refreshToken: localStorage.getItem(config.auth.refreshTokenKey),
@@ -101,7 +109,35 @@ export async function executeGuestLogin(client: any, returnUrl: string): Promise
     throw new Error("Failed to receive guest authentication credentials from server.");
   }
 
-  // 3. Store active guest session info
+  // 3. If called from an admin portal subdomain (e.g. superadmin or partners), open the client panel on the app subdomain
+  const host = window.location.hostname;
+  const isLocal =
+    host.includes("localhost") ||
+    host.includes("127.0.0.1") ||
+    host.endsWith(".local");
+  const portSuffix = window.location.port ? `:${window.location.port}` : "";
+  const protocol = window.location.protocol;
+
+  const isCrossDomain =
+    host.startsWith("superadmin.") ||
+    host.startsWith("partners.") ||
+    host.startsWith("admin.");
+
+  if (isCrossDomain) {
+    const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || "appnix.co.in";
+    const appDomain = isLocal
+      ? `app.localhost${portSuffix}`
+      : (process.env.NEXT_PUBLIC_APP_DOMAIN || `app.${rootDomain}`);
+
+    const targetUrl = `${protocol}//${appDomain}/auth/guest-login?token=${encodeURIComponent(result.accessToken)}`;
+    const newWin = window.open(targetUrl, "_blank");
+    if (!newWin || newWin.closed || typeof newWin.closed === "undefined") {
+      window.location.href = targetUrl;
+    }
+    return;
+  }
+
+  // 4. Store active guest session info (for same-domain context)
   const guestSession = {
     isGuest: true,
     clientId: client.id,
@@ -117,24 +153,28 @@ export async function executeGuestLogin(client: any, returnUrl: string): Promise
   };
   localStorage.setItem("appnix_guest_impersonation", JSON.stringify(guestSession));
 
-  // 4. Update access tokens for the guest session
+  // 5. Update access tokens for the guest session
   localStorage.setItem(config.auth.tokenKey, result.accessToken);
+  localStorage.setItem("appnix_auth_token", result.accessToken);
+  localStorage.setItem("appnix_access_token", result.accessToken);
   if (result.refreshToken) {
     localStorage.setItem(config.auth.refreshTokenKey, result.refreshToken);
   }
   if (result.user) {
     localStorage.setItem(config.auth.userKey, JSON.stringify(result.user));
+    localStorage.setItem("appnix_user", JSON.stringify(result.user));
   }
   if (result.impersonationToken) {
     sessionStorage.setItem("appnix_impersonation_token", result.impersonationToken);
     localStorage.setItem("appnix_impersonation_token", result.impersonationToken);
   }
 
-  // 5. Update auth cookie so Next.js Proxy allows dashboard navigation
+  // 6. Update auth cookie so Next.js Proxy allows dashboard navigation
   const secure = window.location.protocol === "https:" ? "; Secure" : "";
   document.cookie = `appnix_access_token=${encodeURIComponent(result.accessToken)}; Path=/; SameSite=Lax${secure}`;
+  document.cookie = `appnix_auth_token=${encodeURIComponent(result.accessToken)}; Path=/; SameSite=Lax${secure}`;
 
-  // 6. Hard redirect to load fresh client context and state
+  // 7. Hard redirect to load fresh client context and state
   window.location.href = "/dashboard";
 }
 
@@ -236,35 +276,8 @@ export const billingService = {
     }
   },
   deletePlan: async (id: string): Promise<void> => {
-    await api.delete(`/billing/plans/${encodeURIComponent(id)}`);
-  },
-
-  deletePlan: async (id: string): Promise<boolean> => {
     removeSharedCustomPlan(id);
-
-    try {
-      const token =
-        typeof window !== "undefined"
-          ? localStorage.getItem(config.auth.adminTokenKey) ||
-            localStorage.getItem(config.auth.tokenKey) ||
-            localStorage.getItem("appnix_auth_token")
-          : null;
-
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-
-      await fetch(`${config.api.proxyPrefix}/billing/plans/${id}`, {
-        method: "DELETE",
-        headers,
-        credentials: "include",
-      }).catch(() => null);
-    } catch {}
-
-    const index = mockPlans.findIndex((p) => p.id === id);
-    if (index !== -1) {
-      mockPlans.splice(index, 1);
-    }
-    return true;
+    await api.delete(`/billing/plans/${encodeURIComponent(id)}`);
   },
 };
 

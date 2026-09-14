@@ -82,12 +82,18 @@ export function proxy(request: NextRequest) {
   const pathWithSearch = `${pathname}${search}`;
   const hostname = request.headers.get("host") || "";
   const host = hostname.split(":")[0].toLowerCase();
+  const isLocal =
+    process.env.NODE_ENV !== "production" &&
+    (host.includes("localhost") ||
+      host.includes("127.0.0.1") ||
+      host.endsWith(".local"));
 
-  // 1. Skip static assets, Next.js internal files, and api routes
+  // 1. Skip static assets, Next.js internal files, api routes, and global auth flows
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api") ||
     pathname.startsWith("/static") ||
+    pathname.startsWith("/auth") ||
     pathname.includes(".")
   ) {
     return NextResponse.next();
@@ -466,7 +472,7 @@ export function proxy(request: NextRequest) {
     }
 
     // Check if client belongs to a reseller workspace (reseller isolation rule)
-    if (clientDecoded?.orgPath && clientDecoded.orgPath.split(".").length > 2) {
+    if (!isLocal && clientDecoded?.orgPath && clientDecoded.orgPath.split(".").length > 2) {
       // User belongs to a downstream partner workspace, block on direct app
       if (pathname.startsWith("/dashboard") || pathname.startsWith("/crm") || pathname.startsWith("/campaigns")) {
         const redirectRes = NextResponse.redirect(

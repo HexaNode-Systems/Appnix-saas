@@ -133,6 +133,7 @@ export default function SuperAdminClientsPage() {
     } catch (err: any) {
       console.error("Guest login failed:", err);
       alert(err.response?.data?.message || err.message || "Failed to log in as guest");
+    } finally {
       setGuestLoadingId(null);
     }
   };
@@ -142,17 +143,11 @@ export default function SuperAdminClientsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-5">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
-              Multitenant Hierarchy
-            </span>
-          </div>
+       
           <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
             Platform Client Accounts
           </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Audit and manage all end-client businesses onboarded across every White-Label partner.
-          </p>
+       
         </div>
 
         <Button

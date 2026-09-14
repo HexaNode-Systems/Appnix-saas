@@ -39,10 +39,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
 
     // 1. Super Admin and Partner/Reseller Admins always have unrestricted access
-    const isSuperAdmin = user.role === "owner" || (user as any).role === "SUPER_ADMIN";
+    const isSuperAdmin =
+      user.role === "owner" ||
+      (user as any).role === "SUPER_ADMIN" ||
+      (user as any).rawRole === "SUPER_ADMIN";
+
     const isReseller =
-      user.role === "admin" ||
       (user as any).role === "RESELLER_ADMIN" ||
+      (user as any).rawRole === "RESELLER_ADMIN" ||
+      (user as any).systemRole === "RESELLER_ADMIN" ||
       (user as any).tier === "PRIMARY_RESELLER" ||
       (user as any).tier === "SUB_RESELLER";
 

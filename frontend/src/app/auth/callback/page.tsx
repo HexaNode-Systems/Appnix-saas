@@ -84,11 +84,16 @@ function AuthCallbackContent() {
         } catch {}
 
         let destination = "/dashboard";
-        if (parsedUser?.role === "owner" || parsedUser?.role === "SUPER_ADMIN") {
+        if (
+          parsedUser?.role === "owner" ||
+          parsedUser?.role === "SUPER_ADMIN" ||
+          parsedUser?.rawRole === "SUPER_ADMIN"
+        ) {
           destination = "/super-admin/dashboard";
         } else if (
-          parsedUser?.role === "admin" ||
           parsedUser?.role === "RESELLER_ADMIN" ||
+          parsedUser?.rawRole === "RESELLER_ADMIN" ||
+          parsedUser?.systemRole === "RESELLER_ADMIN" ||
           parsedUser?.tier === "PRIMARY_RESELLER" ||
           parsedUser?.tier === "SUB_RESELLER"
         ) {

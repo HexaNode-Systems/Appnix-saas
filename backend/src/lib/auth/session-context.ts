@@ -83,6 +83,17 @@ export class SessionContextResolver {
       permissions: principal.permissions || ['*'],
     };
 
+    const reqPath = request.path || request.originalUrl || request.url || '';
+    const isImpersonationCreationEndpoint =
+      reqPath.includes('guest-login') ||
+      reqPath.includes('impersonate') ||
+      reqPath.includes('/auth/');
+
+    if (isImpersonationCreationEndpoint) {
+      this.tenantContextStore.enter(context);
+      return context;
+    }
+
     const impersonationToken = request.header('x-impersonation-token');
     if (!impersonationToken) {
       this.tenantContextStore.enter(context);
@@ -106,6 +117,10 @@ export class SessionContextResolver {
           (claims.role === Role.SUPER_ADMIN || claims.role === Role.RESELLER_ADMIN)
         ) {
           context.impersonatedWorkspaceId = claims.targetWorkspaceId;
+          this.tenantContextStore.enter(context);
+          return context;
+        }
+        if (context.role === Role.SUPER_ADMIN || (context.role as any) === 'owner') {
           this.tenantContextStore.enter(context);
           return context;
         }
@@ -134,6 +149,10 @@ export class SessionContextResolver {
       return context;
     } catch (e: any) {
       if (e instanceof ForbiddenException) throw e;
+      if (context.role === Role.SUPER_ADMIN || (context.role as any) === 'owner') {
+        this.tenantContextStore.enter(context);
+        return context;
+      }
       throw new ForbiddenException('Invalid or expired support impersonation context');
     }
   }

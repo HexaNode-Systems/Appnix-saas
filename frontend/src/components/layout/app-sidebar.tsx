@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/auth-context";
 import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { LogoutConfirmModal } from "@/components/shared/LogoutConfirmModal";
 import { FaWhatsapp, FaInstagram, FaFacebook } from "react-icons/fa";
 import {
   LayoutDashboard,
@@ -257,9 +258,21 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
     }
   }, [pathname, menuItems]);
 
-  const handleLogout = async () => {
-    await logout();
-    router.push("/signin");
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleOpenLogoutModal = () => {
+    setIsLogoutModalOpen(true);
+  };
+
+  const handleConfirmLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      router.push("/signin");
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   const toggleExpand = (id: string) => {
@@ -432,7 +445,7 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
           <div className="shrink-0 space-y-1 border-t border-border px-3 py-3">
             <button
               type="button"
-              onClick={handleLogout}
+              onClick={handleOpenLogoutModal}
               className="sidebar-nav-item-danger w-full justify-start cursor-pointer"
             >
               <LogOut className="h-4.5 w-4.5 shrink-0" />
@@ -441,6 +454,17 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
           </div>
         </div>
       </aside>
+
+      <LogoutConfirmModal
+        isOpen={isLogoutModalOpen}
+        onClose={() => setIsLogoutModalOpen(false)}
+        onConfirm={handleConfirmLogout}
+        title={t.sidebar.logout || "Sign Out"}
+        message="Are you sure you want to sign out of your account?"
+        confirmText="Sign Out"
+        cancelText="Cancel"
+        isLoading={isLoggingOut}
+      />
     </>
   );
 }

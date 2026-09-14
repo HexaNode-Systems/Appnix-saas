@@ -23,6 +23,7 @@ export class SubscriptionGuard implements CanActivate {
       user?.role === 'owner' ||
       user?.role === 'RESELLER_ADMIN' ||
       user?.impersonatedWorkspaceId ||
+      user?.isImpersonated ||
       request.headers?.['x-impersonation-token']
     ) {
       return true;

@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { executeSuperAdminLogout, executeAdminLogout } from "@/super-admin/services/superAdminApi";
+import { LogoutConfirmModal } from "../common/LogoutConfirmModal";
 import { useAuth } from "@/lib/auth/auth-context";
 import { config } from "@/lib/config";
 import {
@@ -142,14 +143,26 @@ export function SuperAdminHeader({ onMenuClick, isSuperAdmin: propIsSuperAdmin }
     }
   };
 
-  const handleLogout = async () => {
-    if (confirm(`Sign out from ${isSuperAdmin ? "Super Admin Platform Root" : "Admin Console"}?`)) {
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleOpenLogoutModal = () => {
+    setIsLogoutModalOpen(true);
+  };
+
+  const handleConfirmLogout = async () => {
+    setIsLoggingOut(true);
+    try {
       await executeAdminLogout(isSuperAdmin);
+    } catch (err) {
+      console.error("Admin logout failed:", err);
+      setIsLoggingOut(false);
     }
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-card px-4 sm:px-6 shadow-2xs">
+    <>
+      <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-card px-4 sm:px-6 shadow-2xs">
       {/* Left side: Mobile Toggle & Global Search */}
       <div className="flex items-center gap-3 flex-1 max-w-lg">
         <button
@@ -327,7 +340,7 @@ export function SuperAdminHeader({ onMenuClick, isSuperAdmin: propIsSuperAdmin }
               <DropdownMenuSeparator />
 
               <DropdownMenuItem
-                onClick={handleLogout}
+                onClick={handleOpenLogoutModal}
                 className="flex items-center gap-2.5 px-2.5 py-2 cursor-pointer rounded-md text-xs text-rose-600 focus:text-rose-600 focus:bg-rose-50 dark:focus:bg-rose-950/40 transition-colors"
               >
                 <LogOut className="h-4 w-4 text-rose-600" />
@@ -338,5 +351,17 @@ export function SuperAdminHeader({ onMenuClick, isSuperAdmin: propIsSuperAdmin }
         </div>
       </div>
     </header>
-  );
+
+    <LogoutConfirmModal
+      isOpen={isLogoutModalOpen}
+      onClose={() => setIsLogoutModalOpen(false)}
+      onConfirm={handleConfirmLogout}
+      title={isSuperAdmin ? "Sign Out Super Admin" : "Sign Out Admin"}
+      message={`Are you sure you want to sign out from ${isSuperAdmin ? "Super Admin Platform Root" : "Admin Console"}?`}
+      confirmText="Sign Out"
+      cancelText="Cancel"
+      isLoading={isLoggingOut}
+    />
+  </>
+);
 }

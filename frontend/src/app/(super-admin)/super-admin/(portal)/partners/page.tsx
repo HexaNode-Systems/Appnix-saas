@@ -5,6 +5,14 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { superAdminApi } from "@/super-admin/services/superAdminApi";
 import { PartnerConfirmModal } from "@/super-admin/components/partners/PartnerConfirmModal";
 import { PartnerCommissionHistoryModal } from "@/super-admin/components/partners/PartnerCommissionHistoryModal";
@@ -70,6 +78,15 @@ export default function SuperAdminPartnersPage() {
   // Commission History Modal State
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historyPartner, setHistoryPartner] = useState<any>(null);
+
+  // Impersonate Modal State
+  const [impersonatePopup, setImpersonatePopup] = useState<{
+    partnerId: string;
+    partnerName: string;
+    token?: string;
+    redirectUrl?: string;
+    message: string;
+  } | null>(null);
 
   const openHistoryModal = (p: any) => {
     setHistoryPartner(p);
@@ -234,8 +251,13 @@ export default function SuperAdminPartnersPage() {
       if (token) {
         // Set short lived impersonation token and open admin dashboard in new tab
         sessionStorage.setItem("appnix_impersonation_token", token);
-        alert(`Impersonation session initialized for ${partnerName}. Valid for 15 minutes.`);
-        window.open(`/admin/dashboard?impersonate=${partnerId}`, "_blank");
+        setImpersonatePopup({
+          partnerId,
+          partnerName,
+          token,
+          redirectUrl: res.redirectUrl || `/auth/guest-login?token=${token}`,
+          message: `Impersonation session initialized for ${partnerName}. Valid for 15 minutes.`,
+        });
       }
     } catch (err: any) {
       alert(err.response?.data?.message || err.message || "Failed to start impersonation");
@@ -247,17 +269,11 @@ export default function SuperAdminPartnersPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-5">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
-              Wholesale Multitenancy
-            </span>
-          </div>
+          
           <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
             White-Label Admins & Reseller Partners
           </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Provision, manage, and monitor White-Label SaaS partners, wholesale pricing contracts, and client quotas.
-          </p>
+        
         </div>
 
         <div className="flex items-center gap-2">
@@ -927,6 +943,55 @@ export default function SuperAdminPartnersPage() {
         onClose={() => setIsHistoryOpen(false)}
         partner={historyPartner}
       />
+
+      {/* Impersonation Session Modal */}
+      <Dialog
+        open={Boolean(impersonatePopup)}
+        onOpenChange={(open) => {
+          if (!open) setImpersonatePopup(null);
+        }}
+      >
+        <DialogContent className="max-w-md p-6 sm:rounded-xl border bg-card shadow-2xl z-[70]">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-base font-bold text-foreground">
+              Partner Impersonation
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground leading-relaxed">
+              {impersonatePopup?.message}
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 pt-4 border-t mt-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setImpersonatePopup(null)}
+              className="h-9 px-4 text-xs cursor-pointer"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                if (impersonatePopup) {
+                  const targetUrl =
+                    impersonatePopup.redirectUrl ||
+                    (impersonatePopup.token
+                      ? `/auth/guest-login?token=${impersonatePopup.token}`
+                      : `/admin/dashboard?impersonate=${impersonatePopup.partnerId}`);
+                  window.open(targetUrl, "_blank");
+                  setImpersonatePopup(null);
+                }
+              }}
+              className="h-9 px-5 text-xs bg-amber-600 hover:bg-amber-700 text-white font-semibold cursor-pointer shadow-xs"
+            >
+              OK
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

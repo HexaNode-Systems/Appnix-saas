@@ -73,24 +73,56 @@ function SignInContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
-  const rawCallbackUrl = searchParams.get("callbackUrl");
-  const callbackUrl = rawCallbackUrl && !rawCallbackUrl.includes("/subscription") ? rawCallbackUrl : "/dashboard";
+  const rawCallbackUrl = searchParams.get("callbackUrl") || searchParams.get("returnUrl");
+  const callbackUrl =
+    rawCallbackUrl &&
+    !rawCallbackUrl.includes("/subscription") &&
+    !rawCallbackUrl.startsWith("/signin") &&
+    !rawCallbackUrl.startsWith("/login")
+      ? rawCallbackUrl
+      : "/dashboard";
 
   // If already authenticated, redirect active subscriptions to dashboard, otherwise to subscription
   useEffect(() => {
     const isSwitch = searchParams.get("switch") === "true";
     if (isSwitch) return;
 
+    const errorParam = searchParams.get("error");
+    if (errorParam) {
+      if (errorParam === "partner_workspace_account") {
+        try {
+          localStorage.removeItem(config.auth.tokenKey);
+          localStorage.removeItem(config.auth.userKey);
+          localStorage.removeItem("appnix_access_token");
+          localStorage.removeItem("appnix_auth_token");
+        } catch {}
+        toast({
+          title: "Partner Workspace Account",
+          description: "This account belongs to a partner workspace. Please sign in through your partner's portal.",
+          variant: "destructive",
+        });
+      }
+      return;
+    }
+
     if (!isAuthLoading && isAuthenticated && user) {
-      if (user.role === "owner" || (user as any).role === "SUPER_ADMIN") {
+      if (
+        user.role === "owner" ||
+        (user as any).role === "SUPER_ADMIN" ||
+        (user as any).rawRole === "SUPER_ADMIN"
+      ) {
         router.replace("/super-admin/dashboard");
         return;
       }
-      if (
-        user.role === "admin" ||
+
+      const isReseller =
         (user as any).role === "RESELLER_ADMIN" ||
-        (user as any).tier === "PRIMARY_RESELLER"
-      ) {
+        (user as any).rawRole === "RESELLER_ADMIN" ||
+        (user as any).systemRole === "RESELLER_ADMIN" ||
+        (user as any).tier === "PRIMARY_RESELLER" ||
+        (user as any).tier === "SUB_RESELLER";
+
+      if (isReseller) {
         router.replace("/admin/dashboard");
         return;
       }
@@ -133,12 +165,18 @@ function SignInContent() {
         parsedUser = storedUser ? JSON.parse(storedUser) : null;
       } catch {}
 
-      if (parsedUser?.role === "owner" || parsedUser?.role === "SUPER_ADMIN") {
+      if (
+        parsedUser?.role === "owner" ||
+        parsedUser?.role === "SUPER_ADMIN" ||
+        parsedUser?.rawRole === "SUPER_ADMIN"
+      ) {
         router.push("/super-admin/dashboard");
       } else if (
-        parsedUser?.role === "admin" ||
         parsedUser?.role === "RESELLER_ADMIN" ||
-        parsedUser?.tier === "PRIMARY_RESELLER"
+        parsedUser?.rawRole === "RESELLER_ADMIN" ||
+        parsedUser?.systemRole === "RESELLER_ADMIN" ||
+        parsedUser?.tier === "PRIMARY_RESELLER" ||
+        parsedUser?.tier === "SUB_RESELLER"
       ) {
         router.push("/admin/dashboard");
       } else {

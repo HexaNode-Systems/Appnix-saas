@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { executeSuperAdminLogout, executeAdminLogout } from "@/super-admin/services/superAdminApi";
+import { LogoutConfirmModal } from "../common/LogoutConfirmModal";
 import { config } from "@/lib/config";
 import {
   LayoutDashboard,
@@ -57,10 +58,10 @@ const adminNavItems: NavItem[] = [
     href: "/admin/clients",
     icon: Building2,
     children: [
-      { label: "All Tenants", href: "/admin/clients", icon: Users },
+      { label: "All Clients", href: "/admin/clients", icon: Users },
       {
-        label: "Add Tenant / Client",
-        href: "/admin/clients?action=add",
+        label: "Add Client",
+        href: "/admin/clients/new",
         icon: UserPlus,
         badge: "New",
       },
@@ -158,9 +159,20 @@ export function SuperAdminSidebar({ open, onClose, isSuperAdmin: propIsSuperAdmi
     setManualExpanded((prev) => ((prev ?? activeGroup) === id ? null : id));
   };
 
-  const handleLogout = async () => {
-    if (confirm(`Sign out from ${isSuperAdmin ? "Super Admin Platform Root" : "Admin Console"}?`)) {
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleOpenLogoutModal = () => {
+    setIsLogoutModalOpen(true);
+  };
+
+  const handleConfirmLogout = async () => {
+    setIsLoggingOut(true);
+    try {
       await executeAdminLogout(isSuperAdmin);
+    } catch (err) {
+      console.error("Admin logout failed:", err);
+      setIsLoggingOut(false);
     }
   };
 
@@ -198,7 +210,7 @@ export function SuperAdminSidebar({ open, onClose, isSuperAdmin: propIsSuperAdmi
                 "text-[10px] font-semibold uppercase tracking-wider",
                 isSuperAdmin ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"
               )}>
-                {isSuperAdmin ? "Super Admin Root" : "Reseller Admin"}
+                {!isSuperAdmin ? "Super Admin Root" : "Reseller Admin"}
               </p>
             </div>
           </div>
@@ -358,7 +370,7 @@ export function SuperAdminSidebar({ open, onClose, isSuperAdmin: propIsSuperAdmi
           <div className="shrink-0 space-y-2 border-t p-3 bg-muted/20">
             <button
               type="button"
-              onClick={handleLogout}
+              onClick={handleOpenLogoutModal}
               className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
             >
               <LogOut className="h-4 w-4" />
@@ -367,6 +379,17 @@ export function SuperAdminSidebar({ open, onClose, isSuperAdmin: propIsSuperAdmi
           </div>
         </div>
       </aside>
+
+      <LogoutConfirmModal
+        isOpen={isLogoutModalOpen}
+        onClose={() => setIsLogoutModalOpen(false)}
+        onConfirm={handleConfirmLogout}
+        title={isSuperAdmin ? "Sign Out Super Admin" : "Sign Out Admin"}
+        message={`Are you sure you want to sign out from ${isSuperAdmin ? "Super Admin Platform Root" : "Admin Console"}?`}
+        confirmText="Sign Out"
+        cancelText="Cancel"
+        isLoading={isLoggingOut}
+      />
     </>
   );
 }

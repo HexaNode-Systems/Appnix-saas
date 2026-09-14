@@ -112,8 +112,8 @@ export default function PartnerDetailsPage({
       const res = await superAdminApi.impersonatePartner(partnerId);
       if (res.impersonationToken) {
         sessionStorage.setItem("appnix_impersonation_token", res.impersonationToken);
-        alert(`Impersonation session started for ${partner.name}.`);
-        window.open(`/admin/dashboard?impersonate=${partnerId}`, "_blank");
+        const targetUrl = res.redirectUrl || `/auth/guest-login?token=${res.impersonationToken}`;
+        window.open(targetUrl, "_blank");
       }
     } catch (err: any) {
       alert(err.response?.data?.message || err.message || "Impersonation failed");

@@ -178,17 +178,11 @@ export default function SuperAdminWholesalePlansPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-5">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
-              Wholesale Economics Architecture
-            </span>
-          </div>
+        
           <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
             Standard Wholesale / White-Label Plans
           </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Configure partner lifetime license fees, Appnix recurring commission per client, client quotas, and feature entitlements.
-          </p>
+        
         </div>
 
         <div className="flex items-center gap-2">

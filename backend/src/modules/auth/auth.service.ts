@@ -339,6 +339,7 @@ export class AuthService {
     orgPath?: string,
     tier?: string,
     permissions?: string[],
+    extra?: Record<string, any>,
   ) {
     const payload: JwtPayload = {
       sub: userId,
@@ -348,6 +349,7 @@ export class AuthService {
       orgPath: orgPath || 'root',
       tier: tier || 'END_CLIENT',
       permissions: permissions || ['*'],
+      ...(extra || {}),
     };
 
     const [accessToken, refreshToken] = await Promise.all([

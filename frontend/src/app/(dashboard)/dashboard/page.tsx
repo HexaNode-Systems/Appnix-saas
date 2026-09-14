@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -84,6 +85,7 @@ interface DashboardData {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { user } = useAuth();
   const { t } = useTranslation();
 
@@ -130,7 +132,19 @@ export default function DashboardPage() {
             },
           }));
         }
-      } catch (err) {
+      } catch (err: any) {
+        if (err.response?.status === 403) {
+          const errCode = err.response?.data?.code;
+          const errMsg = err.response?.data?.message || "";
+          if (
+            errCode === "SUBSCRIPTION_REQUIRED" ||
+            errCode === "TENANT_INACTIVE" ||
+            errMsg.toLowerCase().includes("subscription")
+          ) {
+            router.replace("/subscription");
+            return;
+          }
+        }
         console.error("Failed to load dashboard statistics", err);
       } finally {
         if (isMounted) setLoading(false);
@@ -141,7 +155,7 @@ export default function DashboardPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [router]);
 
   const stats = useMemo(
     () => [

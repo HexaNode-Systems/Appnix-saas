@@ -60,17 +60,11 @@ export default function SuperAdminChannelsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-5">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
-              Omnichannel Gateway Telemetry
-            </span>
-          </div>
+    
           <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
             Platform-Wide Channel & Usage Monitoring
           </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Aggregated traffic across WhatsApp Cloud API, RCS Business Messaging, Instagram Direct, and Wallets.
-          </p>
+    
         </div>
 
         <Button
