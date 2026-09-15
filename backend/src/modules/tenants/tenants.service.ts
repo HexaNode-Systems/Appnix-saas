@@ -1106,7 +1106,7 @@ export class TenantsService {
       }
 
       await pgClient.query('COMMIT');
-      return { success: true, message: 'Client updated successfully' };
+      return await this.getClientById(id, actor);
     } catch (error) {
       await pgClient.query('ROLLBACK');
       throw error;

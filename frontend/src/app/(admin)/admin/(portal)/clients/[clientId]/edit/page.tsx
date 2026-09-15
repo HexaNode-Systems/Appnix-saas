@@ -413,8 +413,8 @@ export default function EditClientPage() {
         isOpen={isConfirmOpen}
         onClose={() => setIsConfirmOpen(false)}
         onConfirm={handleConfirmedUpdate}
-        title="Confirm Client Update"
-        description={`Are you sure you want to save changes to "${name}"?`}
+        title="Confirm Update"
+        description={`Are you sure you want to update the details for organization "${name}"? The changes will take effect immediately.`}
         details={confirmDetails}
         confirmText="Confirm Update"
         isSubmitting={isSubmitting}

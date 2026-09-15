@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { Client } from "@/super-admin/types";
 import { clientService, executeGuestLogin } from "@/super-admin/services";
+import { AddClientModal } from "@/super-admin/components/clients/AddClientModal";
+import { UpdateClientModal } from "@/super-admin/components/clients/UpdateClientModal";
 import {
   Building2,
   ArrowLeft,
@@ -45,6 +47,11 @@ function SuperAdminClientsContent() {
   const [activeFilterTab, setActiveFilterTab] = useState<string>("All");
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
 
+  // Add & Update Client Modal states
+  const [isAddClientOpen, setIsAddClientOpen] = useState(false);
+  const [isUpdateClientOpen, setIsUpdateClientOpen] = useState(false);
+  const [clientToUpdate, setClientToUpdate] = useState<Client | null>(null);
+
   // Success toast message
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -73,12 +80,36 @@ function SuperAdminClientsContent() {
     fetchClients();
   }, []);
 
-  // Listen to ?action=add to redirect to the new full-page create client route
+  // Listen to ?action=add to open Add Client modal
   useEffect(() => {
     if (searchParams.get("action") === "add") {
-      router.replace("/admin/clients/new");
+      setIsAddClientOpen(true);
     }
-  }, [searchParams, router]);
+  }, [searchParams]);
+
+  const handleOpenAddModal = () => {
+    setIsAddClientOpen(true);
+  };
+
+  const handleOpenUpdateModal = (client: Client) => {
+    setClientToUpdate(client);
+    setIsUpdateClientOpen(true);
+  };
+
+  const handleClientAdded = async (newClient: any) => {
+    await clientService.create(newClient);
+    await fetchClients();
+    showToast(`Organization "${newClient.name}" successfully created!`);
+  };
+
+  const handleClientUpdated = async (updatedData: Partial<Client>) => {
+    if (!clientToUpdate) return;
+    await clientService.update(clientToUpdate.id, updatedData);
+    await fetchClients();
+    showToast(`Organization "${clientToUpdate.name}" successfully updated!`);
+    setIsUpdateClientOpen(false);
+    setClientToUpdate(null);
+  };
 
   const handleToggleStatus = (id: string, currentStatus: Client["status"]) => {
     const newStatus = currentStatus === "Active" ? "Suspended" : "Active";
@@ -167,13 +198,11 @@ function SuperAdminClientsContent() {
         </div>
 
         <Button
-          asChild
+          onClick={handleOpenAddModal}
           className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs gap-1.5 shadow-sm cursor-pointer"
         >
-          <Link href="/admin/clients/new">
-            <Plus className="h-4 w-4" />
-            Add Client
-          </Link>
+          <Plus className="h-4 w-4" />
+          Add Client
         </Button>
       </div>
 
@@ -376,15 +405,13 @@ function SuperAdminClientsContent() {
 
                           {/* Option: Update Client in table */}
                           <Button
-                            asChild
                             size="icon"
                             variant="ghost"
+                            onClick={() => handleOpenUpdateModal(client)}
                             className="h-7.5 w-7.5 text-muted-foreground hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer"
                             title="Update Client"
                           >
-                            <Link href={`/admin/clients/${client.id}/edit`}>
-                              <Edit className="h-3.5 w-3.5" />
-                            </Link>
+                            <Edit className="h-3.5 w-3.5" />
                           </Button>
 
                           {/* Option: View Client Details */}
@@ -485,15 +512,17 @@ function SuperAdminClientsContent() {
               </Button>
               <div className="flex items-center gap-2">
                 <Button
-                  asChild
                   size="sm"
                   variant="outline"
                   className="gap-1.5 text-xs font-semibold cursor-pointer"
+                  onClick={() => {
+                    const c = selectedClient;
+                    setSelectedClient(null);
+                    handleOpenUpdateModal(c);
+                  }}
                 >
-                  <Link href={`/admin/clients/${selectedClient.id}/edit`}>
-                    <Edit className="h-3.5 w-3.5" />
-                    Update Client
-                  </Link>
+                  <Edit className="h-3.5 w-3.5" />
+                  Update Client
                 </Button>
                 <Button
                   size="sm"
@@ -516,6 +545,24 @@ function SuperAdminClientsContent() {
           </div>
         </div>
       )}
+
+      {/* Add Client Modal */}
+      <AddClientModal
+        isOpen={isAddClientOpen}
+        onClose={() => setIsAddClientOpen(false)}
+        onClientAdded={handleClientAdded}
+      />
+
+      {/* Update Client Modal */}
+      <UpdateClientModal
+        isOpen={isUpdateClientOpen}
+        onClose={() => {
+          setIsUpdateClientOpen(false);
+          setClientToUpdate(null);
+        }}
+        client={clientToUpdate}
+        onClientUpdated={handleClientUpdated}
+      />
     </div>
   );
 }
