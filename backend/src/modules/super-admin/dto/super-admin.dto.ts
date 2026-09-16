@@ -425,3 +425,16 @@ export class UpdateClientStatusDto {
   @IsOptional()
   reason?: string;
 }
+
+export class CreateFeatureDto {
+  @ApiProperty({ example: 'voice_ai' })
+  @IsString()
+  @IsNotEmpty()
+  code: string;
+
+  @ApiProperty({ example: 'Voice AI Agent' })
+  @IsString()
+  @IsNotEmpty()
+  label: string;
+}
+

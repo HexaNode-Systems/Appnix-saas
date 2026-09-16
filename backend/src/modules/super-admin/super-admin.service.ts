@@ -24,6 +24,7 @@ import {
   CreateWholesalePlanDto,
   UpdateWholesalePlanDto,
   CreateDomainDto,
+  CreateFeatureDto,
 } from './dto/super-admin.dto';
 import {
   parsePagination,
@@ -1779,6 +1780,116 @@ export class SuperAdminService {
     );
 
     return { success: true };
+  }
+
+  // ==========================================
+  // FEATURES CATALOG MANAGEMENT
+  // ==========================================
+  async getFeatures() {
+    const features: any[] = await this.prisma.$queryRawUnsafe(`
+      SELECT 
+        feature_id as "featureId", 
+        code, 
+        label, 
+        created_at as "createdAt" 
+      FROM features 
+      ORDER BY created_at ASC;
+    `);
+
+    return features.map((f) => ({
+      id: f.code,
+      featureId: f.featureId,
+      code: f.code,
+      label: f.label,
+      createdAt: f.createdAt,
+    }));
+  }
+
+  async createFeature(dto: CreateFeatureDto, actorId: string, actorEmail?: string) {
+    const code = (dto.code || '')
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9_]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+
+    const label = (dto.label || '').trim();
+
+    if (!code || !label) {
+      throw new BadRequestException('Both feature code and label are required.');
+    }
+
+    const existing: any[] = await this.prisma.$queryRawUnsafe(
+      `SELECT feature_id FROM features WHERE code = $1 LIMIT 1;`,
+      code,
+    );
+
+    if (existing && existing.length > 0) {
+      throw new ConflictException(`Feature with code '${code}' already exists.`);
+    }
+
+    const featureId = randomBytes(10).toString('hex');
+    const inserted: any[] = await this.prisma.$queryRawUnsafe(
+      `INSERT INTO features (feature_id, code, label, created_at)
+       VALUES ($1, $2, $3, NOW())
+       RETURNING feature_id as "featureId", code, label, created_at as "createdAt";`,
+      featureId,
+      code,
+      label,
+    );
+
+    const created = inserted[0] || { featureId, code, label };
+
+    await this.audit(
+      actorId,
+      'platform',
+      'CREATE_FEATURE',
+      'POST /super-admin/features',
+      actorEmail,
+      undefined,
+      created,
+    );
+
+    return {
+      id: created.code,
+      featureId: created.featureId,
+      code: created.code,
+      label: created.label,
+      createdAt: created.createdAt,
+    };
+  }
+
+  async deleteFeature(featureIdOrCode: string, actorId: string, actorEmail?: string) {
+    const existing: any[] = await this.prisma.$queryRawUnsafe(
+      `SELECT feature_id as "featureId", code, label FROM features WHERE feature_id = $1 OR code = $1 LIMIT 1;`,
+      featureIdOrCode,
+    );
+
+    if (!existing || existing.length === 0) {
+      throw new NotFoundException(`Feature '${featureIdOrCode}' not found.`);
+    }
+
+    const target = existing[0];
+
+    await this.prisma.$queryRawUnsafe(
+      `DELETE FROM features WHERE feature_id = $1;`,
+      target.featureId,
+    );
+
+    await this.audit(
+      actorId,
+      'platform',
+      'DELETE_FEATURE',
+      `DELETE /super-admin/features/${featureIdOrCode}`,
+      actorEmail,
+      undefined,
+      target,
+    );
+
+    return {
+      success: true,
+      message: `Feature '${target.label}' (${target.code}) removed successfully`,
+      deleted: target,
+    };
   }
 
   // ==========================================

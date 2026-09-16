@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { Input } from "@/components/ui/input";
+import { usePathname } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,21 +19,14 @@ import { LogoutConfirmModal } from "../common/LogoutConfirmModal";
 import { useAuth } from "@/lib/auth/auth-context";
 import { config } from "@/lib/config";
 import {
-  Search,
   Menu,
   Maximize2,
+  Minimize2,
   Bell,
-  QrCode,
   Shield,
-  User,
-  Users,
-  Settings,
   LogOut,
   ChevronDown,
   Clock,
-  X,
-  CheckCircle2,
-  AlertTriangle,
 } from "lucide-react";
 
 interface SuperAdminHeaderProps {
@@ -43,7 +35,6 @@ interface SuperAdminHeaderProps {
 }
 
 export function SuperAdminHeader({ onMenuClick, isSuperAdmin: propIsSuperAdmin }: SuperAdminHeaderProps) {
-  const router = useRouter();
   const pathname = usePathname();
   const { user: authUser } = useAuth();
   const [localUser, setLocalUser] = useState<any>(null);
@@ -135,13 +126,37 @@ export function SuperAdminHeader({ onMenuClick, isSuperAdmin: propIsSuperAdmin }
     },
   ];
 
-  const handleToggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    } else {
-      document.exitFullscreen().catch(() => {});
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const handleMaximize = async () => {
+    try {
+      await document.documentElement.requestFullscreen();
+      setIsFullscreen(true);
+    } catch (error) {
+      console.error("Failed to enter fullscreen:", error);
     }
   };
+
+  const handleMinimize = async () => {
+    try {
+      await document.exitFullscreen();
+      setIsFullscreen(false);
+    } catch (error) {
+      console.error("Failed to exit fullscreen:", error);
+    }
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
 
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -163,7 +178,7 @@ export function SuperAdminHeader({ onMenuClick, isSuperAdmin: propIsSuperAdmin }
   return (
     <>
       <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-card px-4 sm:px-6 shadow-2xs">
-      {/* Left side: Mobile Toggle & Global Search */}
+        {/* Left side: Mobile Toggle & Global Search */}
       <div className="flex items-center gap-3 flex-1 max-w-lg">
         <button
           onClick={onMenuClick}
@@ -173,7 +188,7 @@ export function SuperAdminHeader({ onMenuClick, isSuperAdmin: propIsSuperAdmin }
           <Menu className="h-5 w-5" />
         </button>
 
-        <div className="relative w-full">
+        {/* <div className="relative w-full">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder={isSuperAdmin ? "Search partners, wholesale plans, clients..." : "Search clients, tickets, plans, staff, logs..."}
@@ -181,21 +196,35 @@ export function SuperAdminHeader({ onMenuClick, isSuperAdmin: propIsSuperAdmin }
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9 h-9 text-xs bg-muted/30 border-border/70 focus-visible:ring-1 focus-visible:ring-amber-500"
           />
-        </div>
+        </div> */}
       </div>
 
       {/* Right side: Utilities, Notifications, Admin Profile */}
       <div className="flex items-center gap-2 sm:gap-3">
-        {/* Fullscreen Icon */}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={handleToggleFullscreen}
-          className="h-9 w-9 text-muted-foreground hover:text-foreground"
-          title="Toggle Fullscreen"
-        >
-          <Maximize2 className="h-4.5 w-4.5" />
-        </Button>
+        {/* Window Controls */}
+        {isFullscreen ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleMinimize}
+            className="h-9 w-9 text-muted-foreground hover:text-foreground"
+            title="Minimize"
+            aria-label="Minimize"
+          >
+            <Minimize2 className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleMaximize}
+            className="h-9 w-9 text-muted-foreground hover:text-foreground"
+            title="Maximize"
+            aria-label="Maximize"
+          >
+            <Maximize2 className="h-4 w-4" />
+          </Button>
+        )}
 
         {/* Notification Bell with Dropdown */}
         <div className="relative">

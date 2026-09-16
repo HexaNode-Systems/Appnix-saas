@@ -29,6 +29,7 @@ import {
   UpdateWholesalePlanDto,
   CreateDomainDto,
   UpdateClientStatusDto,
+  CreateFeatureDto,
 } from './dto/super-admin.dto';
 
 @ApiTags('Super Admin Platform Engine')
@@ -374,6 +375,42 @@ export class SuperAdminController {
   ) {
     const data = await this.service.deleteWholesalePlan(id, actor.userId, actor.email);
     return { success: true, data };
+  }
+
+  // ==========================================
+  // 5B. FEATURES CATALOG MANAGEMENT
+  // ==========================================
+  @Get('features')
+  @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List all features from the features table' })
+  async getFeatures() {
+    const data = await this.service.getFeatures();
+    return { success: true, data };
+  }
+
+  @Post('features')
+  @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Add a new feature to the features table' })
+  async createFeature(
+    @Body() dto: CreateFeatureDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    const data = await this.service.createFeature(dto, actor.userId, actor.email);
+    return { success: true, data, message: 'Feature created successfully' };
+  }
+
+  @Delete('features/:id')
+  @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Remove a feature from the features table' })
+  async deleteFeature(
+    @Param('id') id: string,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    const data = await this.service.deleteFeature(id, actor.userId, actor.email);
+    return { success: true, data, message: 'Feature removed successfully' };
   }
 
   // ==========================================

@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { superAdminApi } from "@/super-admin/services/superAdminApi";
 import { SuperAdminPagination } from "@/super-admin/components/common/SuperAdminPagination";
+import { ManageFeaturesModal } from "@/super-admin/components/wholesale-plans/ManageFeaturesModal";
 import {
   Layers,
   Plus,
@@ -18,14 +19,14 @@ import {
   Trash2,
   AlertCircle,
   Loader2,
-  Check,
-  X,
+  Sparkles,
 } from "lucide-react";
 
 export default function SuperAdminWholesalePlansPage() {
   const [plans, setPlans] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [featuresModalOpen, setFeaturesModalOpen] = useState(false);
 
   // Common Pagination State
   const [page, setPage] = useState(1);
@@ -34,35 +35,6 @@ export default function SuperAdminWholesalePlansPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [hasNext, setHasNext] = useState(false);
   const [hasPrevious, setHasPrevious] = useState(false);
-
-  // Modals state
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingPlan, setEditingPlan] = useState<any | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  const [form, setForm] = useState({
-    name: "",
-    slug: "",
-    description: "",
-    setupFee: 0,
-    perClientPrice: 0,
-    maxClients: 50,
-    featureAccess: ["whatsapp", "instagram", "rcs", "crm", "chatbots"],
-    status: "ACTIVE",
-  });
-
-  const availableFeatures = [
-    { id: "whatsapp", label: "WhatsApp Cloud API" },
-    { id: "instagram", label: "Instagram Direct & Automation" },
-    { id: "rcs", label: "RCS Business Messaging" },
-    { id: "facebook", label: "Facebook Messenger" },
-    { id: "crm", label: "Omnichannel CRM Contacts" },
-    { id: "chatbots", label: "Visual Botflow Builder" },
-    { id: "automations", label: "Workflow Automations & Webhooks" },
-    { id: "custom_domains", label: "White-Label Custom Domains" },
-    { id: "voice_ai_agent", label: "Voice AI Agent" },
-    { id: "priority_support", label: "Priority Enterprise Support" },
-  ];
 
   const loadPlans = async (targetPage = page, targetLimit = limit) => {
     setLoading(true);
@@ -102,66 +74,6 @@ export default function SuperAdminWholesalePlansPage() {
     loadPlans(1, newLimit);
   };
 
-  const openCreateModal = () => {
-    setEditingPlan(null);
-    setForm({
-      name: "",
-      slug: "",
-      description: "",
-      setupFee: 0,
-      perClientPrice: 0,
-      maxClients: 50,
-      featureAccess: ["whatsapp", "instagram", "rcs", "crm", "chatbots", "automations"],
-      status: "ACTIVE",
-    });
-    setIsModalOpen(true);
-  };
-
-  const openEditModal = (plan: any) => {
-    setEditingPlan(plan);
-    setForm({
-      name: plan.name,
-      slug: plan.slug,
-      description: plan.description || "",
-      setupFee: plan.setupFee,
-      perClientPrice: plan.perClientPrice,
-      maxClients: plan.maxClients || 50,
-      featureAccess: plan.featureAccess || [],
-      status: plan.status || "ACTIVE",
-    });
-    setIsModalOpen(true);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-
-    try {
-      if (editingPlan) {
-        await superAdminApi.updateWholesalePlan(editingPlan.id, {
-          ...form,
-          setupFee: Number(form.setupFee),
-          perClientPrice: Number(form.perClientPrice),
-          maxClients: Number(form.maxClients),
-        });
-      } else {
-        await superAdminApi.createWholesalePlan({
-          ...form,
-          setupFee: Number(form.setupFee),
-          perClientPrice: Number(form.perClientPrice),
-          maxClients: Number(form.maxClients),
-        });
-      }
-      setIsModalOpen(false);
-      loadPlans();
-    } catch (err: any) {
-      setError(err.response?.data?.message || err.message || "Action failed");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const handleDelete = async (plan: any) => {
     if (!confirm(`Are you sure you want to remove or archive wholesale plan '${plan.name}'?`)) return;
 
@@ -197,13 +109,23 @@ export default function SuperAdminWholesalePlansPage() {
             <span>Refresh</span>
           </Button>
           <Button
+            variant="outline"
             size="sm"
-            onClick={openCreateModal}
-            className="h-9 text-xs gap-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold"
+            onClick={() => setFeaturesModalOpen(true)}
+            className="h-9 text-xs gap-1.5 border-amber-500/30 hover:bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium cursor-pointer"
           >
-            <Plus className="h-3.5 w-3.5" />
-            <span>Create Wholesale Plan</span>
+            <Sparkles className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+            <span>Manage Features</span>
           </Button>
+          <Link href="/super-admin/wholesale-plans/create">
+            <Button
+              size="sm"
+              className="h-9 text-xs gap-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold cursor-pointer"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Create Wholesale Plan</span>
+            </Button>
+          </Link>
         </div>
       </div>
 
@@ -227,6 +149,15 @@ export default function SuperAdminWholesalePlansPage() {
           <p className="max-w-md mx-auto">
             Click &quot;Create Wholesale Plan&quot; to define standard pricing tiers for your White-Label agency partners.
           </p>
+          <Link href="/super-admin/wholesale-plans/create">
+            <Button
+              size="sm"
+              className="mt-2 text-xs bg-amber-600 hover:bg-amber-700 text-white cursor-pointer"
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              <span>Create Wholesale Plan</span>
+            </Button>
+          </Link>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -308,15 +239,16 @@ export default function SuperAdminWholesalePlansPage() {
 
               {/* Actions */}
               <div className="flex items-center justify-end gap-2 pt-4 border-t">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => openEditModal(p)}
-                  className="h-8 text-xs gap-1.5"
-                >
-                  <Edit2 className="h-3.5 w-3.5" />
-                  <span>Edit Plan</span>
-                </Button>
+                <Link href={`/super-admin/wholesale-plans/update?id=${p.id}`}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs gap-1.5 cursor-pointer"
+                  >
+                    <Edit2 className="h-3.5 w-3.5" />
+                    <span>Edit Plan</span>
+                  </Button>
+                </Link>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -344,161 +276,10 @@ export default function SuperAdminWholesalePlansPage() {
         loading={loading}
       />
 
-      {/* CREATE / EDIT MODAL */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
-          <div className="bg-card border rounded-2xl max-w-xl w-full p-6 shadow-2xl my-8 space-y-5">
-            <div className="flex items-center justify-between border-b pb-4">
-              <div>
-                <h3 className="text-base font-extrabold text-foreground">
-                  {editingPlan ? `Edit Wholesale Plan: ${editingPlan.name}` : "Create Standard Wholesale Plan"}
-                </h3>
-                <p className="text-xs text-muted-foreground">
-                  Define base wholesale unit cost, one-time fees, and feature limits.
-                </p>
-              </div>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="p-1 rounded-lg text-muted-foreground hover:bg-muted"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <div>
-                  <label className="block text-xs font-semibold text-foreground mb-1">Plan Name *</label>
-                  <Input
-                    required
-                    placeholder="e.g. Agency Growth Wholesale"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    className="h-9 text-xs"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-foreground mb-1">Slug (Optional)</label>
-                  <Input
-                    placeholder="e.g. agency-growth-wholesale"
-                    value={form.slug}
-                    onChange={(e) => setForm({ ...form, slug: e.target.value })}
-                    className="h-9 text-xs font-mono"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-foreground mb-1">Plan Description</label>
-                <Input
-                  placeholder="Summary of wholesale tier terms and ideal agency size"
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  className="h-9 text-xs"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
-                    Appnix Commission / Client / Mo (₹) *
-                  </label>
-                  <Input
-                    type="number"
-                    required
-                    min={0}
-                    value={form.perClientPrice}
-                    onChange={(e) => setForm({ ...form, perClientPrice: Number(e.target.value) })}
-                    className="h-8.5 text-xs font-mono font-bold text-emerald-700 dark:text-emerald-400"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
-                    One-Time Lifetime License Fee (₹) *
-                  </label>
-                  <Input
-                    type="number"
-                    required
-                    min={0}
-                    value={form.setupFee}
-                    onChange={(e) => setForm({ ...form, setupFee: Number(e.target.value) })}
-                    className="h-8.5 text-xs font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
-                    Max Clients Capacity *
-                  </label>
-                  <Input
-                    type="number"
-                    required
-                    min={1}
-                    value={form.maxClients}
-                    onChange={(e) => setForm({ ...form, maxClients: Number(e.target.value) })}
-                    className="h-8.5 text-xs font-mono"
-                  />
-                </div>
-              </div>
-
-              {/* Feature Entitlements Selection */}
-              <div>
-                <label className="block text-xs font-semibold text-foreground mb-1.5">
-                  Included Subsystem Feature Entitlements
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {availableFeatures.map((f) => {
-                    const isChecked = form.featureAccess.includes(f.id);
-                    return (
-                      <label
-                        key={f.id}
-                        className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer select-none transition-colors ${
-                          isChecked
-                            ? "bg-amber-500/10 border-amber-500/30 text-foreground font-semibold"
-                            : "bg-card text-muted-foreground"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setForm({ ...form, featureAccess: [...form.featureAccess, f.id] });
-                            } else {
-                              setForm({
-                                ...form,
-                                featureAccess: form.featureAccess.filter((x) => x !== f.id),
-                              });
-                            }
-                          }}
-                          className="rounded text-amber-600 focus:ring-amber-500"
-                        />
-                        <span className="truncate">{f.label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-4 border-t">
-                <Button type="button" variant="outline" size="sm" onClick={() => setIsModalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  size="sm"
-                  disabled={submitting}
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-semibold"
-                >
-                  {submitting ? "Saving..." : editingPlan ? "Update Plan" : "Create Wholesale Plan"}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <ManageFeaturesModal
+        isOpen={featuresModalOpen}
+        onClose={() => setFeaturesModalOpen(false)}
+      />
     </div>
   );
 }

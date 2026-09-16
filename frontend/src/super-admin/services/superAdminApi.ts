@@ -355,6 +355,22 @@ export const superAdminApi = {
     return res.data?.data || res.data;
   },
 
+  // Features Catalog
+  getFeatures: async (): Promise<Array<{ id: string; featureId: string; code: string; label: string; createdAt?: string }>> => {
+    const res = await api.get("/features");
+    return res.data?.data || res.data;
+  },
+
+  createFeature: async (data: { code: string; label: string }) => {
+    const res = await api.post("/features", data);
+    return res.data?.data || res.data;
+  },
+
+  deleteFeature: async (idOrCode: string) => {
+    const res = await api.delete(`/features/${idOrCode}`);
+    return res.data?.data || res.data;
+  },
+
   // Subscriptions & Revenue
   getSubscriptions: async (params?: {
     subPage?: number;
