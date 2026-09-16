@@ -8,7 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { superAdminApi } from "@/super-admin/services/superAdminApi";
 import { SuperAdminPagination } from "@/super-admin/components/common/SuperAdminPagination";
 import { SuperAdminClientDetailsModal } from "@/super-admin/components/clients/SuperAdminClientDetailsModal";
+import { InsideClientsSection } from "@/super-admin/components/clients/InsideClientsSection";
 import { executeGuestLogin } from "@/super-admin/services";
+import { cn } from "@/lib/utils";
 import {
   Users,
   Search,
@@ -20,9 +22,11 @@ import {
   Eye,
   Calendar,
   LogIn,
+  Sparkles,
 } from "lucide-react";
 
 export default function SuperAdminClientsPage() {
+  const [activeSubTab, setActiveSubTab] = useState<"all" | "inside">("all");
   const [clients, setClients] = useState<any[]>([]);
   const [partners, setPartners] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,8 +144,57 @@ export default function SuperAdminClientsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-5">
+      {/* Sub-Tab Navigation Bar: All Clients vs My Inside Clients */}
+      <div className="flex items-center gap-2 border-b pb-3">
+        <button
+          onClick={() => setActiveSubTab("all")}
+          className={cn(
+            "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer",
+            activeSubTab === "all"
+              ? "bg-foreground text-background shadow-xs"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          )}
+        >
+          <Building2 className="h-4 w-4" />
+          <span>All Clients (Wholesale & Partners)</span>
+          <span
+            className={cn(
+              "px-1.5 py-0.2 rounded-full text-[10px]",
+              activeSubTab === "all" ? "bg-background/20 text-background" : "bg-muted text-muted-foreground"
+            )}
+          >
+            {total}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveSubTab("inside")}
+          className={cn(
+            "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer",
+            activeSubTab === "inside"
+              ? "bg-purple-600 text-white shadow-xs"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          )}
+        >
+          <Sparkles className="h-4 w-4" />
+          <span>My Inside Clients</span>
+          <span
+            className={cn(
+              "rounded-full px-2 py-0.2 text-[9px] font-bold",
+              activeSubTab === "inside" ? "bg-white/20 text-white" : "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300"
+            )}
+          >
+            app. & admin.
+          </span>
+        </button>
+      </div>
+
+      {activeSubTab === "inside" ? (
+        <InsideClientsSection isSuperAdmin={true} />
+      ) : (
+        <>
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-5">
         <div>
        
           <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
@@ -462,6 +515,8 @@ export default function SuperAdminClientsPage() {
           loading={loading}
         />
       </div>
+      </>
+      )}
 
       {/* Client Details Modal */}
       <SuperAdminClientDetailsModal

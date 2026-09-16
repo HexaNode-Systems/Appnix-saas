@@ -1361,4 +1361,393 @@ export class TenantsService {
       },
     };
   }
+
+  // ==========================================
+  // PROPRIETARY INSIDE CLIENTS (APP / ADMIN SUBDOMAINS)
+  // Dedicated endpoints for clients of app. and admin. subdomains
+  // ==========================================
+
+  async getInsideClients(
+    actor: SessionContext,
+    params?: {
+      search?: string;
+      status?: string;
+      plan?: string;
+      page?: string | number;
+      limit?: string | number;
+    },
+  ): Promise<PaginatedResult<any>> {
+    const { page, limit, skip, take } = parsePagination(params?.page, params?.limit);
+
+    // Resolve Platform Root Tenant ID
+    const rootTenantId = await this.getRootTenantId();
+
+    // Inside clients condition: END_CLIENT tier and belonging directly to Platform Root or null parent (depth <= 1)
+    // Strictly isolating direct app / admin inside clients from white-label reseller subtrees
+    let insideParentCondition = `(t."parentId" IS NULL OR t.depth <= 1 OR p.tier = 'PLATFORM_ROOT'::"TenantTier"`;
+    if (rootTenantId) {
+      insideParentCondition += ` OR t."parentId" = '${rootTenantId}'`;
+    }
+    insideParentCondition += `)`;
+
+    const conditions: string[] = [
+      `t.tier = 'END_CLIENT'::"TenantTier"`,
+      insideParentCondition,
+    ];
+    const queryParams: any[] = [];
+
+    if (params?.status && params.status !== 'ALL' && params.status !== 'All') {
+      const upper = params.status.toUpperCase();
+      let dbStatus = 'ACTIVE';
+      if (upper === 'SUSPENDED') dbStatus = 'SUSPENDED';
+      else if (upper === 'CANCELLED' || upper === 'INACTIVE') dbStatus = 'CANCELLED';
+      queryParams.push(dbStatus);
+      conditions.push(`t.status = $${queryParams.length}::"TenantStatus"`);
+    }
+
+    if (params?.plan && params.plan !== 'ALL' && params.plan !== 'All') {
+      queryParams.push(`%${params.plan}%`);
+      conditions.push(
+        `EXISTS (SELECT 1 FROM subscriptions s WHERE s."tenantId" = t.id AND s."planName" ILIKE $${queryParams.length})`,
+      );
+    }
+
+    if (params?.search && params.search.trim()) {
+      const q = `%${params.search.trim()}%`;
+      queryParams.push(q);
+      const pIndex = queryParams.length;
+      conditions.push(`(
+        t.name ILIKE $${pIndex} OR
+        t.slug ILIKE $${pIndex} OR
+        EXISTS (
+          SELECT 1 FROM users u
+          WHERE u."tenantId" = t.id AND (
+            u.name ILIKE $${pIndex} OR
+            u.email ILIKE $${pIndex} OR
+            u.phone ILIKE $${pIndex}
+          )
+        )
+      )`);
+    }
+
+    const whereClause = conditions.join(' AND ');
+
+    // 1. Count query
+    const countSql = `SELECT COUNT(*)::int as total FROM tenants t LEFT JOIN tenants p ON p.id = t."parentId" WHERE ${whereClause}`;
+    const countRes = await this.postgres.query(countSql, queryParams);
+    const total = countRes.rows[0]?.total || 0;
+
+    // 2. Data query
+    queryParams.push(take);
+    const limitIdx = queryParams.length;
+    queryParams.push(skip);
+    const offsetIdx = queryParams.length;
+
+    const dataSql = `
+      SELECT
+        t.id,
+        t.name,
+        t.slug,
+        t.status,
+        t."createdAt",
+        t."updatedAt",
+        p.id as parent_id,
+        p.name as parent_name,
+        p.slug as parent_slug,
+        u.id as user_id,
+        u.name as user_name,
+        u.email as user_email,
+        u.phone as user_phone,
+        s."planName" as plan_name,
+        w.balance as wallet_balance,
+        (SELECT COUNT(*)::int FROM users usr WHERE usr."tenantId" = t.id) as user_count
+      FROM tenants t
+      LEFT JOIN tenants p ON p.id = t."parentId"
+      LEFT JOIN LATERAL (
+        SELECT id, name, email, phone
+        FROM users
+        WHERE "tenantId" = t.id AND role = 'TENANT_ADMIN'::"Role"
+        ORDER BY "createdAt" ASC
+        LIMIT 1
+      ) u ON true
+      LEFT JOIN LATERAL (
+        SELECT "planName"
+        FROM subscriptions
+        WHERE "tenantId" = t.id
+        ORDER BY "createdAt" DESC
+        LIMIT 1
+      ) s ON true
+      LEFT JOIN wallets w ON w."tenantId" = t.id
+      WHERE ${whereClause}
+      ORDER BY t."createdAt" DESC
+      LIMIT $${limitIdx} OFFSET $${offsetIdx}
+    `;
+
+    const rowsRes = await this.postgres.query(dataSql, queryParams);
+
+    const formatted = rowsRes.rows.map((r) => {
+      const planName = r.plan_name || 'Pro';
+      const mrr = planName === 'Enterprise' ? 4500 : planName === 'Pro' ? 1200 : planName === 'Growth' ? 99 : 29;
+
+      let mappedStatus: 'Active' | 'Suspended' | 'Trial' | 'Inactive' = 'Active';
+      if (r.status === 'ACTIVE') mappedStatus = 'Active';
+      else if (r.status === 'SUSPENDED') mappedStatus = 'Suspended';
+      else mappedStatus = 'Inactive';
+
+      return {
+        id: r.id,
+        name: r.name,
+        slug: r.slug,
+        ownerName: r.user_name || 'Account Admin',
+        email: r.user_email || '',
+        phone: r.user_phone || '',
+        plan: planName,
+        status: mappedStatus,
+        whatsappStatus: 'Connected',
+        walletBalance: Number(r.wallet_balance) || 0,
+        signupDate: new Date(r.createdAt).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        }),
+        mrr,
+        totalUsers: r.user_count || 1,
+        lastActive: 'Active recently',
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+        partner: null,
+        isInsideClient: true,
+        subdomain: 'app',
+        portalUrl: 'https://app.appnix.co.in',
+      };
+    });
+
+    return createPaginatedResponse(formatted, total, page, limit);
+  }
+
+  async createInsideClient(data: CreateClientDto, actor: SessionContext) {
+    const rawPassword = (data.password || data.adminPassword || '').trim();
+    if (!rawPassword || rawPassword.length < 8) {
+      throw new BadRequestException('Password is required and must be at least 8 characters long');
+    }
+
+    let rootTenantId = await this.getRootTenantId();
+    let rootTenant: any = null;
+    if (rootTenantId) {
+      const rootRes = await this.postgres.query(
+        `SELECT id, name, slug, path, depth, "primaryColor" FROM tenants WHERE id = $1`,
+        [rootTenantId],
+      );
+      rootTenant = rootRes.rows[0];
+    }
+    if (!rootTenant) {
+      const fallbackRes = await this.postgres.query(
+        `SELECT id, name, slug, path, depth, "primaryColor" FROM tenants WHERE tier = 'PLATFORM_ROOT'::"TenantTier" ORDER BY depth ASC LIMIT 1`,
+      );
+      rootTenant = fallbackRes.rows[0];
+    }
+    if (!rootTenant) {
+      const fallbackRoot = await this.postgres.query(
+        `SELECT id, name, slug, path, depth, "primaryColor" FROM tenants WHERE path = 'root' OR depth = 0 LIMIT 1`,
+      );
+      rootTenant = fallbackRoot.rows[0];
+    }
+
+    const parentId = rootTenant?.id || null;
+    const parentPath = rootTenant?.path || 'root';
+    const primaryColor = rootTenant?.primaryColor || '#0f172a';
+
+    const cleanEmail = data.email.toLowerCase().trim();
+    const existingUserRes = await this.postgres.query(
+      `SELECT id FROM users WHERE LOWER(email) = LOWER($1)`,
+      [cleanEmail],
+    );
+    if (existingUserRes.rows.length > 0) {
+      throw new ConflictException(`User email ${cleanEmail} is already registered.`);
+    }
+
+    const slug = data.slug ? this.generateSlug(data.slug) : this.generateSlug(data.name);
+    const clientId = randomUUID();
+    const cleanId = clientId.replace(/-/g, '_');
+    const path = `${parentPath}.t_${cleanId}`;
+    const depth = 1;
+
+    const passwordHash = await bcrypt.hash(rawPassword, 12);
+
+    let tenantStatus = 'ACTIVE';
+    if (data.status) {
+      const s = data.status.toUpperCase();
+      if (s === 'SUSPENDED') tenantStatus = 'SUSPENDED';
+      else if (s === 'CANCELLED' || s === 'INACTIVE') tenantStatus = 'CANCELLED';
+    }
+
+    const planName = data.plan || 'Pro';
+    let price = '₹1,999/mo';
+    if (planName.toLowerCase().includes('starter')) price = '₹999/mo';
+    else if (planName.toLowerCase().includes('growth')) price = '₹1,999/mo';
+    else if (planName.toLowerCase().includes('pro')) price = '₹2,999/mo';
+    else if (planName.toLowerCase().includes('enterprise')) price = '₹4,999/mo';
+
+    const planSlug = planName.toLowerCase().replace(/\s+/g, '-');
+    const planMatchRes = await this.postgres.query(
+      `SELECT id FROM plans WHERE slug = $1 OR LOWER(name) = LOWER($2) LIMIT 1`,
+      [planSlug, planName],
+    );
+    const matchedPlanId = planMatchRes.rows[0]?.id || null;
+
+    const pgClient = await this.postgres.getPool().connect();
+    try {
+      await pgClient.query('BEGIN');
+
+      const now = new Date();
+
+      await pgClient.query(
+        `INSERT INTO tenants (
+          id, name, slug, status, tier, path, depth, "parentId", "primaryColor",
+          "maxSubResellers", "maxEndClients", "maxUsers", "trialUsed", "twoFactorEnabled",
+          "createdAt", "updatedAt"
+        ) VALUES (
+          $1, $2, $3, $4::"TenantStatus", 'END_CLIENT'::"TenantTier", $5, $6, $7, $8,
+          0, 10, 5, false, false,
+          $9, $9
+        )`,
+        [
+          clientId,
+          data.name.trim(),
+          slug,
+          tenantStatus,
+          path,
+          depth,
+          parentId,
+          primaryColor,
+          now,
+        ],
+      );
+
+      const userId = randomUUID();
+      const ownerName = data.ownerName?.trim() || `${data.name.trim()} Admin`;
+      const phone = data.phone?.trim() || null;
+      await pgClient.query(
+        `INSERT INTO users (
+          id, email, "passwordHash", name, phone, role, "tenantId",
+          language, theme, "twoFactorEnabled", "createdAt", "updatedAt"
+        ) VALUES (
+          $1, $2, $3, $4, $5, 'TENANT_ADMIN'::"Role", $6,
+          'en', 'system', false, $7, $7
+        )`,
+        [
+          userId,
+          cleanEmail,
+          passwordHash,
+          ownerName,
+          phone,
+          clientId,
+          now,
+        ],
+      );
+
+      const subId = randomUUID();
+      const totalDays = 90;
+      const currentPeriodEnd = new Date(now.getTime() + totalDays * 24 * 60 * 60 * 1000);
+      await pgClient.query(
+        `INSERT INTO subscriptions (
+          id, "tenantId", "planId", "planName", "planRefId", price, status,
+          "totalDays", "remainingDays", "currentPeriodStart", "currentPeriodEnd",
+          "maxBots", "maxMessages", "maxTeamSeats", "usedBots", "usedMessages", "usedTeamSeats",
+          "isTrial", "createdAt", "updatedAt"
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, 'ACTIVE'::"SubscriptionStatus",
+          $7, $7, $8, $9,
+          5, 10000, 5, 0, 0, 1,
+          false, $8, $8
+        )`,
+        [
+          subId,
+          clientId,
+          planSlug,
+          planName,
+          matchedPlanId,
+          price,
+          totalDays,
+          now,
+          currentPeriodEnd,
+        ],
+      );
+
+      const walletId = randomUUID();
+      const initialBalance = data.walletBalance !== undefined ? Number(data.walletBalance) : 0;
+      await pgClient.query(
+        `INSERT INTO wallets (
+          id, "tenantId", balance, currency, "minThreshold", "autoRechargeEnabled",
+          "autoRechargeAmount", "defaultPaymentMethod", "createdAt", "updatedAt"
+        ) VALUES (
+          $1, $2, $3, 'INR', 100.0, false, 500.0, 'WALLET', $4, $4
+        )`,
+        [
+          walletId,
+          clientId,
+          initialBalance,
+          now,
+        ],
+      );
+
+      await pgClient.query('COMMIT');
+
+      const mrr = planName === 'Enterprise' ? 4500 : planName === 'Pro' ? 1200 : planName === 'Growth' ? 99 : 29;
+
+      return {
+        id: clientId,
+        name: data.name.trim(),
+        slug,
+        ownerName,
+        email: cleanEmail,
+        phone,
+        plan: planName,
+        status: tenantStatus === 'ACTIVE' ? 'Active' : 'Suspended',
+        whatsappStatus: 'Connected',
+        walletBalance: initialBalance,
+        signupDate: now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        mrr,
+        totalUsers: 1,
+        lastActive: 'Just created',
+        createdAt: now.toISOString(),
+        partner: null,
+        isInsideClient: true,
+        subdomain: 'app',
+        portalUrl: 'https://app.appnix.co.in',
+      };
+    } catch (error) {
+      await pgClient.query('ROLLBACK');
+      throw error;
+    } finally {
+      pgClient.release();
+    }
+  }
+
+  async getInsideClientById(id: string, actor: SessionContext) {
+    const client = await this.getClientById(id, actor);
+    return {
+      ...client,
+      isInsideClient: true,
+      subdomain: 'app',
+      portalUrl: 'https://app.appnix.co.in',
+    };
+  }
+
+  async updateInsideClient(id: string, body: UpdateClientDto, actor: SessionContext) {
+    return this.updateClient(id, body, actor);
+  }
+
+  async updateInsideClientStatus(id: string, status: string, actor: SessionContext) {
+    return this.updateClientStatus(id, status, actor);
+  }
+
+  async deleteInsideClient(id: string, actor: SessionContext) {
+    return this.deleteClient(id, actor);
+  }
+
+  async loginAsInsideClientGuest(id: string, actor: SessionContext, ip?: string) {
+    return this.loginAsGuest(id, actor, ip);
+  }
 }
+

@@ -70,6 +70,7 @@ const createAxiosInstance = (): AxiosInstance => {
 
       const isAuthEndpoint =
         originalRequest?.url?.includes("/auth/login") ||
+        originalRequest?.url?.includes("/auth/session-login") ||
         originalRequest?.url?.includes("/auth/signup") ||
         originalRequest?.url?.includes("/auth/forgot-password") ||
         originalRequest?.url?.includes("/auth/reset-password") ||
@@ -132,6 +133,7 @@ export const api = createAxiosInstance();
 export const apiEndpoints = {
   auth: {
     login: "/auth/login",
+    sessionLogin: "/auth/session-login",
     signup: "/auth/signup",
     register: "/auth/signup",
     logout: "/auth/logout",

@@ -115,7 +115,7 @@ export default function NewClientPage() {
   ];
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto pb-12">
+    <div className="space-y-6 mx-auto pb-12">
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-3 text-xs font-semibold text-white shadow-xl animate-in fade-in slide-in-from-bottom-3 border border-gray-700">
@@ -153,9 +153,7 @@ export default function NewClientPage() {
             </div>
             Add New Client Organization
           </h1>
-          <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
-            Provision a new tenant workspace, administrator login credentials, and subscription plan.
-          </p>
+         
         </div>
 
         <Link href="/admin/clients">

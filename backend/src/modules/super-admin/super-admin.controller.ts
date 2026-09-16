@@ -296,6 +296,36 @@ export class SuperAdminController {
     return { success: true, data };
   }
 
+  @Get('inside-clients')
+  @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List proprietary Inside-Client accounts (app/admin subdomains)' })
+  async getInsideClients(
+    @Query('status') status?: string,
+    @Query('plan') plan?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const data = await this.service.getInsideClients({ status, plan, search, page, limit });
+    return { success: true, data };
+  }
+
+  @Get('my-clients')
+  @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List proprietary Inside-Client accounts (alias for /super-admin/inside-clients)' })
+  async getMyClients(
+    @Query('status') status?: string,
+    @Query('plan') plan?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const data = await this.service.getInsideClients({ status, plan, search, page, limit });
+    return { success: true, data };
+  }
+
   @Get('clients/:id')
   @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
   @ApiBearerAuth()

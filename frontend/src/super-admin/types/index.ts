@@ -4,6 +4,7 @@ export type WhatsAppStatus = "Connected" | "Disconnected" | "Pending";
 export interface Client {
   id: string;
   name: string;
+  slug?: string;
   ownerName: string;
   email: string;
   phone: string;
@@ -15,6 +16,8 @@ export interface Client {
   mrr: number;
   totalUsers: number;
   lastActive: string;
+  isInsideClient?: boolean;
+  subdomain?: string;
 }
 
 export interface PlanTier {

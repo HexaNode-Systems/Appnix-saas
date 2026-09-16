@@ -27,6 +27,7 @@ import {
   Layers,
   Radio,
   Palette,
+  Sparkles,
 } from "lucide-react";
 
 interface SuperAdminSidebarProps {
@@ -59,6 +60,12 @@ const adminNavItems: NavItem[] = [
     icon: Building2,
     children: [
       { label: "All Clients", href: "/admin/clients", icon: Users },
+      // {
+      //   label: "My Inside Clients",
+      //   href: "/admin/clients/inside-clients",
+      //   icon: Sparkles,
+      //   badge: "Direct",
+      // },
       {
         label: "Add Client",
         href: "/admin/clients/new",
@@ -94,7 +101,21 @@ const superAdminNavItems: NavItem[] = [
       },
     ],
   },
-  { id: "clients", label: "All Client Accounts", href: "/super-admin/clients", icon: Users },
+  {
+    id: "clients",
+    label: "All Client Accounts",
+    href: "/super-admin/clients",
+    icon: Users,
+    children: [
+      { label: "All Clients", href: "/super-admin/clients", icon: Users },
+      // {
+      //   label: "My Inside Clients",
+      //   href: "/super-admin/clients/inside-clients",
+      //   icon: Sparkles,
+      //   badge: "Direct",
+      // },
+    ],
+  },
   { id: "wholesale-plans", label: "Wholesale Plans", href: "/super-admin/wholesale-plans", icon: Layers },
   { id: "subscriptions", label: "Subscriptions & Rev", href: "/super-admin/subscriptions", icon: CreditCard },
   { id: "channels", label: "Channel Usage", href: "/super-admin/channels", icon: Radio },

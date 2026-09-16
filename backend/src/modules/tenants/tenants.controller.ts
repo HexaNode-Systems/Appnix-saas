@@ -186,6 +186,195 @@ export class TenantsController {
     return { success: true, data };
   }
 
+  // ==========================================
+  // PROPRIETARY INSIDE CLIENTS (APP / ADMIN SUBDOMAINS)
+  // Dedicated endpoints for clients of app. and admin. subdomains
+  // ==========================================
+
+  @Get('inside-clients')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Get proprietary inside clients provisioned on app/admin subdomains' })
+  async getInsideClients(
+    @CurrentUser() actor: AuthUser,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @Query('plan') plan?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const data = await this.tenantsService.getInsideClients(actor as unknown as SessionContext, {
+      search,
+      status,
+      plan,
+      page,
+      limit,
+    });
+    return { success: true, data };
+  }
+
+  @Get('my-clients')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Get proprietary inside clients (alias for /tenants/inside-clients)' })
+  async getMyClients(
+    @CurrentUser() actor: AuthUser,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @Query('plan') plan?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const data = await this.tenantsService.getInsideClients(actor as unknown as SessionContext, {
+      search,
+      status,
+      plan,
+      page,
+      limit,
+    });
+    return { success: true, data };
+  }
+
+  @Post('inside-clients')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Provision new inside client on app/admin subdomain under Platform Root' })
+  async createInsideClient(
+    @Body() body: CreateClientDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    const data = await this.tenantsService.createInsideClient(body, actor as unknown as SessionContext);
+    return { success: true, data, message: 'Inside client created successfully' };
+  }
+
+  @Post('my-clients')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Provision new inside client (alias for /tenants/inside-clients)' })
+  async createMyClient(
+    @Body() body: CreateClientDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    const data = await this.tenantsService.createInsideClient(body, actor as unknown as SessionContext);
+    return { success: true, data, message: 'Inside client created successfully' };
+  }
+
+  @Get('inside-clients/:id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Get single inside client details' })
+  async getInsideClientById(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
+    const data = await this.tenantsService.getInsideClientById(id, actor as unknown as SessionContext);
+    return { success: true, data };
+  }
+
+  @Get('my-clients/:id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Get single inside client details (alias)' })
+  async getMyClientById(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
+    const data = await this.tenantsService.getInsideClientById(id, actor as unknown as SessionContext);
+    return { success: true, data };
+  }
+
+  @Patch('inside-clients/:id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Update inside client details' })
+  async updateInsideClient(
+    @Param('id') id: string,
+    @Body() body: UpdateClientDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    const data = await this.tenantsService.updateInsideClient(id, body, actor as unknown as SessionContext);
+    return { success: true, data };
+  }
+
+  @Patch('my-clients/:id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Update inside client details (alias)' })
+  async updateMyClient(
+    @Param('id') id: string,
+    @Body() body: UpdateClientDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    const data = await this.tenantsService.updateInsideClient(id, body, actor as unknown as SessionContext);
+    return { success: true, data };
+  }
+
+  @Patch('inside-clients/:id/status')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Update inside client status' })
+  async updateInsideClientStatus(
+    @Param('id') id: string,
+    @Body('status') status: string,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    const data = await this.tenantsService.updateInsideClientStatus(id, status, actor as unknown as SessionContext);
+    return { success: true, data };
+  }
+
+  @Patch('my-clients/:id/status')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Update inside client status (alias)' })
+  async updateMyClientStatus(
+    @Param('id') id: string,
+    @Body('status') status: string,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    const data = await this.tenantsService.updateInsideClientStatus(id, status, actor as unknown as SessionContext);
+    return { success: true, data };
+  }
+
+  @Delete('inside-clients/:id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Delete inside client organization' })
+  async deleteInsideClient(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
+    const data = await this.tenantsService.deleteInsideClient(id, actor as unknown as SessionContext);
+    return { success: true, ...data };
+  }
+
+  @Delete('my-clients/:id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Delete inside client organization (alias)' })
+  async deleteMyClient(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
+    const data = await this.tenantsService.deleteInsideClient(id, actor as unknown as SessionContext);
+    return { success: true, ...data };
+  }
+
+  @Post('inside-clients/:id/guest-login')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Login as Guest to an Inside Client account' })
+  async loginAsInsideClientGuest(
+    @Param('id') id: string,
+    @CurrentUser() actor: AuthUser,
+    @Req() req: Request,
+  ) {
+    const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    const data = await this.tenantsService.loginAsInsideClientGuest(id, actor as unknown as SessionContext, ip);
+    return { success: true, data };
+  }
+
+  @Post('my-clients/:id/guest-login')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Login as Guest to an Inside Client account (alias)' })
+  async loginAsMyClientGuest(
+    @Param('id') id: string,
+    @CurrentUser() actor: AuthUser,
+    @Req() req: Request,
+  ) {
+    const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    const data = await this.tenantsService.loginAsInsideClientGuest(id, actor as unknown as SessionContext, ip);
+    return { success: true, data };
+  }
+
   @Get(':id')
   @ApiBearerAuth()
   @UseGuards(JwtAccessGuard)

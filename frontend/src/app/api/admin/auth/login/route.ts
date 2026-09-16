@@ -22,9 +22,9 @@ export async function POST(request: NextRequest) {
       payload.mfaCode = mfaCode.trim();
     }
 
-    // Forward to backend NestJS admin login endpoint:
-    // http://localhost:4000/api/v1/auth/admin/login
-    const backendUrl = `${config.api.baseUrl}/auth/admin/login`;
+    // Forward to unified direct login endpoint:
+    // http://localhost:4000/api/v1/auth/login
+    const backendUrl = `${config.api.baseUrl}/auth/login`;
 
     let backendRes: Response;
     try {
@@ -36,14 +36,13 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify(payload),
       });
     } catch (networkError: any) {
-      console.warn("[Admin Auth Proxy] Primary admin login unreachable, trying standard login fallback:", networkError.message);
-      // Fallback if backend route differs
-      backendRes = await fetch(`${config.api.baseUrl}/auth/login`, {
+      console.warn("[Admin Auth Proxy] Primary login unreachable, trying admin route alias:", networkError.message);
+      backendRes = await fetch(`${config.api.baseUrl}/auth/admin/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email: cleanEmail, password }),
+        body: JSON.stringify(payload),
       });
     }
 

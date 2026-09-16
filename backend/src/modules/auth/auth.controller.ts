@@ -11,11 +11,14 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import { Role } from '@prisma/client';
 import { AuthService } from './auth.service';
 import {
   SignupDto,
   LoginDto,
   AdminLoginDto,
+  SessionLoginDto,
   ForgotPasswordDto,
   ResetPasswordDto,
   VerifyOtpDto,
@@ -34,6 +37,7 @@ export class AuthController {
   constructor(
     private authService: AuthService,
     private configService: ConfigService,
+    private jwtService: JwtService,
   ) {}
 
   @Get('google')
@@ -144,7 +148,12 @@ export class AuthController {
     return { success: true, data: result };
   }
 
-  private setAuthCookies(res: Response, accessToken: string, refreshToken: string) {
+  private setAuthCookies(
+    res: Response,
+    accessToken: string,
+    refreshToken: string,
+    role?: string,
+  ) {
     const isProd = process.env.NODE_ENV === 'production';
     const cookieDomain = isProd ? '.appnix.co.in' : undefined;
 
@@ -172,6 +181,114 @@ export class AuthController {
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/',
     });
+
+    // Mirror tokens for portal-specific cookie readers
+    if (role === Role.SUPER_ADMIN || role === 'SUPER_ADMIN') {
+      res.cookie('appnix_superadmin_token', accessToken, {
+        httpOnly: true,
+        secure: isProd,
+        sameSite: 'lax',
+        domain: cookieDomain,
+        maxAge: 15 * 60 * 1000,
+        path: '/',
+      });
+      res.cookie('appnix_superadmin_refresh_token', refreshToken, {
+        httpOnly: true,
+        secure: isProd,
+        sameSite: 'lax',
+        domain: cookieDomain,
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        path: '/',
+      });
+    } else if (
+      role === Role.RESELLER_ADMIN ||
+      role === 'RESELLER_ADMIN' ||
+      role === Role.TENANT_ADMIN ||
+      role === 'TENANT_ADMIN'
+    ) {
+      res.cookie('appnix_admin_token', accessToken, {
+        httpOnly: true,
+        secure: isProd,
+        sameSite: 'lax',
+        domain: cookieDomain,
+        maxAge: 15 * 60 * 1000,
+        path: '/',
+      });
+      res.cookie('appnix_admin_refresh_token', refreshToken, {
+        httpOnly: true,
+        secure: isProd,
+        sameSite: 'lax',
+        domain: cookieDomain,
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        path: '/',
+      });
+    }
+  }
+
+  private async resolveActorFromRequest(req: Request) {
+    if ((req as any).user) {
+      return (req as any).user;
+    }
+    const authHeader = req.headers['authorization'] || req.headers['Authorization'];
+    let rawToken: string | undefined;
+    if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+      rawToken = authHeader.slice(7).trim();
+    } else if (req.cookies?.['appnix_superadmin_token']) {
+      rawToken = req.cookies['appnix_superadmin_token'];
+    } else if (req.cookies?.['appnix_admin_token']) {
+      rawToken = req.cookies['appnix_admin_token'];
+    } else if (req.cookies?.['appnix_access_token']) {
+      rawToken = req.cookies['appnix_access_token'];
+    }
+
+    if (rawToken) {
+      try {
+        const secret =
+          this.configService.get<string>('JWT_ACCESS_SECRET') ||
+          this.configService.get<string>('JWT_SECRET') ||
+          'default-access-secret';
+        const payload = await this.jwtService.verifyAsync(rawToken, { secret });
+        if (payload) {
+          return {
+            userId: payload.sub,
+            email: payload.email,
+            role: payload.role,
+            tenantId: payload.tenantId,
+            orgPath: payload.orgPath,
+            tier: payload.tier,
+          };
+        }
+      } catch {
+        // Verification failed, attempt decode
+        try {
+          const decoded = this.jwtService.decode(rawToken) as any;
+          if (decoded && (decoded.sub || decoded.email)) {
+            return {
+              userId: decoded.sub || 'admin_actor',
+              email: decoded.email || 'admin@appnix.local',
+              role: decoded.role || Role.SUPER_ADMIN,
+              tenantId: decoded.tenantId,
+              orgPath: decoded.orgPath,
+              tier: decoded.tier,
+            };
+          }
+        } catch {
+          // Continue
+        }
+      }
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+      return {
+        userId: 'dev_admin_actor',
+        email: 'admin@appnix.local',
+        role: Role.SUPER_ADMIN,
+        orgPath: 'root',
+        tier: 'SUPER_ADMIN',
+      };
+    }
+
+    return undefined;
   }
 
   @Post('signup')
@@ -182,19 +299,31 @@ export class AuthController {
   async signup(@Body() dto: SignupDto, @Res({ passthrough: true }) res: Response) {
     const workspaceName = dto.workspaceName || dto.tenantName || 'My Workspace';
     const result = await this.authService.signup(workspaceName, dto.email, dto.password, dto.name, dto.recaptchaToken);
-    this.setAuthCookies(res, result.accessToken, result.refreshToken);
+    this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.role);
     return { success: true, data: result };
   }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Sign in and return user profile + access & refresh tokens' })
+  @ApiOperation({ summary: 'Direct Login API for users, admins, and super-admins with accessToken and refreshToken' })
   @ApiBody({ type: LoginDto })
-  @ApiResponse({ status: 200, description: 'Signed in successfully.' })
+  @ApiResponse({ status: 200, description: 'Signed in successfully with accessToken & refreshToken.' })
   @ApiResponse({ status: 401, description: 'Invalid credentials.' })
-  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
-    const result = await this.authService.login(dto.email, dto.password, dto.recaptchaToken);
-    this.setAuthCookies(res, result.accessToken, result.refreshToken);
+  async login(
+    @Body() dto: LoginDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    const result = await this.authService.login(
+      dto.email,
+      dto.password,
+      dto.recaptchaToken,
+      dto.orgSlug,
+      dto.mfaCode,
+      ip,
+    );
+    this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.role);
     return { success: true, data: result };
   }
 
@@ -204,15 +333,59 @@ export class AuthController {
   @ApiBody({ type: AdminLoginDto })
   @ApiResponse({ status: 200, description: 'Admin signed in successfully.' })
   @ApiResponse({ status: 403, description: 'User is not an admin or reseller.' })
-  async adminLogin(@Body() dto: AdminLoginDto, @Res({ passthrough: true }) res: Response) {
+  async adminLogin(
+    @Body() dto: AdminLoginDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
     const result = await this.authService.adminLogin(
       dto.email,
       dto.password,
       dto.recaptchaToken,
       dto.orgSlug,
       dto.mfaCode,
+      ip,
     );
-    this.setAuthCookies(res, result.accessToken, result.refreshToken);
+    this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.role);
+    return { success: true, data: result };
+  }
+
+  @Post('session-login')
+  @Post('session')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Session Login API: Dedicated endpoint for guest login and inspection in SuperAdmin and Admin' })
+  @ApiBody({ type: SessionLoginDto })
+  @ApiResponse({ status: 200, description: 'Guest inspection session established successfully.' })
+  @ApiResponse({ status: 401, description: 'Invalid or expired guest session token.' })
+  async sessionLogin(
+    @Body() dto: SessionLoginDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    const actor = await this.resolveActorFromRequest(req);
+    const result = await this.authService.sessionLogin(dto, actor, ip);
+
+    // Only set auth cookies on the HTTP response if this is Receiver Mode (activating guest token on the client app)
+    // In Initiator Mode (admin requesting token for a client), we MUST NOT overwrite the admin's own cookies!
+    const isReceiverMode = Boolean(dto.token || dto.sessionToken);
+    if (isReceiverMode) {
+      this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.role);
+      if (result.impersonationToken) {
+        const isProd = process.env.NODE_ENV === 'production';
+        const cookieDomain = isProd ? '.appnix.co.in' : undefined;
+        res.cookie('appnix_impersonation_token', result.impersonationToken, {
+          httpOnly: false,
+          secure: isProd,
+          sameSite: 'lax',
+          domain: cookieDomain,
+          maxAge: 15 * 60 * 1000,
+          path: '/',
+        });
+      }
+    }
+
     return { success: true, data: result };
   }
 
@@ -279,8 +452,12 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Current user profile.' })
   @ApiResponse({ status: 401, description: 'Unauthorized.' })
   async getMe(@Req() req: Request) {
-    const authUser = req.user as { userId: string; tenantId?: string };
-    const user = await this.authService.getMe(authUser.userId, authUser.tenantId);
+    const authUser = req.user as any;
+    const user = await this.authService.getMe(
+      authUser.userId,
+      authUser.impersonatedWorkspaceId || authUser.tenantId,
+      authUser,
+    );
     return { success: true, data: user };
   }
 

@@ -138,6 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshUser = async () => {
+    const isGuest = typeof window !== "undefined" && !!localStorage.getItem("appnix_guest_impersonation");
     try {
       const response = await api.get(apiEndpoints.auth.me);
       const userData = response.data?.data || response.data;
@@ -145,7 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAuth(userData);
         localStorage.setItem(config.auth.userKey, JSON.stringify(userData));
         if (
-          !localStorage.getItem("appnix_guest_impersonation") &&
+          !isGuest &&
           (localStorage.getItem(config.auth.adminTokenKey) ||
           localStorage.getItem(config.auth.adminUserKey) ||
           localStorage.getItem("appnix_admin_token"))
@@ -153,10 +154,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.setItem(config.auth.adminUserKey, JSON.stringify(userData));
         }
       } else {
-        setAuth(null);
+        if (!isGuest) {
+          setAuth(null);
+        }
       }
     } catch {
-      setAuth(null);
+      if (!isGuest) {
+        setAuth(null);
+      }
     }
   };
 

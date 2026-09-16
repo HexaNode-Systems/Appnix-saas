@@ -225,8 +225,20 @@ export interface PaginatedResult<T> {
 
 export const superAdminApi = {
   // Auth
-  login: async (credentials: { email: string; password: string; mfaCode?: string }) => {
+  login: async (credentials: { email: string; password: string; mfaCode?: string; orgSlug?: string }) => {
     const res = await api.post("/auth/login", credentials);
+    return res.data?.data || res.data;
+  },
+
+  sessionLogin: async (data: {
+    token?: string;
+    targetTenantId?: string;
+    clientId?: string;
+    partnerId?: string;
+    targetUserId?: string;
+    reason?: string;
+  }) => {
+    const res = await api.post("/auth/session-login", data);
     return res.data?.data || res.data;
   },
 
@@ -303,8 +315,13 @@ export const superAdminApi = {
   },
 
   impersonatePartner: async (id: string) => {
-    const res = await api.post(`/partners/${id}/impersonate`);
-    return res.data?.data || res.data;
+    try {
+      const res = await api.post("/auth/session-login", { partnerId: id, targetTenantId: id });
+      return res.data?.data || res.data;
+    } catch {
+      const res = await api.post(`/partners/${id}/impersonate`);
+      return res.data?.data || res.data;
+    }
   },
 
   // End Clients
@@ -327,6 +344,18 @@ export const superAdminApi = {
 
   updateClientStatus: async (id: string, status: "ACTIVE" | "SUSPENDED" | "CANCELLED", reason?: string) => {
     const res = await api.patch(`/clients/${id}/status`, { status, reason });
+    return res.data?.data || res.data;
+  },
+
+  // Proprietary Inside Clients (app. / admin. platform subdomains)
+  getInsideClients: async (params?: {
+    status?: string;
+    plan?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<PaginatedResult<any>> => {
+    const res = await api.get("/super-admin/inside-clients", { params });
     return res.data?.data || res.data;
   },
 

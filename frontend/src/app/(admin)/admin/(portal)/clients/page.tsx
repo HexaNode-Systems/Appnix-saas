@@ -11,6 +11,7 @@ import { Client } from "@/super-admin/types";
 import { clientService, executeGuestLogin } from "@/super-admin/services";
 import { AddClientModal } from "@/super-admin/components/clients/AddClientModal";
 import { UpdateClientModal } from "@/super-admin/components/clients/UpdateClientModal";
+import { InsideClientsSection } from "@/super-admin/components/clients/InsideClientsSection";
 import {
   Building2,
   ArrowLeft,
@@ -42,6 +43,9 @@ function SuperAdminClientsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  const [activeSubTab, setActiveSubTab] = useState<"all" | "inside">(
+    searchParams.get("tab") === "inside" || searchParams.get("section") === "inside" ? "inside" : "all"
+  );
   const [clients, setClients] = useState<Client[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilterTab, setActiveFilterTab] = useState<string>("All");
@@ -182,10 +186,61 @@ function SuperAdminClientsContent() {
           <span>Dashboard</span>
         </Link>
         <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
-        <span className="font-semibold text-foreground">Clients</span>
+        <span className="font-semibold text-foreground">
+          {activeSubTab === "inside" ? "Inside Clients (App / Admin)" : "Clients"}
+        </span>
       </div>
 
-      {/* Header */}
+      {/* Sub-Tab Navigation Bar: All Clients vs My Inside Clients */}
+      <div className="flex items-center gap-2 border-b pb-3">
+        <button
+          onClick={() => setActiveSubTab("all")}
+          className={cn(
+            "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer",
+            activeSubTab === "all"
+              ? "bg-foreground text-background shadow-xs"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          )}
+        >
+          <Building2 className="h-4 w-4" />
+          <span>All Clients</span>
+          <span
+            className={cn(
+              "px-1.5 py-0.2 rounded-full text-[10px]",
+              activeSubTab === "all" ? "bg-background/20 text-background" : "bg-muted text-muted-foreground"
+            )}
+          >
+            {clients.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveSubTab("inside")}
+          className={cn(
+            "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer",
+            activeSubTab === "inside"
+              ? "bg-purple-600 text-white shadow-xs"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          )}
+        >
+          <Sparkles className="h-4 w-4" />
+          <span>My Inside Clients</span>
+          <span
+            className={cn(
+              "rounded-full px-2 py-0.2 text-[9px] font-bold",
+              activeSubTab === "inside" ? "bg-white/20 text-white" : "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300"
+            )}
+          >
+            app. & admin.
+          </span>
+        </button>
+      </div>
+
+      {activeSubTab === "inside" ? (
+        <InsideClientsSection isSuperAdmin={false} />
+      ) : (
+        <>
+          {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-5">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight text-foreground flex items-center gap-2">
@@ -544,6 +599,8 @@ function SuperAdminClientsContent() {
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
 
       {/* Add Client Modal */}

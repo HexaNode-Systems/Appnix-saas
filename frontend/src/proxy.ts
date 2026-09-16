@@ -460,7 +460,8 @@ export function proxy(request: NextRequest) {
 
     const clientToken =
       request.cookies.get(AUTH_COOKIE)?.value ||
-      request.cookies.get("appnix_auth_token")?.value;
+      request.cookies.get("appnix_auth_token")?.value ||
+      request.cookies.get("appnix_impersonation_token")?.value;
 
     const clientDecoded = decodeJwt(clientToken);
 
@@ -548,7 +549,8 @@ export function proxy(request: NextRequest) {
   if (isProtectedClientRoute) {
     const clientToken =
       request.cookies.get(AUTH_COOKIE)?.value ||
-      request.cookies.get("appnix_auth_token")?.value;
+      request.cookies.get("appnix_auth_token")?.value ||
+      request.cookies.get("appnix_impersonation_token")?.value;
     const clientDecoded = decodeJwt(clientToken);
     if (!clientDecoded?.sub) {
       const signinUrl = new URL("/signin", request.url);

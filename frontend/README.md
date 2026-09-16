@@ -300,7 +300,8 @@ frontend/
 - **Route**: `/admin/*` (accessible by `SUPER_ADMIN` and `RESELLER_ADMIN` roles)
 - **Console Pages**:
   - `/admin/dashboard`: Platform throughput, revenue metrics, active tenants.
-  - `/admin/clients`: Onboard new clients, assign plans, suspend tenants, verify custom domains.
+  - `/admin/clients`: Onboard new clients, assign plans, suspend tenants, verify custom domains. Includes top-level sub-tabs for All Clients vs Inside Clients.
+  - `/admin/clients/inside-clients`: Dedicated console for proprietary inside clients provisioned directly on `app.` and `admin.` subdomains under Platform Root, strictly segregated from third-party resellers.
   - `/admin/team`: Manage staff members and assign administrative roles.
   - `/admin/billing`: Platform-wide transaction audit and payout reconciliation.
   - `/admin/feature-flags`: Enable/disable features globally or for individual tenants.

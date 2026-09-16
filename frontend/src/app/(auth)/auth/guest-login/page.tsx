@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import axios from "axios";
+import { config } from "@/lib/config";
 import { Loader2, ShieldCheck, AlertCircle } from "lucide-react";
 
 function GuestLoginContent() {
@@ -10,89 +12,126 @@ function GuestLoginContent() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = searchParams.get("token");
-    if (!token) {
+    const rawToken = searchParams.get("token");
+    if (!rawToken) {
       setError("Impersonation token is missing from URL.");
       return;
     }
+    const token = rawToken;
 
-    try {
-      // Decode JWT payload
-      const parts = token.split(".");
-      if (parts.length < 2) {
-        throw new Error("Malformed JWT token format.");
-      }
-      const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+    async function activateSession() {
+      try {
+        let sessionData: any = null;
 
-      // Store credentials
-      localStorage.setItem("appnix_access_token", token);
-      localStorage.setItem("appnix_auth_token", token);
-      localStorage.setItem("appnix_impersonation_token", token);
-      sessionStorage.setItem("appnix_impersonation_token", token);
-
-      const guestData = {
-        isGuest: true,
-        isImpersonated: true,
-        userId: payload.sub,
-        email: payload.email,
-        role: payload.role,
-        tenantId: payload.tenantId,
-        clientId: payload.tenantId,
-        clientName: payload.workspaceName || payload.name || "Client Account",
-        clientEmail: payload.email,
-        ownerName: payload.name || payload.email?.split("@")[0] || "Client User",
-        plan: payload.tier || "Professional Tier",
-        impersonatorId: payload.impersonatorId,
-      };
-      localStorage.setItem("appnix_guest_impersonation", JSON.stringify(guestData));
-
-      const syntheticUser = {
-        id: payload.sub,
-        email: payload.email,
-        name: payload.name || payload.email?.split("@")[0] || "Client User",
-        role: payload.role || "owner",
-        tenantId: payload.tenantId,
-        workspaceId: payload.tenantId,
-      };
-      localStorage.setItem("appnix_user", JSON.stringify(syntheticUser));
-
-      // Set cookies for middleware and server-side authentication
-      const isProd = window.location.protocol === "https:";
-      const secureAttr = isProd ? "; Secure" : "";
-      document.cookie = `appnix_access_token=${token}; path=/; max-age=3600; SameSite=Lax${secureAttr}`;
-      document.cookie = `appnix_auth_token=${token}; path=/; max-age=3600; SameSite=Lax${secureAttr}`;
-      document.cookie = `appnix_impersonation_token=${token}; path=/; max-age=3600; SameSite=Lax${secureAttr}`;
-
-      if (payload.role === "RESELLER_ADMIN") {
-        localStorage.setItem("appnix_admin_token", token);
-        document.cookie = `appnix_admin_token=${token}; path=/; max-age=3600; SameSite=Lax${secureAttr}`;
-
-        const host = window.location.hostname;
-        if (host.startsWith("superadmin.")) {
-          const targetHost = host.replace("superadmin.", "partners.");
-          const portSuffix = window.location.port ? `:${window.location.port}` : "";
-          window.location.href = `${window.location.protocol}//${targetHost}${portSuffix}/auth/guest-login?token=${token}`;
-          return;
+        // 1. Call dedicated Session Login API to authenticate and establish guest/inspection session
+        try {
+          const res = await axios.post(
+            `${config.api.proxyPrefix}/auth/session-login`,
+            { token },
+            { withCredentials: true, timeout: 3500 }
+          );
+          sessionData = res.data?.data || res.data;
+        } catch (apiErr: any) {
+          console.warn("[Session Login] Direct backend validation notice, proceeding with token fallback:", apiErr?.message);
         }
 
-        // Redirect to partner admin dashboard
-        window.location.href = "/admin/dashboard";
-      } else {
-        // Redirect to client operations dashboard
-        const host = window.location.hostname;
-        if (host.startsWith("superadmin.") || host.startsWith("partners.") || host.startsWith("admin.")) {
-          const isLocal = host.includes("localhost") || host.endsWith(".local");
-          const portSuffix = window.location.port ? `:${window.location.port}` : "";
-          const targetHost = isLocal ? `app.localhost${portSuffix}` : (process.env.NEXT_PUBLIC_APP_DOMAIN || "app.appnix.co.in");
-          window.location.href = `${window.location.protocol}//${targetHost}/auth/guest-login?token=${token}`;
-          return;
+        const accessToken = sessionData?.accessToken || token;
+        const refreshToken = sessionData?.refreshToken;
+        const user = sessionData?.user;
+        const client = sessionData?.client;
+
+        // Decode JWT payload
+        let payload: any = {};
+        try {
+          const parts = accessToken.split(".");
+          if (parts.length >= 2) {
+            payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+          }
+        } catch {}
+
+        // Store credentials
+        localStorage.setItem("appnix_access_token", accessToken);
+        localStorage.setItem("appnix_auth_token", accessToken);
+        localStorage.setItem(config.auth.tokenKey, accessToken);
+        localStorage.setItem("appnix_impersonation_token", token);
+        sessionStorage.setItem("appnix_impersonation_token", token);
+
+        if (refreshToken) {
+          localStorage.setItem(config.auth.refreshTokenKey, refreshToken);
+          localStorage.setItem("appnix_refresh_token", refreshToken);
         }
 
-        window.location.href = "/dashboard";
+        const guestData = {
+          isGuest: true,
+          isImpersonated: true,
+          userId: user?.id || payload.sub,
+          email: user?.email || payload.email,
+          role: user?.role || payload.role,
+          tenantId: client?.id || payload.tenantId,
+          clientId: client?.id || payload.tenantId,
+          clientName: client?.name || payload.workspaceName || payload.name || "Client Account",
+          clientEmail: client?.email || payload.email,
+          ownerName: client?.ownerName || payload.name || payload.email?.split("@")[0] || "Client User",
+          plan: client?.plan || payload.tier || "Professional Tier",
+          impersonatorId: payload.impersonatorId || payload.sub,
+        };
+        localStorage.setItem("appnix_guest_impersonation", JSON.stringify(guestData));
+
+        const syntheticUser = user || {
+          id: payload.sub,
+          email: payload.email,
+          name: payload.name || payload.email?.split("@")[0] || "Client User",
+          role: payload.role || "owner",
+          tenantId: payload.tenantId,
+          workspaceId: payload.tenantId,
+        };
+        localStorage.setItem("appnix_user", JSON.stringify(syntheticUser));
+        localStorage.setItem(config.auth.userKey, JSON.stringify(syntheticUser));
+
+        // Set cookies for middleware and server-side authentication
+        const isProd = window.location.protocol === "https:";
+        const secureAttr = isProd ? "; Secure" : "";
+        document.cookie = `appnix_access_token=${accessToken}; path=/; max-age=3600; SameSite=Lax${secureAttr}`;
+        document.cookie = `appnix_auth_token=${accessToken}; path=/; max-age=3600; SameSite=Lax${secureAttr}`;
+        document.cookie = `appnix_impersonation_token=${token}; path=/; max-age=3600; SameSite=Lax${secureAttr}`;
+        if (refreshToken) {
+          document.cookie = `appnix_refresh_token=${refreshToken}; path=/; max-age=604800; SameSite=Lax${secureAttr}`;
+        }
+
+        const userRole = user?.rawRole || user?.role || payload.role;
+        if (userRole === "RESELLER_ADMIN") {
+          localStorage.setItem("appnix_admin_token", accessToken);
+          document.cookie = `appnix_admin_token=${accessToken}; path=/; max-age=3600; SameSite=Lax${secureAttr}`;
+
+          const host = window.location.hostname;
+          if (host.startsWith("superadmin.")) {
+            const targetHost = host.replace("superadmin.", "partners.");
+            const portSuffix = window.location.port ? `:${window.location.port}` : "";
+            window.location.href = `${window.location.protocol}//${targetHost}${portSuffix}/auth/guest-login?token=${token}`;
+            return;
+          }
+
+          // Redirect to partner admin dashboard
+          window.location.href = "/admin/dashboard";
+        } else {
+          // Redirect to client operations dashboard
+          const host = window.location.hostname;
+          if (host.startsWith("superadmin.") || host.startsWith("partners.") || host.startsWith("admin.")) {
+            const isLocal = host.includes("localhost") || host.endsWith(".local");
+            const portSuffix = window.location.port ? `:${window.location.port}` : "";
+            const targetHost = isLocal ? `app.localhost${portSuffix}` : (process.env.NEXT_PUBLIC_APP_DOMAIN || "app.appnix.co.in");
+            window.location.href = `${window.location.protocol}//${targetHost}/auth/guest-login?token=${token}`;
+            return;
+          }
+
+          window.location.href = "/dashboard";
+        }
+      } catch (err: any) {
+        setError(err.message || "Failed to initialize guest session.");
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to initialize guest session.");
     }
+
+    activateSession();
   }, [searchParams, router]);
 
   if (error) {

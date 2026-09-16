@@ -98,19 +98,18 @@ export class LoginDto {
   @IsString()
   password: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: 'Google reCAPTCHA v3 response token',
     required: false,
   })
   @IsOptional()
   @IsString()
   recaptchaToken?: string;
-}
 
-export class AdminLoginDto extends LoginDto {
   @ApiPropertyOptional({
-    description: 'Optional reseller workspace slug for tenant identification',
+    description: 'Optional reseller/tenant workspace slug for tenant identification',
     example: 'acme-agency',
+    required: false,
   })
   @IsOptional()
   @IsString()
@@ -119,10 +118,104 @@ export class AdminLoginDto extends LoginDto {
   @ApiPropertyOptional({
     description: 'Two-factor authenticator code (TOTP)',
     example: '123456',
+    required: false,
   })
   @IsOptional()
   @IsString()
   mfaCode?: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional flag to remember session',
+    example: true,
+    required: false,
+  })
+  @IsOptional()
+  rememberMe?: boolean;
+}
+
+export class AdminLoginDto extends LoginDto {}
+
+export class SessionLoginDto {
+  @ApiPropertyOptional({
+    description: 'Impersonation or delegated inspection JWT token to activate session',
+    example: 'eyJhbGciOi...',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  token?: string;
+
+  @ApiPropertyOptional({
+    description: 'Alias for token',
+    example: 'eyJhbGciOi...',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  sessionToken?: string;
+
+  @ApiPropertyOptional({
+    description: 'Alias for impersonation token',
+    example: 'eyJhbGciOi...',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  impersonationToken?: string;
+
+  @ApiPropertyOptional({
+    description: 'Target tenant / workspace ID for direct guest-login / inspect initiation',
+    example: '11111111-1111-1111-1111-111111111111',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  targetTenantId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Alias for target workspace ID',
+    example: '11111111-1111-1111-1111-111111111111',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  clientId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Alias for partner workspace inspection',
+    example: '11111111-1111-1111-1111-111111111111',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  partnerId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Target user ID if impersonating specific user',
+    example: '22222222-2222-2222-2222-222222222222',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  targetUserId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Audit purpose or reason for the guest/inspection session',
+    example: 'Support inspection & diagnostics',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  reason?: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional client name for synthetic fallback',
+    example: 'Acme Corp',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  clientName?: string;
 }
 
 // ─── Password Reset DTOs ────────────────────────────────────────────────────

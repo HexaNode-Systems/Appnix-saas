@@ -282,6 +282,21 @@ Media                - Uploaded assets in Cloudflare R2 / S3 storage
 | `GET`  | `/:id` | Get single tenant details | Access Token |
 | `POST` | `/` | Create new tenant or downstream sub-reseller | Access Token |
 | `PATCH`| `/:id/branding` | Update white-label logo, colors, custom domain | Access Token |
+| `GET`  | `/clients` | List all end clients across authorized partner subtree | Access Token |
+| `POST` | `/clients` | Provision new client under partner organization | Access Token |
+| `GET`  | `/clients/:id` | Get client organization details | Access Token |
+| `PATCH`| `/clients/:id` | Update client organization details | Access Token |
+| `PATCH`| `/clients/:id/status` | Update client status (ACTIVE, SUSPENDED, CANCELLED) | Access Token |
+| `DELETE`| `/clients/:id` | Delete or deactivate client organization | Access Token |
+| `POST` | `/clients/:id/guest-login` | Impersonate / guest login to client workspace | Access Token |
+| `GET`  | `/inside-clients` | List proprietary inside clients on `app.`/`admin.` subdomains | Access Token |
+| `POST` | `/inside-clients` | Provision inside client directly under Platform Root | Access Token |
+| `GET`  | `/inside-clients/:id` | Single inside client organization details | Access Token |
+| `PATCH`| `/inside-clients/:id` | Update inside client details | Access Token |
+| `PATCH`| `/inside-clients/:id/status` | Update inside client status | Access Token |
+| `DELETE`| `/inside-clients/:id` | Delete or deactivate inside client | Access Token |
+| `POST` | `/inside-clients/:id/guest-login` | Guest login to inside client on `app.` subdomain | Access Token |
+
 
 ### Campaigns (`/api/v1/campaigns` & `/api/v1/crm/campaigns`)
 | Method | Endpoint | Description | Auth Required |

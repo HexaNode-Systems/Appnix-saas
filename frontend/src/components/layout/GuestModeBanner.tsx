@@ -102,13 +102,27 @@ export function GuestModeBanner() {
       localStorage.removeItem("appnix_impersonation_token");
       sessionStorage.removeItem("appnix_impersonation_token");
 
-      const targetUrl = guestSession.returnUrl || "/admin/clients";
+      let targetUrl = guestSession.returnUrl || "/admin/clients";
+      if (!targetUrl.startsWith("http")) {
+        const host = window.location.hostname;
+        const portSuffix = window.location.port ? `:${window.location.port}` : "";
+        const protocol = window.location.protocol;
+        const isLocal = host.includes("localhost") || host.includes("127.0.0.1") || host.endsWith(".local");
+        const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || "appnix.co.in";
+        if (targetUrl.startsWith("/super-admin")) {
+          const domain = isLocal ? `superadmin.localhost${portSuffix}` : (process.env.NEXT_PUBLIC_SUPERADMIN_DOMAIN || `superadmin.${rootDomain}`);
+          targetUrl = `${protocol}//${domain}${targetUrl}`;
+        } else if (targetUrl.startsWith("/admin")) {
+          const domain = isLocal ? `partners.localhost${portSuffix}` : (process.env.NEXT_PUBLIC_ADMIN_DOMAIN || `partners.${rootDomain}`);
+          targetUrl = `${protocol}//${domain}${targetUrl}`;
+        }
+      }
       window.location.href = targetUrl;
     }
   };
 
   const isSuperAdminReturn = guestSession.returnUrl?.includes("super-admin");
-  const exitLabel = isSuperAdminReturn ? "Exit to Super Admin" : "Exit to Partner Portal";
+  const exitLabel = isSuperAdminReturn ? "Exit to Super Admin" : "Exit to Admin Portal";
 
   return (
     <div className="sticky top-0 z-50 flex items-center justify-between border-b border-emerald-500/30 bg-gradient-to-r from-emerald-700 via-teal-700 to-emerald-800 px-4 py-2 text-white shadow-md text-xs">

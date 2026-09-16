@@ -1507,6 +1507,158 @@ export class SuperAdminService {
     });
   }
 
+  // ==========================================
+  // 4b. PROPRIETARY INSIDE CLIENTS (APP / ADMIN SUBDOMAINS)
+  // ==========================================
+  async getInsideClients(params?: {
+    status?: string;
+    plan?: string;
+    search?: string;
+    page?: string | number;
+    limit?: string | number;
+  }): Promise<PaginatedResult<any>> {
+    const { page, limit, skip, take } = parsePagination(params?.page, params?.limit);
+
+    const rootTenant = await this.prisma.tenant.findFirst({
+      where: { tier: TenantTier.PLATFORM_ROOT },
+      select: { id: true },
+    });
+
+    const insideConditions: any[] = [
+      { parentId: null },
+      { depth: { lte: 1 } },
+      { parent: { tier: TenantTier.PLATFORM_ROOT } },
+    ];
+    if (rootTenant) {
+      insideConditions.push({ parentId: rootTenant.id });
+    }
+
+    const where: any = {
+      tier: TenantTier.END_CLIENT,
+      OR: insideConditions,
+    };
+
+    if (params?.status && params.status !== 'ALL' && params.status !== 'All') {
+      where.status = params.status as TenantStatus;
+    }
+
+    if (params?.plan && params.plan !== 'ALL' && params.plan !== 'All') {
+      where.subscriptions = {
+        some: {
+          OR: [
+            { planName: { contains: params.plan, mode: 'insensitive' } },
+            { planId: { contains: params.plan, mode: 'insensitive' } },
+          ],
+        },
+      };
+    }
+
+    if (params?.search && params.search.trim()) {
+      const q = params.search.trim();
+      where.AND = [
+        {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { slug: { contains: q, mode: 'insensitive' } },
+            {
+              users: {
+                some: {
+                  OR: [
+                    { name: { contains: q, mode: 'insensitive' } },
+                    { email: { contains: q, mode: 'insensitive' } },
+                    { phone: { contains: q, mode: 'insensitive' } },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      ];
+    }
+
+    const [total, clients, activeCount, suspendedCount] = await Promise.all([
+      this.prisma.tenant.count({ where }),
+      this.prisma.tenant.findMany({
+        where,
+        skip,
+        take,
+        include: {
+          parent: {
+            select: { id: true, name: true, slug: true, primaryColor: true, logoUrl: true },
+          },
+          users: {
+            where: { role: Role.TENANT_ADMIN },
+            select: { id: true, name: true, email: true, phone: true, createdAt: true },
+            take: 1,
+          },
+          subscriptions: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
+          wallet: {
+            select: { balance: true, currency: true },
+          },
+          _count: {
+            select: {
+              users: true,
+              campaigns: true,
+              crmContacts: true,
+              channelConfigs: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.tenant.count({ where: { ...where, status: TenantStatus.ACTIVE } }),
+      this.prisma.tenant.count({ where: { ...where, status: TenantStatus.SUSPENDED } }),
+    ]);
+
+    const formatted = clients.map((c) => {
+      const adminUser = c.users[0] || null;
+      const sub = c.subscriptions[0] || null;
+      return {
+        id: c.id,
+        name: c.name,
+        slug: c.slug,
+        status: c.status,
+        partner: null,
+        isInsideClient: true,
+        subdomain: 'app',
+        portalUrl: 'https://app.appnix.co.in',
+        ownerName: adminUser?.name || 'Account Admin',
+        ownerEmail: adminUser?.email || '',
+        ownerPhone: adminUser?.phone || '',
+        adminUser: adminUser,
+        plan: sub?.planName || 'Standard',
+        subscription: sub
+          ? {
+              id: sub.id,
+              planName: sub.planName,
+              planId: sub.planId,
+              price: sub.price,
+              status: sub.status,
+              currentPeriodEnd: sub.currentPeriodEnd,
+            }
+          : null,
+        walletBalance: c.wallet ? Number(c.wallet.balance) : 0,
+        currency: c.wallet?.currency || 'INR',
+        counts: {
+          users: c._count.users,
+          campaigns: c._count.campaigns,
+          contacts: c._count.crmContacts,
+          channels: c._count.channelConfigs,
+        },
+        createdAt: c.createdAt,
+      };
+    });
+
+    return createPaginatedResponse(formatted, total, page, limit, {
+      total,
+      active: activeCount,
+      suspended: suspendedCount,
+    });
+  }
+
   async getClientById(id: string) {
     const client = await this.prisma.tenant.findUnique({
       where: { id },
