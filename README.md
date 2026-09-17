@@ -813,6 +813,8 @@ npm run build
 - **Nginx Reverse Proxy**: Terminating SSL with Let's Encrypt Certbot and routing traffic to `127.0.0.1:4000`.
 
 ### Health Verification
+> Release note: production deployment checkpoints are validated through the health endpoint after each approved release.
+
 Verify running status anytime:
 ```bash
 curl -i https://api.appnix.co.in/api/v1/health
