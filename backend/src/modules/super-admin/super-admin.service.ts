@@ -471,11 +471,24 @@ export class SuperAdminService {
   }
 
   private async directConfigurationTenant() {
-    const tenant = await this.prisma.tenant.findFirst({
-      where: { OR: [{ slug: 'appnix-direct' }, { parentId: null, users: { some: { role: Role.APP_ADMIN } } }] },
+    let tenant = await this.prisma.tenant.findFirst({
+      where: { OR: [{ id: 'APPNIX_DIRECT' }, { slug: 'appnix-direct' }, { parentId: null, users: { some: { role: Role.APP_ADMIN } } }] },
       orderBy: { createdAt: 'asc' }, select: { id: true },
     });
-    if (!tenant) throw new NotFoundException('Direct Appnix tenant is not configured');
+    if (!tenant) {
+      tenant = await this.prisma.tenant.create({
+        data: {
+          id: 'APPNIX_DIRECT',
+          name: 'Appnix Direct Operations',
+          slug: 'appnix-direct',
+          tier: TenantTier.PLATFORM_ROOT,
+          status: TenantStatus.ACTIVE,
+          path: 'root.appnix_direct',
+          depth: 1,
+        },
+        select: { id: true },
+      });
+    }
     return tenant;
   }
 
@@ -527,8 +540,23 @@ export class SuperAdminService {
 
   async getDirectOperationsAdminConfig() {
     const tenant = await this.directConfigurationTenant();
-    const record = await this.prisma.partnerConfig.findUnique({ where: { tenantId: tenant.id }, select: { featureAccess: true } });
-    const saved = (record?.featureAccess && typeof record.featureAccess === 'object' && !Array.isArray(record.featureAccess)) ? record.featureAccess as Record<string, unknown> : {};
+    const record = await this.prisma.partnerConfig.findUnique({
+      where: { tenantId: tenant.id },
+      select: {
+        featureAccess: true,
+        trialEnabled: true,
+        trialDays: true,
+        trialMaxUsers: true,
+      },
+    });
+    const saved = (record?.featureAccess && typeof record.featureAccess === 'object' && !Array.isArray(record.featureAccess))
+      ? (record.featureAccess as Record<string, unknown>)
+      : {};
+
+    const trialEnabled = record?.trialEnabled ?? (saved.trialEnabled === true);
+    const trialDays = record?.trialDays ?? (typeof saved.trialDays === 'number' ? saved.trialDays : 7);
+    const trialMaxUsers = record?.trialMaxUsers ?? (typeof saved.trialMaxUsers === 'number' ? saved.trialMaxUsers : 5);
+
     return {
       supportEmail: typeof saved.supportEmail === 'string' ? saved.supportEmail : '',
       staffPermissions: typeof saved.staffPermissions === 'string' ? saved.staffPermissions : '',
@@ -536,15 +564,46 @@ export class SuperAdminService {
       maintenanceMode: saved.maintenanceMode === true,
       allowSignup: saved.allowSignup !== false,
       directTierDefault: typeof saved.directTierDefault === 'string' ? saved.directTierDefault : '',
+      trialEnabled,
+      trialDays,
+      trialMaxUsers,
     };
   }
 
   async updateDirectOperationsAdminConfig(input: Record<string, unknown>) {
     const tenant = await this.directConfigurationTenant();
-    const allowed = ['supportEmail', 'staffPermissions', 'alertWebhook', 'maintenanceMode', 'allowSignup', 'directTierDefault'];
+    const allowed = [
+      'supportEmail',
+      'staffPermissions',
+      'alertWebhook',
+      'maintenanceMode',
+      'allowSignup',
+      'directTierDefault',
+      'trialEnabled',
+      'trialDays',
+      'trialMaxUsers',
+    ];
     const config = Object.fromEntries(Object.entries(input).filter(([key]) => allowed.includes(key)));
+
+    const trialEnabled = input.trialEnabled !== undefined ? Boolean(input.trialEnabled) : undefined;
+    const trialDays = input.trialDays !== undefined ? Math.max(1, Number(input.trialDays) || 7) : undefined;
+    const trialMaxUsers = input.trialMaxUsers !== undefined ? Math.max(1, Number(input.trialMaxUsers) || 5) : undefined;
+
     await this.prisma.partnerConfig.upsert({
-      where: { tenantId: tenant.id }, create: { tenantId: tenant.id, featureAccess: config as any }, update: { featureAccess: config as any },
+      where: { tenantId: tenant.id },
+      create: {
+        tenantId: tenant.id,
+        featureAccess: config as any,
+        trialEnabled: trialEnabled ?? false,
+        trialDays: trialDays ?? 7,
+        trialMaxUsers: trialMaxUsers ?? 5,
+      },
+      update: {
+        featureAccess: config as any,
+        ...(trialEnabled !== undefined ? { trialEnabled } : {}),
+        ...(trialDays !== undefined ? { trialDays } : {}),
+        ...(trialMaxUsers !== undefined ? { trialMaxUsers } : {}),
+      },
     });
     return this.getDirectOperationsAdminConfig();
   }

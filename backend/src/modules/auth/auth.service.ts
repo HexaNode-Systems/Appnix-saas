@@ -144,6 +144,9 @@ export class AuthService {
     const formattedUser = this.formatUser(user, (user as any).tenant?.name || tenantName);
 
     if (isNewUser) {
+      if (user.tenantId) {
+        await this.provisionDirectTrialIfEnabled(user.tenantId);
+      }
       this.mailService
         .sendWelcomeEmail(user.email, user.name || undefined, (user as any).tenant?.name || tenantName)
         .catch((err) => this.logger.warn(`Failed to send welcome email to ${user.email}: ${err.message}`));
@@ -223,6 +226,9 @@ export class AuthService {
       name,
     );
 
+    // Direct Operations: provision 7-day free trial if root direct tenant trialEnabled is active
+    await this.provisionDirectTrialIfEnabled(tenant.id);
+
     const orgPath = tenant.path || 'root';
     const tier = tenant.tier || 'END_CLIENT';
     const tokens = await this.generateTokens(user.id, user.email, user.tenantId, user.role, orgPath, tier);
@@ -237,6 +243,59 @@ export class AuthService {
       ...tokens,
       user: formattedUser,
     };
+  }
+
+  private async provisionDirectTrialIfEnabled(tenantId: string) {
+    try {
+      const directTenant = await this.prisma.tenant.findFirst({
+        where: { OR: [{ id: 'APPNIX_DIRECT' }, { slug: 'appnix-direct' }] },
+        include: { partnerConfig: true },
+      });
+      const trialEnabled = directTenant?.partnerConfig?.trialEnabled ?? false;
+      const trialDays = directTenant?.partnerConfig?.trialDays ?? 7;
+      const trialMaxUsers = directTenant?.partnerConfig?.trialMaxUsers ?? 5;
+
+      if (!trialEnabled) {
+        return;
+      }
+
+      const now = new Date();
+      const trialEnd = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.tenant.update({
+          where: { id: tenantId },
+          data: {
+            trialUsed: true,
+            maxUsers: trialMaxUsers,
+          },
+        });
+
+        await tx.subscription.create({
+          data: {
+            tenantId,
+            planId: 'pro',
+            planName: '7-Day Free Trial',
+            price: `₹0 (Trial - ${trialDays} Days)`,
+            status: 'TRIALING',
+            isTrial: true,
+            totalDays: trialDays,
+            remainingDays: trialDays,
+            currentPeriodStart: now,
+            currentPeriodEnd: trialEnd,
+            maxMessages: 10000,
+            usedMessages: 0,
+            maxBots: 2,
+            usedBots: 0,
+            maxTeamSeats: trialMaxUsers,
+            usedTeamSeats: 1,
+          },
+        });
+      });
+      this.logger.log(`Provisioned 7-day free trial for direct tenant "${tenantId}" (expires: ${trialEnd.toISOString()})`);
+    } catch (trialErr: any) {
+      this.logger.warn(`Failed to provision direct trial for tenant "${tenantId}": ${trialErr.message}`);
+    }
   }
 
   async login(

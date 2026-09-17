@@ -588,16 +588,25 @@ export class BillingService {
     // Determine partner configuration:
     // If tenant is an END_CLIENT, check parent partner's partnerConfig.
     // If tenant is a RESELLER itself, check own partnerConfig or parent.
-    const partnerConfig =
+    let partnerConfig =
       tenant.tier === 'END_CLIENT'
         ? tenant.parent?.partnerConfig
         : tenant.partnerConfig || tenant.parent?.partnerConfig;
+
+    // Direct Operations fallback: if tenant has no reseller partner, check direct tenant configuration
+    if (!partnerConfig && (tenant.parentId === null || tenant.parent?.slug === 'appnix-direct' || tenant.parent?.id === 'APPNIX_DIRECT')) {
+      const directTenant = await this.prisma.tenant.findFirst({
+        where: { OR: [{ id: 'APPNIX_DIRECT' }, { slug: 'appnix-direct' }] },
+        include: { partnerConfig: true },
+      });
+      partnerConfig = directTenant?.partnerConfig || null;
+    }
 
     if (!partnerConfig || !partnerConfig.trialEnabled) {
       return {
         eligible: false,
         trialEnabled: false,
-        reason: '7-Day Free Trial is disabled by your partner administrator. Please select a subscription plan.',
+        reason: '7-Day Free Trial is disabled. Please select a subscription plan.',
       };
     }
 
@@ -644,7 +653,7 @@ export class BillingService {
       alreadyUsed: false,
       trialDays: partnerConfig.trialDays || 7,
       trialMaxUsers: partnerConfig.trialMaxUsers || 5,
-      partnerName: tenant.parent?.name || tenant.name,
+      partnerName: tenant.parent?.name || tenant.name || 'Appnix Direct',
     };
   }
 
