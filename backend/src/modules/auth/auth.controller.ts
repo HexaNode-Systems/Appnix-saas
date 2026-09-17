@@ -203,6 +203,8 @@ export class AuthController {
     } else if (
       role === Role.RESELLER_ADMIN ||
       role === 'RESELLER_ADMIN' ||
+      role === Role.APP_ADMIN ||
+      role === 'APP_ADMIN' ||
       role === Role.TENANT_ADMIN ||
       role === 'TENANT_ADMIN'
     ) {
@@ -299,7 +301,7 @@ export class AuthController {
   async signup(@Body() dto: SignupDto, @Res({ passthrough: true }) res: Response) {
     const workspaceName = dto.workspaceName || dto.tenantName || 'My Workspace';
     const result = await this.authService.signup(workspaceName, dto.email, dto.password, dto.name, dto.recaptchaToken);
-    this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.role);
+    this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.rawRole || result.user?.role);
     return { success: true, data: result };
   }
 
@@ -323,7 +325,7 @@ export class AuthController {
       dto.mfaCode,
       ip,
     );
-    this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.role);
+    this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.rawRole || result.user?.role);
     return { success: true, data: result };
   }
 
@@ -347,7 +349,7 @@ export class AuthController {
       dto.mfaCode,
       ip,
     );
-    this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.role);
+    this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.rawRole || result.user?.role);
     return { success: true, data: result };
   }
 
@@ -371,7 +373,7 @@ export class AuthController {
     // In Initiator Mode (admin requesting token for a client), we MUST NOT overwrite the admin's own cookies!
     const isReceiverMode = Boolean(dto.token || dto.sessionToken);
     if (isReceiverMode) {
-      this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.role);
+      this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.rawRole || result.user?.role);
       if (result.impersonationToken) {
         const isProd = process.env.NODE_ENV === 'production';
         const cookieDomain = isProd ? '.appnix.co.in' : undefined;
@@ -513,4 +515,4 @@ export class AuthController {
 
     return { success: true, message: 'Logged out successfully' };
   }
-}
+}

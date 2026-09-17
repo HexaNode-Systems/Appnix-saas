@@ -15,6 +15,8 @@ export interface SessionContext {
   /** The only tenant application queries may use for this request. */
   tenantId: string;
   impersonatedWorkspaceId?: string;
+  isImpersonated?: boolean;
+  impersonatorId?: string;
   /** Materialized hierarchical path (e.g. "root.t_123.t_456") for subtree isolation */
   orgPath?: string;
   /** Organization tier (PLATFORM_ROOT, PRIMARY_RESELLER, SUB_RESELLER, END_CLIENT) */
@@ -60,6 +62,8 @@ export class SessionContextResolver {
           orgPath?: string;
           tier?: string;
           permissions?: string[];
+          isImpersonated?: boolean;
+          impersonatorId?: string;
         }
       | undefined;
 
@@ -81,6 +85,8 @@ export class SessionContextResolver {
       orgPath: principal.orgPath || 'root',
       tier: principal.tier || 'END_CLIENT',
       permissions: principal.permissions || ['*'],
+      isImpersonated: principal.isImpersonated === true,
+      impersonatorId: principal.impersonatorId,
     };
 
     const reqPath = request.path || request.originalUrl || request.url || '';

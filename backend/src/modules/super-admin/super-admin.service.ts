@@ -3102,11 +3102,11 @@ export class SuperAdminService {
    * Terminate active Super Admin impersonation session
    */
   async terminateImpersonation(
-    actor: { userId: string; email?: string; tenantId?: string },
+    actor: { userId: string; email?: string; tenantId?: string; impersonatorId?: string },
     ipAddress?: string,
   ) {
     await this.audit(
-      actor.userId,
+      actor.impersonatorId || actor.userId,
       actor.tenantId || 'platform',
       'IMPERSONATION_TERMINATED',
       'POST /super-admin/impersonate/terminate',
@@ -3114,7 +3114,7 @@ export class SuperAdminService {
       ipAddress,
       {
         ip: ipAddress,
-        terminatedBy: actor.userId,
+        terminatedBy: actor.impersonatorId || actor.userId,
         timestamp: new Date().toISOString(),
       },
     );

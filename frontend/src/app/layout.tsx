@@ -1,24 +1,7 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 import { Toaster } from "@/components/ui/toaster";
-
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-  display: "swap",
-  preload: true,
-  fallback: ["system-ui", "sans-serif"],
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  variable: "--font-jetbrains-mono",
-  display: "swap",
-  preload: true,
-  fallback: ["monospace"],
-});
 
 export const metadata: Metadata = {
   // Fixes: "metadataBase property in metadata export is not set..." warning.
@@ -93,13 +76,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning className={`${inter.variable} ${jetbrainsMono.variable} h-full`}>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link rel="preconnect" href="https://www.google.com" />
-        <link rel="preconnect" href="https://www.gstatic.com" crossOrigin="anonymous" />
-      </head>
+    <html lang="en" suppressHydrationWarning className="h-full">
       <body className="min-h-full flex flex-col bg-background text-foreground antialiased">
         <Providers>
           {children}

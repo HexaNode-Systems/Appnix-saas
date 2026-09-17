@@ -348,11 +348,13 @@ export class AuthService {
     if (
       role !== 'SUPER_ADMIN' &&
       role !== 'RESELLER_ADMIN' &&
+      role !== 'APP_ADMIN' &&
       role !== 'TENANT_ADMIN' &&
       role !== 'owner' &&
       role !== 'admin' &&
       rawRole !== 'SUPER_ADMIN' &&
       rawRole !== 'RESELLER_ADMIN' &&
+      rawRole !== 'APP_ADMIN' &&
       rawRole !== 'TENANT_ADMIN'
     ) {
       throw new ForbiddenException('Access denied: account does not have Admin or Reseller privileges');

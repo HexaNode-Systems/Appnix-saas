@@ -62,8 +62,8 @@ export async function POST(request: NextRequest) {
     const { accessToken, refreshToken, user } = resData;
 
     // Strict role validation: Ensure user has administrative or reseller privileges
-    const role = user?.role;
-    const allowedAdminRoles = ["SUPER_ADMIN", "RESELLER_ADMIN", "TENANT_ADMIN", "owner", "admin"];
+    const role = user?.rawRole || user?.role;
+    const allowedAdminRoles = ["SUPER_ADMIN", "APP_ADMIN", "RESELLER_ADMIN", "TENANT_ADMIN", "owner", "admin"];
     if (role && !allowedAdminRoles.includes(role)) {
       return NextResponse.json(
         { message: "Access denied: Account does not possess Admin or Reseller privileges" },
@@ -79,11 +79,13 @@ export async function POST(request: NextRequest) {
 
     // Set secure HttpOnly cookies for admin session
     const isProd = process.env.NODE_ENV === "production";
+    const cookieDomain = isProd ? ".appnix.co.in" : undefined;
     if (accessToken) {
       response.cookies.set("appnix_admin_token", accessToken, {
         httpOnly: true,
         secure: isProd,
         sameSite: "lax",
+        domain: cookieDomain,
         path: "/",
         maxAge: 15 * 60, // 15 mins
       });
@@ -92,6 +94,7 @@ export async function POST(request: NextRequest) {
         httpOnly: true,
         secure: isProd,
         sameSite: "lax",
+        domain: cookieDomain,
         path: "/",
         maxAge: 15 * 60, // 15 mins
       });
@@ -101,6 +104,7 @@ export async function POST(request: NextRequest) {
         httpOnly: false,
         secure: isProd,
         sameSite: "lax",
+        domain: cookieDomain,
         path: "/",
         maxAge: 15 * 60,
       });
@@ -111,6 +115,7 @@ export async function POST(request: NextRequest) {
         httpOnly: true,
         secure: isProd,
         sameSite: "lax",
+        domain: cookieDomain,
         path: "/",
         maxAge: 7 * 24 * 60 * 60, // 7 days
       });
@@ -119,6 +124,7 @@ export async function POST(request: NextRequest) {
         httpOnly: true,
         secure: isProd,
         sameSite: "lax",
+        domain: cookieDomain,
         path: "/",
         maxAge: 7 * 24 * 60 * 60, // 7 days
       });

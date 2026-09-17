@@ -12,6 +12,8 @@ export interface AuthUser {
   orgPath?: string;
   tier?: string;
   permissions?: string[];
+  isImpersonated?: boolean;
+  impersonatorId?: string;
 }
 
 export const CurrentUser = createParamDecorator(

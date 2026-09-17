@@ -126,6 +126,10 @@ async function main() {
   const existingDirectAdmin = await prisma.user.findFirst({
     where: { role: Role.APP_ADMIN, tenantId: directTenant.id },
   });
+  // Local development has a documented, replaceable credential so Direct
+  // Admin normal-login can be smoke-tested. Production must supply its own.
+  const directAdminPassword = process.env.DIRECT_ADMIN_PASSWORD ||
+    (process.env.NODE_ENV !== 'production' ? 'DirectAdmin@2026!' : undefined);
   if (!existingDirectAdmin) {
     await prisma.user.create({
       data: {
@@ -134,11 +138,63 @@ async function main() {
         role: Role.APP_ADMIN,
         tenantId: directTenant.id,
         isActive: true,
-        passwordHash: await bcrypt.hash(randomBytes(32).toString('base64url'), saltRounds),
+        passwordHash: await bcrypt.hash(directAdminPassword || randomBytes(32).toString('base64url'), saltRounds),
       },
+    });
+  } else if (existingDirectAdmin.email === 'direct-admin@appnix.co.in' && directAdminPassword) {
+    await prisma.user.update({
+      where: { id: existingDirectAdmin.id },
+      data: { passwordHash: await bcrypt.hash(directAdminPassword, saltRounds), isActive: true },
     });
   }
   console.log('   ✅ Direct Operations APP_ADMIN ready');
+
+  // Keep a single, deterministic local direct-client workspace available for
+  // guest-impersonation smoke tests.  It is a root END_CLIENT tenant, never a
+  // child of a reseller, so it exercises the same direct-only filters as a
+  // client onboarded through app.appnix.co.in.
+  const directClientTenant = await prisma.tenant.upsert({
+    where: { slug: 'appnix-direct-client-test' },
+    update: {
+      status: TenantStatus.ACTIVE,
+      tier: TenantTier.END_CLIENT,
+      parentId: null,
+    },
+    create: {
+      name: 'Appnix Direct Client Test Workspace',
+      slug: 'appnix-direct-client-test',
+      tier: TenantTier.END_CLIENT,
+      status: TenantStatus.ACTIVE,
+      parentId: null,
+      path: 'root.appnix_direct_client_test',
+      depth: 1,
+    },
+  });
+  const directClientEmail = 'direct-client-test@appnix.co.in';
+  const existingDirectClient = await prisma.user.findUnique({
+    where: { email: directClientEmail },
+  });
+  if (existingDirectClient && existingDirectClient.tenantId !== directClientTenant.id) {
+    throw new Error(`Refusing to move ${directClientEmail}: it belongs to a different tenant.`);
+  }
+  await prisma.user.upsert({
+    where: { email: directClientEmail },
+    update: {
+      name: 'Direct Client Smoke Test',
+      role: Role.CLIENT_USER,
+      tenantId: directClientTenant.id,
+      isActive: true,
+    },
+    create: {
+      email: directClientEmail,
+      name: 'Direct Client Smoke Test',
+      role: Role.CLIENT_USER,
+      tenantId: directClientTenant.id,
+      isActive: true,
+      passwordHash: await bcrypt.hash(randomBytes(32).toString('base64url'), saltRounds),
+    },
+  });
+  console.log('   ✅ Direct client smoke-test workspace ready');
 
   console.log('\n3️⃣  Ensuring Standard Platform Subscription Plans...');
 

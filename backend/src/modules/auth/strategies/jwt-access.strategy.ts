@@ -47,6 +47,7 @@ export class JwtAccessStrategy extends PassportStrategy(Strategy, 'jwt-access') 
       permissions: payload.permissions || ['*'],
       impersonatedWorkspaceId: (payload as any).impersonatedWorkspaceId,
       isImpersonated: (payload as any).isImpersonated,
+      impersonatorId: (payload as any).impersonatorId,
     };
   }
 }

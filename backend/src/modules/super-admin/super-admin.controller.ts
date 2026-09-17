@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -15,6 +16,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Role } from '@prisma/client';
 import { Request, Response } from 'express';
 import { CurrentUser, AuthUser } from '../auth/decorators/current-user.decorator';
 import { JwtAccessGuard } from '../auth/guards/jwt-access.guard';
@@ -53,10 +55,12 @@ export class SuperAdminController {
     const result = await this.service.login(dto, ip);
 
     const isProd = process.env.NODE_ENV === 'production';
+    const cookieDomain = isProd ? '.appnix.co.in' : undefined;
     res.cookie('appnix_superadmin_token', result.accessToken, {
       httpOnly: true,
       secure: isProd,
       sameSite: 'lax',
+      domain: cookieDomain,
       path: '/',
       maxAge: 15 * 60 * 1000,
     });
@@ -69,10 +73,12 @@ export class SuperAdminController {
   @ApiOperation({ summary: 'Clear Super Admin session and cookies' })
   async logout(@Res({ passthrough: true }) res: Response) {
     const isProd = process.env.NODE_ENV === 'production';
+    const cookieDomain = isProd ? '.appnix.co.in' : undefined;
     const clearOpts = {
       httpOnly: true,
       secure: isProd,
       sameSite: 'lax' as const,
+      domain: cookieDomain,
       path: '/',
     };
     res.clearCookie('appnix_superadmin_token', clearOpts);
@@ -329,13 +335,16 @@ export class SuperAdminController {
   }
 
   @Post('impersonate/terminate')
-  @UseGuards(JwtAccessGuard, SuperAdminGuard)
+  @UseGuards(JwtAccessGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Terminate active Super Admin impersonation session' })
   async terminateImpersonation(
     @CurrentUser() actor: AuthUser,
     @Req() req: Request,
   ) {
+    if (actor.role !== Role.SUPER_ADMIN && !(actor as any).isImpersonated) {
+      throw new ForbiddenException('Only Super Admin or an active guest session can terminate impersonation');
+    }
     const ip =
       (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() ||
       req.ip ||

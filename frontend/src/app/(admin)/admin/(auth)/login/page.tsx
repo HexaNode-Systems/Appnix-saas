@@ -86,8 +86,8 @@ function AdminLoginForm() {
       const { accessToken, refreshToken, user } = resData;
 
       // 2. Strict Role Verification: Ensure account has administrative privileges
-      const role = user?.role;
-      const allowedRoles = ["SUPER_ADMIN", "RESELLER_ADMIN", "TENANT_ADMIN", "owner", "admin"];
+      const role = user?.rawRole || user?.role;
+      const allowedRoles = ["SUPER_ADMIN", "APP_ADMIN", "RESELLER_ADMIN", "TENANT_ADMIN", "owner", "admin"];
       if (role && !allowedRoles.includes(role)) {
         throw new Error("Access denied: Your account does not possess Admin or Reseller privileges.");
       }
