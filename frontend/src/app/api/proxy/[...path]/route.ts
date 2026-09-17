@@ -62,13 +62,21 @@ async function handleProxyRequest(
 ) {
   const path = params.path.join("/");
   const targetUrl = `${config.api.baseUrl}/${path}`;
+  console.log("[API PROXY] Forwarding to:", targetUrl);
 
   const searchParams = request.nextUrl.searchParams.toString();
   const url = searchParams ? `${targetUrl}?${searchParams}` : targetUrl;
 
   const headers = new Headers();
+  // Do not pass client connection framing through to the server-side fetch.
+  // Node's fetch rejects headers such as transfer-encoding when it creates a
+  // new request body, which previously made every proxied POST return 502.
+  const hopByHopHeaders = new Set([
+    "host", "connection", "content-length", "transfer-encoding", "keep-alive",
+    "upgrade", "expect", "te", "trailer", "proxy-authenticate", "proxy-authorization",
+  ]);
   request.headers.forEach((value, key) => {
-    if (!["host", "connection", "content-length"].includes(key.toLowerCase())) {
+    if (!hopByHopHeaders.has(key.toLowerCase())) {
       headers.set(key, value);
     }
   });

@@ -1,6 +1,7 @@
 import { PrismaClient, Role, TenantTier, TenantStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import * as dotenv from 'dotenv';
+import { randomBytes } from 'crypto';
 
 // Ensure environment variables are loaded (.env.local takes precedence for local development)
 dotenv.config({ path: '.env.local', override: true });
@@ -107,6 +108,37 @@ async function main() {
   });
 
   console.log(`   ✅ Super Administrator provisioned successfully!`);
+
+  console.log('\n2️⃣a  Provisioning Direct Operations guest account...');
+  const directTenant = await prisma.tenant.upsert({
+    where: { slug: 'appnix-direct' },
+    update: { status: TenantStatus.ACTIVE },
+    create: {
+      id: 'APPNIX_DIRECT',
+      name: 'Appnix Direct Operations',
+      slug: 'appnix-direct',
+      tier: TenantTier.PLATFORM_ROOT,
+      status: TenantStatus.ACTIVE,
+      path: 'root.appnix_direct',
+      depth: 1,
+    },
+  });
+  const existingDirectAdmin = await prisma.user.findFirst({
+    where: { role: Role.APP_ADMIN, tenantId: directTenant.id },
+  });
+  if (!existingDirectAdmin) {
+    await prisma.user.create({
+      data: {
+        email: 'direct-admin@appnix.co.in',
+        name: 'Direct Staff Admin',
+        role: Role.APP_ADMIN,
+        tenantId: directTenant.id,
+        isActive: true,
+        passwordHash: await bcrypt.hash(randomBytes(32).toString('base64url'), saltRounds),
+      },
+    });
+  }
+  console.log('   ✅ Direct Operations APP_ADMIN ready');
 
   console.log('\n3️⃣  Ensuring Standard Platform Subscription Plans...');
 

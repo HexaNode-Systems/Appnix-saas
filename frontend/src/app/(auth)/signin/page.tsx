@@ -17,6 +17,7 @@ import { useTranslation } from "@/lib/i18n";
 import { LanguageSelector } from "@/components/landing/language-selector";
 import { config } from "@/lib/config";
 import { useToast } from "@/hooks/use-toast";
+import { TenantBrandingHydrator } from "@/components/branding/TenantBrandingHydrator";
 import {
   Mail,
   Lock,
@@ -72,6 +73,13 @@ function SignInContent() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [branding, setBranding] = useState<{ brandName?: string; logoUrl?: string } | null>(null);
+
+  useEffect(() => {
+    const onBranding = (event: Event) => setBranding((event as CustomEvent).detail);
+    window.addEventListener("appnix:tenant-branding", onBranding);
+    return () => window.removeEventListener("appnix:tenant-branding", onBranding);
+  }, []);
 
   const rawCallbackUrl = searchParams.get("callbackUrl") || searchParams.get("returnUrl");
   const callbackUrl =
@@ -224,6 +232,7 @@ function SignInContent() {
 
   return (
     <div className="min-h-screen w-full flex flex-col justify-center items-center bg-gradient-to-b from-slate-50 via-slate-50/80 to-blue-50/40 p-4 sm:p-6 lg:p-8 relative">
+      <TenantBrandingHydrator />
       {/* Top right language selector */}
       <div className="absolute top-4 right-4 z-20">
         <LanguageSelector />
@@ -242,19 +251,16 @@ function SignInContent() {
             href="/"
             className="group flex items-center justify-center p-2 rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/80 hover:ring-primary/40 transition-all duration-200"
           >
-            <Image
-              src="/logo-favicon.png"
-              alt="Appnix Logo"
-              width={40}
-              height={40}
-              className="object-contain transition-transform group-hover:scale-105"
-              priority
-            />
+            {branding?.logoUrl ? (
+              <img src={branding.logoUrl} alt={branding.brandName || "Portal logo"} className="h-10 w-10 object-contain transition-transform group-hover:scale-105" />
+            ) : (
+              <Image src="/logo-favicon.png" alt="Appnix Logo" width={40} height={40} className="object-contain transition-transform group-hover:scale-105" priority />
+            )}
           </Link>
 
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-              {t.auth.welcomeBack}
+              {branding?.brandName || t.auth.welcomeBack}
             </h1>
             <p className="mt-1 text-sm text-slate-500">
               {t.auth.signInSubtitle}

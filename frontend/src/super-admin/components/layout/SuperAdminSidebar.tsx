@@ -102,6 +102,17 @@ const superAdminNavItems: NavItem[] = [
     ],
   },
   {
+    id: "direct-operations",
+    label: "Direct Operations",
+    href: "/super-admin/direct-operations",
+    icon: Sparkles,
+    children: [
+      { label: "Overview", href: "/super-admin/direct-operations", icon: LayoutDashboard },
+      { label: "Direct Staff", href: "/super-admin/direct-operations/staff", icon: ShieldCheck },
+      { label: "Direct Clients", href: "/super-admin/direct-operations/clients", icon: Users },
+    ],
+  },
+  {
     id: "clients",
     label: "All Client Accounts",
     href: "/super-admin/clients",
@@ -170,6 +181,7 @@ export function SuperAdminSidebar({ open, onClose, isSuperAdmin: propIsSuperAdmi
     const norm = normalizePath(pathname);
     if (norm.startsWith("/clients")) return "clients";
     if (norm.startsWith("/partners")) return "partners";
+    if (norm.startsWith("/direct-operations")) return "direct-operations";
     return null;
   }, [pathname]);
 
@@ -260,10 +272,12 @@ export function SuperAdminSidebar({ open, onClose, isSuperAdmin: propIsSuperAdmi
                 const isOpen = expanded === item.id;
                 const targetHref = getTargetHref(item.href);
 
+                const groupBreak = isSuperAdmin && item.id === "direct-operations";
                 if (!hasChildren) {
                   return (
-                    <Link
-                      key={item.href}
+                    <div key={item.href}>
+                      {groupBreak && <p className="mb-2 mt-5 border-t pt-4 px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Direct Operations</p>}
+                      <Link
                       href={targetHref}
                       onClick={onClose}
                       className={cn(
@@ -286,13 +300,15 @@ export function SuperAdminSidebar({ open, onClose, isSuperAdmin: propIsSuperAdmi
                         )}
                       />
                       <span className="truncate">{item.label}</span>
-                    </Link>
+                      </Link>
+                    </div>
                   );
                 }
 
                 // Expandable parent item (e.g. Clients, Partners)
                 return (
                   <div key={item.id} className="space-y-0.5">
+                    {groupBreak && <p className="mb-2 mt-5 border-t pt-4 px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Direct Operations</p>}
                     <div
                       className={cn(
                         "flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-all duration-150 cursor-pointer select-none",

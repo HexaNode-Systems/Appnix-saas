@@ -273,6 +273,13 @@ export class AuthService {
     }
     if (!passwordMatches) throw new UnauthorizedException('Invalid credentials');
 
+    // Used by the Direct Operations staff view. The field is introduced by
+    // the direct-operations migration; don't make a successful login fail if
+    // an older deployment has not applied it yet.
+    await (this.prisma.user as any)
+      .update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
+      .catch((err: any) => this.logger.warn(`Unable to update last login: ${err.message}`));
+
     const isSuper = user.role === Role.SUPER_ADMIN || (user as any).role === 'SUPER_ADMIN';
 
     if (!isSuper) {
@@ -437,13 +444,24 @@ export class AuthService {
 
       let targetUser: any = null;
       try {
-        targetUser = await this.prisma.user.findFirst({
-          where: {
-            tenantId: tenant.id,
-            role: { in: [Role.TENANT_ADMIN, Role.RESELLER_ADMIN, Role.SUPER_ADMIN] },
-          },
-          orderBy: { createdAt: 'asc' },
-        });
+        // Direct Operations tokens identify a specific staff/client account.
+        // Resolve that subject first; the legacy tenant-default selection below
+        // remains unchanged for reseller and existing guest-login flows.
+        if (payload.targetPanel === 'DIRECT_ADMIN' || payload.targetPanel === 'DIRECT_CLIENT') {
+          targetUser = await this.prisma.user.findFirst({
+            where: { id: payload.sub, tenantId: tenant.id },
+          });
+        }
+
+        if (!targetUser) {
+          targetUser = await this.prisma.user.findFirst({
+            where: {
+              tenantId: tenant.id,
+              role: { in: [Role.TENANT_ADMIN, Role.RESELLER_ADMIN, Role.SUPER_ADMIN] },
+            },
+            orderBy: { createdAt: 'asc' },
+          });
+        }
 
         if (!targetUser) {
           targetUser = await this.prisma.user.findFirst({
@@ -482,6 +500,7 @@ export class AuthService {
           isImpersonated: true,
           impersonatorId: payload.sub || actor?.userId,
           guestSession: true,
+          ...(payload.targetPanel ? { targetPanel: payload.targetPanel } : {}),
         },
       );
 
@@ -986,4 +1005,4 @@ export class AuthService {
     return this.formatUser(user);
   }
 }
-
+

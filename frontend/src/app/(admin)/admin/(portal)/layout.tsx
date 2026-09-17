@@ -6,7 +6,7 @@ import { SuperAdminLayout } from "@/super-admin/layouts/SuperAdminLayout";
 import { Loader2 } from "lucide-react";
 import { config } from "@/lib/config";
 
-const allowedRoles = ["SUPER_ADMIN", "RESELLER_ADMIN", "TENANT_ADMIN", "owner", "admin"];
+const allowedRoles = ["SUPER_ADMIN", "APP_ADMIN", "RESELLER_ADMIN", "TENANT_ADMIN", "owner", "admin"];
 
 function getCookie(name: string): string | null {
   if (typeof document === "undefined") return null;

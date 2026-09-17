@@ -146,6 +146,9 @@ model User {
   language            String         @default("en")
   theme               String         @default("system")
   departmentId        String?
+  department          String?
+  isActive            Boolean        @default(true)
+  lastLoginAt         DateTime?
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
   tenant              Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)

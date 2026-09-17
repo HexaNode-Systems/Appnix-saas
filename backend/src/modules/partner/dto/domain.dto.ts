@@ -23,3 +23,26 @@ export class CreateDomainDto {
   @IsIn(['CNAME', 'TXT'])
   recordType?: 'CNAME' | 'TXT';
 }
+
+export class UpdatePartnerBrandSettingsDto {
+  @IsOptional()
+  @IsString()
+  brandName?: string;
+
+  @IsOptional()
+  @IsString()
+  primaryColor?: string;
+
+  @IsOptional()
+  @IsString()
+  logoUrl?: string | null;
+
+  @IsOptional()
+  @IsString()
+  faviconUrl?: string | null;
+
+  // Deliberately accepts a raw string: service sanitation supports pasted URLs.
+  @IsOptional()
+  @IsString()
+  domain?: string;
+}

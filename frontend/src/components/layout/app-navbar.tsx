@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -50,6 +50,13 @@ export function AppNavbar({ onMenuClick }: AppNavbarProps) {
 
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [branding, setBranding] = useState<{ brandName?: string; logoUrl?: string } | null>(null);
+
+  useEffect(() => {
+    const onBranding = (event: Event) => setBranding((event as CustomEvent).detail);
+    window.addEventListener("appnix:tenant-branding", onBranding);
+    return () => window.removeEventListener("appnix:tenant-branding", onBranding);
+  }, []);
 
   const handleOpenLogoutModal = () => {
     setIsLogoutModalOpen(true);
@@ -81,12 +88,10 @@ export function AppNavbar({ onMenuClick }: AppNavbarProps) {
       {/* Brand column: width-matched to the sidebar (w-64) on desktop so the
           right border lines up with the sidebar's border below it. */}
       <div className="hidden shrink-0 items-center gap-2 border-r border-border px-4 lg:flex lg:w-64">
-        <div className="brand-box">
-          <Users className="h-4 w-4 text-primary-foreground" />
-        </div>
+        <div className="brand-box">{branding?.logoUrl ? <img src={branding.logoUrl} alt="Brand logo" className="h-6 w-8 object-contain" /> : <Users className="h-4 w-4 text-primary-foreground" />}</div>
         <div className="hidden sm:block">
           <p className="text-sm font-bold leading-tight text-foreground">
-            Appnix CRM
+            {branding?.brandName || "Appnix CRM"}
           </p>
           <p className="text-[11px] leading-tight text-muted-foreground">
             {t.dashboard.title}

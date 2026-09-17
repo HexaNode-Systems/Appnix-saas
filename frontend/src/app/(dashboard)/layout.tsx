@@ -10,6 +10,7 @@ import { MockCashfreeModalContainer } from "@/components/billing/mock-cashfree-m
 import { useAuth } from "@/lib/auth/auth-context";
 import { verifySubscriptionStatus } from "@/lib/subscription";
 import { Loader2 } from "lucide-react";
+import { TenantBrandingHydrator } from "@/components/branding/TenantBrandingHydrator";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -128,6 +129,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // OUTER: now flex-col (vertical) instead of flex (horizontal).
     // Navbar comes first, full width, on its own row.
     <div className="dashboard-shell">
+      <TenantBrandingHydrator />
       <ImpersonationBanner />
       <GuestModeBanner />
       <MockCashfreeModalContainer />

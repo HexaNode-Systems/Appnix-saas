@@ -351,6 +351,230 @@ export class SuperAdminService {
     };
   }
 
+  // A direct tenant is either the dedicated Appnix direct tenant or an
+  // end-client without a reseller parent. Keeping this predicate here makes
+  // the direct operations endpoints deliberately independent of reseller data.
+  private directTenantWhere() {
+    return {
+      // A reseller descendant can never satisfy this predicate.  The named
+      // direct tenant covers installations created before hierarchy metadata.
+      OR: [{ slug: 'appnix-direct' }, { parentId: null }],
+    };
+  }
+
+  async getDirectOperationsOverview() {
+    const directClientTenantWhere: any = {
+      tier: TenantTier.END_CLIENT,
+      ...this.directTenantWhere(),
+    };
+    const directClientUserWhere: any = {
+      role: { in: [Role.CLIENT_USER, Role.TENANT_ADMIN] },
+      tenant: directClientTenantWhere,
+    };
+    const directStaffWhere: any = { role: Role.APP_ADMIN, isActive: true, tenant: this.directTenantWhere() };
+
+    // Message has a scalar tenantId rather than a Prisma tenant relation, so
+    // resolve the same direct-only tenant set before counting its traffic.
+    const directTenantIds = (await this.prisma.tenant.findMany({
+      where: directClientTenantWhere,
+      select: { id: true },
+    })).map((tenant) => tenant.id);
+
+    const [totalClients, activeSubscriptions, activeStaff, subscriptions, messageVolume] =
+      await Promise.all([
+        this.prisma.user.count({ where: directClientUserWhere }),
+        this.prisma.subscription.count({ where: { status: 'ACTIVE', tenant: directClientTenantWhere } }),
+        this.prisma.user.count({ where: directStaffWhere }),
+        this.prisma.subscription.findMany({
+          where: { status: 'ACTIVE', tenant: directClientTenantWhere },
+          select: { price: true },
+        }),
+        this.prisma.message.count({ where: { tenantId: { in: directTenantIds } } }),
+      ]);
+
+    const directMrr = subscriptions.reduce((total, subscription) => {
+      // Subscription price is stored as display text (for example ₹2,999/mo).
+      const numeric = Number((subscription.price || '').replace(/[^0-9.]/g, ''));
+      return total + (Number.isFinite(numeric) ? numeric : 0);
+    }, 0);
+
+    return {
+      directClientsCount: totalClients,
+      activeStaffCount: activeStaff,
+      directMrr,
+      activeSubscriptions,
+      messageVolume,
+    };
+  }
+
+  async getDirectOperationsAdmins() {
+    const admins = await this.prisma.user.findMany({
+      where: {
+        role: Role.APP_ADMIN,
+        tenant: this.directTenantWhere(),
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        department: true,
+        isActive: true,
+        lastLoginAt: true,
+        createdAt: true,
+        tenant: { select: { id: true, name: true, slug: true, status: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return admins.map((admin) => ({
+      id: admin.id,
+      name: admin.name,
+      email: admin.email,
+      role: Role.APP_ADMIN,
+      department: admin.department,
+      isActive: admin.isActive,
+      lastLoginAt: admin.lastLoginAt,
+      createdAt: admin.createdAt,
+      tenant: admin.tenant,
+    }));
+  }
+
+  async getDirectOperationsClients(params?: { page?: string | number; limit?: string | number }) {
+    const { page, limit, skip, take } = parsePagination(params?.page, params?.limit);
+    const where: any = {
+      role: { in: [Role.CLIENT_USER, Role.TENANT_ADMIN] },
+      tenant: { tier: TenantTier.END_CLIENT, ...this.directTenantWhere() },
+    };
+    const [total, clients] = await Promise.all([
+      this.prisma.user.count({ where }),
+      this.prisma.user.findMany({
+        where, skip, take, orderBy: { createdAt: 'desc' },
+        select: {
+          id: true, name: true, email: true, phone: true, role: true, createdAt: true,
+          tenant: {
+            select: {
+              id: true, name: true, status: true,
+              wallet: { select: { balance: true, currency: true } },
+              subscriptions: { select: { planName: true, status: true }, orderBy: { createdAt: 'desc' }, take: 1 },
+            },
+          },
+        },
+      }),
+    ]);
+    return createPaginatedResponse(clients.map((client) => ({
+      id: client.id, name: client.name, email: client.email, phone: client.phone,
+      businessName: client.tenant.name, subscriptionTier: client.tenant.subscriptions[0]?.planName || null,
+      walletBalance: client.tenant.wallet?.balance || 0, walletCurrency: client.tenant.wallet?.currency || 'INR',
+      status: client.tenant.status, createdAt: client.createdAt,
+    })), total, page, limit);
+  }
+
+  private async directConfigurationTenant() {
+    const tenant = await this.prisma.tenant.findFirst({
+      where: { OR: [{ slug: 'appnix-direct' }, { parentId: null, users: { some: { role: Role.APP_ADMIN } } }] },
+      orderBy: { createdAt: 'asc' }, select: { id: true },
+    });
+    if (!tenant) throw new NotFoundException('Direct Appnix tenant is not configured');
+    return tenant;
+  }
+
+  /**
+   * Keeps the Direct Operations panel usable on a fresh local database. This
+   * deliberately provisions a first-party tenant only; it never reads or
+   * changes reseller tenants or reseller administrators.
+   */
+  private async ensureDirectOperationsAdmin() {
+    let tenant = await this.prisma.tenant.findFirst({
+      where: { OR: [{ id: 'APPNIX_DIRECT' }, { slug: 'appnix-direct' }] },
+    });
+    if (!tenant) {
+      tenant = await this.prisma.tenant.create({
+        data: {
+          id: 'APPNIX_DIRECT',
+          name: 'Appnix Direct Operations',
+          slug: 'appnix-direct',
+          tier: TenantTier.PLATFORM_ROOT,
+          status: TenantStatus.ACTIVE,
+          path: 'root.appnix_direct',
+          depth: 1,
+        },
+      });
+    }
+
+    let admin = await this.prisma.user.findFirst({
+      where: { role: Role.APP_ADMIN, tenantId: tenant.id },
+      include: { tenant: true },
+    });
+    if (!admin) {
+      // This account is for audited guest sessions only. It has no known
+      // password; a normal password login cannot be used to enter it.
+      const passwordHash = await bcrypt.hash(randomBytes(32).toString('base64url'), 12);
+      admin = await this.prisma.user.create({
+        data: {
+          email: 'direct-admin@appnix.co.in',
+          name: 'Direct Staff Admin',
+          role: Role.APP_ADMIN,
+          tenantId: tenant.id,
+          isActive: true,
+          passwordHash,
+        },
+        include: { tenant: true },
+      });
+    }
+    return admin;
+  }
+
+  async getDirectOperationsAdminConfig() {
+    const tenant = await this.directConfigurationTenant();
+    const record = await this.prisma.partnerConfig.findUnique({ where: { tenantId: tenant.id }, select: { featureAccess: true } });
+    const saved = (record?.featureAccess && typeof record.featureAccess === 'object' && !Array.isArray(record.featureAccess)) ? record.featureAccess as Record<string, unknown> : {};
+    return {
+      supportEmail: typeof saved.supportEmail === 'string' ? saved.supportEmail : '',
+      staffPermissions: typeof saved.staffPermissions === 'string' ? saved.staffPermissions : '',
+      alertWebhook: typeof saved.alertWebhook === 'string' ? saved.alertWebhook : '',
+      maintenanceMode: saved.maintenanceMode === true,
+      allowSignup: saved.allowSignup !== false,
+      directTierDefault: typeof saved.directTierDefault === 'string' ? saved.directTierDefault : '',
+    };
+  }
+
+  async updateDirectOperationsAdminConfig(input: Record<string, unknown>) {
+    const tenant = await this.directConfigurationTenant();
+    const allowed = ['supportEmail', 'staffPermissions', 'alertWebhook', 'maintenanceMode', 'allowSignup', 'directTierDefault'];
+    const config = Object.fromEntries(Object.entries(input).filter(([key]) => allowed.includes(key)));
+    await this.prisma.partnerConfig.upsert({
+      where: { tenantId: tenant.id }, create: { tenantId: tenant.id, featureAccess: config as any }, update: { featureAccess: config as any },
+    });
+    return this.getDirectOperationsAdminConfig();
+  }
+
+  async directOperationsGuestLogin(
+    actor: { userId: string; email?: string },
+    input: { targetType: 'DIRECT_ADMIN' | 'DIRECT_CLIENT'; targetUserId?: string }, ipAddress?: string,
+  ) {
+    if (!['DIRECT_ADMIN', 'DIRECT_CLIENT'].includes(input.targetType)) throw new BadRequestException('Invalid target type');
+    const where: any = input.targetType === 'DIRECT_ADMIN'
+      ? { role: Role.APP_ADMIN, tenant: this.directTenantWhere() }
+      : { id: input.targetUserId, role: { in: [Role.CLIENT_USER, Role.TENANT_ADMIN] }, tenant: { tier: TenantTier.END_CLIENT, ...this.directTenantWhere() } };
+    let target = input.targetType === 'DIRECT_ADMIN' && input.targetUserId
+      ? await this.prisma.user.findFirst({ where: { ...where, id: input.targetUserId }, include: { tenant: true } })
+      : await this.prisma.user.findFirst({ where, include: { tenant: true }, orderBy: { createdAt: 'asc' } });
+    if (!target && input.targetType === 'DIRECT_ADMIN') {
+      target = await this.ensureDirectOperationsAdmin();
+    }
+    if (!target) throw new NotFoundException('Direct client was not found');
+    const secret = this.config.get<string>('IMPERSONATION_JWT_SECRET') || this.config.get<string>('JWT_ACCESS_SECRET') || this.config.get<string>('JWT_SECRET') || 'default-access-secret';
+    const targetPanel = input.targetType;
+    const token = await this.jwt.signAsync({ sub: target.id, email: target.email, role: target.role, tenantId: target.tenantId, isImpersonated: true, impersonatorId: actor.userId, targetPanel }, { secret, expiresIn: '1h' });
+    const action = targetPanel === 'DIRECT_ADMIN' ? 'SUPER_ADMIN_DIRECT_ADMIN_IMPERSONATION' : 'SUPER_ADMIN_DIRECT_CLIENT_IMPERSONATION';
+    await this.audit(actor.userId, target.tenantId, action, 'POST /super-admin/direct-operations/guest-login', actor.email, ipAddress, { targetUserId: target.id, targetPanel });
+    const base = process.env.NODE_ENV === 'production'
+      ? (targetPanel === 'DIRECT_ADMIN' ? 'https://admin.appnix.co.in' : 'https://app.appnix.co.in')
+      : (targetPanel === 'DIRECT_ADMIN' ? 'http://admin.localhost:3000' : 'http://app.localhost:3000');
+    return { redirectUrl: `${base}/auth/guest-login?token=${encodeURIComponent(token)}` };
+  }
+
   // ==========================================
   // PARTNER MANAGEMENT (WHITE-LABEL ADMINS)
   // ==========================================
@@ -2775,6 +2999,16 @@ export class SuperAdminService {
       this.config.get<string>('JWT_SECRET') ||
       'default-access-secret';
 
+    const isDirectAdmin = targetUser.role === Role.APP_ADMIN;
+    const isDirectClient =
+      tenant.tier === TenantTier.END_CLIENT &&
+      (tenant.id === 'APPNIX_DIRECT' || tenant.parentId === null);
+    const targetPanel = isDirectAdmin
+      ? 'DIRECT_ADMIN'
+      : isDirectClient
+        ? 'DIRECT_CLIENT'
+        : undefined;
+
     const tokenPayload = {
       sub: targetUser.id,
       email: targetUser.email,
@@ -2785,6 +3019,7 @@ export class SuperAdminService {
       isImpersonated: true,
       impersonatorId: actor.userId,
       purpose: 'super_admin_impersonation',
+      ...(targetPanel ? { targetPanel } : {}),
     };
 
     const token = await this.jwt.signAsync(tokenPayload, {
@@ -2820,7 +3055,13 @@ export class SuperAdminService {
 
     let redirectUrl = '';
 
-    if (isReseller) {
+    if (isDirectAdmin) {
+      const base = isLocal ? 'http://admin.localhost:3000' : 'https://admin.appnix.co.in';
+      redirectUrl = `${base}/auth/guest-login?token=${token}`;
+    } else if (isDirectClient) {
+      const base = isLocal ? 'http://app.localhost:3000' : 'https://app.appnix.co.in';
+      redirectUrl = `${base}/auth/guest-login?token=${token}`;
+    } else if (isReseller) {
       const base = isLocal ? 'http://partners.localhost:3000' : 'https://partners.appnix.co.in';
       redirectUrl = `${base}/auth/guest-login?token=${token}`;
     } else {

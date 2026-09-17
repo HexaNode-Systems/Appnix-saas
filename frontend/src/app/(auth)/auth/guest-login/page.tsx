@@ -99,7 +99,14 @@ function GuestLoginContent() {
         }
 
         const userRole = user?.rawRole || user?.role || payload.role;
-        if (userRole === "RESELLER_ADMIN") {
+        if (payload.targetPanel === "DIRECT_ADMIN") {
+          // This is a direct internal staff session. It intentionally bypasses
+          // reseller routing and enters the direct admin console only.
+          localStorage.setItem("appnix_admin_token", accessToken);
+          localStorage.setItem(config.auth.adminUserKey, JSON.stringify(syntheticUser));
+          document.cookie = `appnix_admin_token=${accessToken}; path=/; max-age=3600; SameSite=Lax${secureAttr}`;
+          window.location.href = "/admin/dashboard";
+        } else if (userRole === "RESELLER_ADMIN") {
           localStorage.setItem("appnix_admin_token", accessToken);
           document.cookie = `appnix_admin_token=${accessToken}; path=/; max-age=3600; SameSite=Lax${secureAttr}`;
 

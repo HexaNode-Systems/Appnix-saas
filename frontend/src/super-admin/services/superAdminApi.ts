@@ -257,6 +257,42 @@ export const superAdminApi = {
     return res.data?.data || res.data;
   },
 
+  // Direct Appnix operations (strictly isolated from reseller tenants)
+  getDirectOperationsOverview: async () => {
+    const res = await api.get("/direct-operations/overview");
+    return res.data?.data || res.data;
+  },
+
+  getDirectOperationsAdmins: async () => {
+    const res = await api.get("/direct-operations/staff");
+    return res.data?.data || res.data;
+  },
+
+  getDirectOperationsClients: async (params?: { page?: number; limit?: number }) => {
+    const res = await api.get("/direct-operations/clients", { params });
+    return res.data?.data || res.data;
+  },
+
+  getDirectOperationsAdminConfig: async () => {
+    const res = await api.get("/direct-operations/admin-config");
+    return res.data?.data || res.data;
+  },
+
+  updateDirectOperationsAdminConfig: async (data: Record<string, unknown>) => {
+    const res = await api.put("/direct-operations/admin-config", data);
+    return res.data?.data || res.data;
+  },
+
+  directOperationsGuestLogin: async (targetType: "DIRECT_ADMIN" | "DIRECT_CLIENT", targetUserId?: string) => {
+    const res = await api.post("/direct-operations/guest-login", { targetType, targetUserId });
+    return res.data?.data || res.data;
+  },
+
+  impersonateUser: async (targetUserId: string) => {
+    const res = await api.post("/impersonate", { targetUserId });
+    return res.data?.data || res.data;
+  },
+
   // Partners (White-Label Admins)
   getPartners: async (params?: {
     search?: string;

@@ -77,8 +77,15 @@ const protectedClientPrefixes = [
   "/subscription",
 ];
 
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
+
+  // CRITICAL: API and static requests must reach their own handlers before
+  // any subdomain routing is evaluated (including superadmin.localhost).
+  if (pathname.startsWith("/api") || pathname.startsWith("/_next") || pathname.includes(".")) {
+    return NextResponse.next();
+  }
+
   const pathWithSearch = `${pathname}${search}`;
   const hostname = request.headers.get("host") || "";
   const host = hostname.split(":")[0].toLowerCase();
@@ -88,13 +95,10 @@ export function proxy(request: NextRequest) {
       host.includes("127.0.0.1") ||
       host.endsWith(".local"));
 
-  // 1. Skip static assets, Next.js internal files, api routes, and global auth flows
+  // 1. Skip remaining global auth/static paths.
   if (
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/api") ||
     pathname.startsWith("/static") ||
-    pathname.startsWith("/auth") ||
-    pathname.includes(".")
+    pathname.startsWith("/auth")
   ) {
     return NextResponse.next();
   }
@@ -140,6 +144,21 @@ export function proxy(request: NextRequest) {
     !isPartnersSubdomain &&
     !isAppSubdomain &&
     !isMarketingDomain;
+
+  // A custom host is only branded as a reseller portal after the backend
+  // confirms a VERIFIED DomainMapping. Routing still falls back safely while
+  // DNS/API infrastructure is temporarily unavailable.
+  let verifiedCustomTenantId: string | null = null;
+  if (isCustomDomain) {
+    try {
+      const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000/api/v1";
+      const response = await fetch(`${apiBase.replace(/\/$/, "")}/public/tenant-branding?domain=${encodeURIComponent(host)}`, { cache: "no-store" });
+      const payload = response.ok ? await response.json() : null;
+      verifiedCustomTenantId = payload?.data?.tenantId || payload?.tenantId || null;
+    } catch {
+      // The dashboard route remains available; client hydration will retry.
+    }
+  }
 
   // 3. Immediate Logout Handler: Clears all HTTP authentication cookies
   const isLogoutPath =
@@ -504,7 +523,10 @@ export function proxy(request: NextRequest) {
     if (pathname === "/") {
       const response = NextResponse.rewrite(new URL(`/dashboard${search}`, request.url));
       response.headers.set("x-tenant-host", host);
-      response.headers.set("x-custom-domain", "true");
+      if (verifiedCustomTenantId) {
+        response.headers.set("x-custom-domain", "true");
+        response.headers.set("x-tenant-id", verifiedCustomTenantId);
+      }
       return response;
     }
     if (pathname === "/login") {
@@ -561,8 +583,9 @@ export function proxy(request: NextRequest) {
 
   const response = NextResponse.next();
   response.headers.set("x-tenant-host", host);
-  if (isCustomDomain) {
+  if (verifiedCustomTenantId) {
     response.headers.set("x-custom-domain", "true");
+    response.headers.set("x-tenant-id", verifiedCustomTenantId);
   }
   return response;
 }

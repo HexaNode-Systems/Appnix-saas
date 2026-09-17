@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   Patch,
+  Put,
   Post,
   Query,
   Req,
@@ -101,6 +102,72 @@ export class SuperAdminController {
   async getDashboardOverview() {
     const data = await this.service.getDashboardOverview();
     return { success: true, data };
+  }
+
+  // ==========================================
+  // 2B. DIRECT APPNIX OPERATIONS (NO RESELLERS)
+  // ==========================================
+  @Get('direct-operations/overview')
+  @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Direct Appnix-only operations metrics (excludes reseller descendants)' })
+  async getDirectOperationsOverview() {
+    const data = await this.service.getDirectOperationsOverview();
+    return { success: true, data };
+  }
+
+  @Get('direct-operations/staff')
+  @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List direct Appnix staff accounts for admin.appnix.co.in' })
+  async getDirectOperationsStaff() {
+    const data = await this.service.getDirectOperationsAdmins();
+    return { success: true, data };
+  }
+
+  // Kept for existing callers while the public Direct Operations contract uses /staff.
+  @Get('direct-operations/admins')
+  @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
+  @ApiBearerAuth()
+  async getDirectOperationsAdmins() {
+    const data = await this.service.getDirectOperationsAdmins();
+    return { success: true, data };
+  }
+
+  @Get('direct-operations/clients')
+  @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List direct Appnix client accounts for app.appnix.co.in' })
+  async getDirectOperationsClients(@Query('page') page?: string, @Query('limit') limit?: string) {
+    const data = await this.service.getDirectOperationsClients({ page, limit });
+    return { success: true, data };
+  }
+
+  @Get('direct-operations/admin-config')
+  @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
+  @ApiBearerAuth()
+  async getDirectOperationsAdminConfig() {
+    return { success: true, data: await this.service.getDirectOperationsAdminConfig() };
+  }
+
+  @Put('direct-operations/admin-config')
+  @UseGuards(JwtAccessGuard, SuperAdminAuthGuard)
+  @ApiBearerAuth()
+  async updateDirectOperationsAdminConfig(@Body() body: Record<string, unknown>) {
+    return { success: true, data: await this.service.updateDirectOperationsAdminConfig(body) };
+  }
+
+  @Post('direct-operations/guest-login')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAccessGuard, SuperAdminAuthGuard, SuperAdminGuard)
+  @ApiBearerAuth()
+  async directOperationsGuestLogin(
+    @CurrentUser() actor: AuthUser,
+    @Body() body: { targetType: 'DIRECT_ADMIN' | 'DIRECT_CLIENT'; targetUserId?: string },
+    @Req() req: Request,
+  ) {
+    const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress;
+    return { success: true, data: await this.service.directOperationsGuestLogin(actor, body, ip) };
   }
 
   // ==========================================

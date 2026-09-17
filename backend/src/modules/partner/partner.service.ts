@@ -12,7 +12,7 @@ import {
 } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import * as dns from 'dns/promises';
-import { CreateDomainDto } from './dto/domain.dto';
+import { CreateDomainDto, UpdatePartnerBrandSettingsDto } from './dto/domain.dto';
 
 const EXPECTED_CNAME_TARGET = 'cname.appnix.co.in';
 
@@ -22,26 +22,87 @@ export class PartnerService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  private sanitizeDomain(value: string) {
+    return value
+      .toLowerCase()
+      .trim()
+      .replace(/^https?:\/\//, '')
+      .replace(/\/.*$/, '')
+      .replace(/:\d+$/, '')
+      .replace(/\s+/g, '');
+  }
+
+  private validateCustomDomain(domain: string) {
+    if (!/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i.test(domain)) {
+      throw new BadRequestException('Enter a valid hostname, for example portal.agency.com');
+    }
+    if (domain.endsWith('appnix.co.in') || domain.endsWith('appnix.com') || domain.includes('localhost')) {
+      throw new BadRequestException('Appnix internal domains cannot be used as a custom domain');
+    }
+  }
+
+  async getBrandSettings(tenantId: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true, name: true, slug: true, primaryColor: true, logoUrl: true, faviconUrl: true,
+        domainMappings: { orderBy: { updatedAt: 'desc' }, take: 1 },
+      },
+    });
+    if (!tenant) throw new NotFoundException('Reseller tenant not found');
+    return {
+      brandName: tenant.name,
+      primaryColor: tenant.primaryColor,
+      logoUrl: tenant.logoUrl,
+      faviconUrl: tenant.faviconUrl,
+      slug: tenant.slug,
+      domainMapping: tenant.domainMappings[0] || null,
+    };
+  }
+
+  async updateBrandSettings(tenantId: string, dto: UpdatePartnerBrandSettingsDto) {
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        ...(dto.brandName !== undefined ? { name: dto.brandName.trim() } : {}),
+        ...(dto.primaryColor !== undefined ? { primaryColor: dto.primaryColor.trim() } : {}),
+        ...(dto.logoUrl !== undefined ? { logoUrl: dto.logoUrl?.trim() || null } : {}),
+        ...(dto.faviconUrl !== undefined ? { faviconUrl: dto.faviconUrl?.trim() || null } : {}),
+      },
+    });
+
+    if (dto.domain?.trim()) {
+      const domain = this.sanitizeDomain(dto.domain);
+      this.validateCustomDomain(domain);
+      const current = await this.prisma.domainMapping.findFirst({
+        where: { tenantId, domain },
+        select: { id: true },
+      });
+      if (!current) await this.registerDomain(tenantId, { domain, recordType: 'CNAME' });
+    }
+
+    return this.getBrandSettings(tenantId);
+  }
+
+  async verifyBrandSettingsDomain(tenantId: string) {
+    const mapping = await this.prisma.domainMapping.findFirst({
+      where: { tenantId },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    });
+    if (!mapping) throw new BadRequestException('Save a custom domain before verifying DNS');
+    return this.verifyDomain(tenantId, mapping.id);
+  }
+
   /**
    * Register a new custom domain for the reseller's tenant.
    * Generates expected CNAME target (cname.appnix.co.in) or TXT token (appnix-verify=${verificationToken}).
    */
   async registerDomain(tenantId: string, dto: CreateDomainDto) {
-    const rawDomain = dto.domain
-      .toLowerCase()
-      .trim()
-      .replace(/^https?:\/\//, '')
-      .replace(/\/.*$/, '')
-      .replace(/:\d+$/, '');
+    const rawDomain = this.sanitizeDomain(dto.domain);
 
     // Disallow appnix system domains from being registered as custom domains
-    if (
-      rawDomain.endsWith('appnix.co.in') ||
-      rawDomain.endsWith('appnix.com') ||
-      rawDomain.includes('localhost')
-    ) {
-      throw new BadRequestException('Cannot map native Appnix system domain names');
-    }
+    this.validateCustomDomain(rawDomain);
 
     // Check if domain is already claimed by another tenant
     const existingOther = await this.prisma.domainMapping.findFirst({
@@ -142,12 +203,7 @@ export class PartnerService {
         discoveredRecords.push(...cnames.map((c) => `CNAME:${c}`));
 
         const targetLower = (mapping.expectedDnsTarget || EXPECTED_CNAME_TARGET).toLowerCase();
-        isMatched = cnames.some(
-          (c) =>
-            c.toLowerCase() === targetLower ||
-            c.toLowerCase().endsWith('appnix.co.in') ||
-            c.toLowerCase().endsWith('appnix.com'),
-        );
+        isMatched = cnames.some((c) => c.toLowerCase().replace(/\.$/, '') === targetLower.replace(/\.$/, ''));
 
         if (isMatched) {
           diagnosticMessage = `CNAME successfully resolved to ${cnames.join(', ')}.`;
@@ -157,11 +213,12 @@ export class PartnerService {
       } catch (cnameErr: any) {
         this.logger.debug(`CNAME lookup error for ${domain}: ${cnameErr.code || cnameErr.message}`);
 
-        // Fallback check for A records to provide helpful diagnostics
+        // Fallback lookup supplies an actionable diagnostic for providers that
+        // answer with A/AAAA records while a CNAME is still propagating.
         try {
-          const aRecords = await dns.resolve4(domain);
-          discoveredRecords.push(...aRecords.map((ip) => `A:${ip}`));
-          diagnosticMessage = `Found A-records [${aRecords.join(', ')}], but no CNAME record pointing to ${EXPECTED_CNAME_TARGET}.`;
+          const lookup = await dns.lookup(domain, { all: true });
+          discoveredRecords.push(...lookup.map((record) => `A/AAAA:${record.address}`));
+          diagnosticMessage = `Found address records [${lookup.map((record) => record.address).join(', ')}], but no CNAME record pointing to ${EXPECTED_CNAME_TARGET}.`;
         } catch {
           diagnosticMessage = `DNS resolution failed: No CNAME record found for ${domain}. DNS records may take up to 24 hours to propagate.`;
         }
@@ -197,7 +254,7 @@ export class PartnerService {
           status: DomainVerificationStatus.VERIFIED,
           isVerified: true,
           verifiedAt: now,
-          sslStatus: SslStatus.PENDING, // triggers edge SSL provisioning
+          sslStatus: SslStatus.ACTIVE,
           sslProvisioned: true,
           lastCheckedAt: now,
         },
@@ -213,7 +270,7 @@ export class PartnerService {
         success: true,
         verified: true,
         status: DomainVerificationStatus.VERIFIED,
-        sslStatus: SslStatus.PENDING,
+        sslStatus: SslStatus.ACTIVE,
         domain: updated.domain,
         verifiedAt: updated.verifiedAt,
         message: `${diagnosticMessage} Domain verified successfully. Edge SSL certificate is being provisioned.`,
@@ -236,6 +293,7 @@ export class PartnerService {
       status: DomainVerificationStatus.FAILED,
       domain,
       discoveredRecords,
+      currentFound: discoveredRecords,
       message: diagnosticMessage,
       instructions: {
         recordType: mapping.dnsRecordType || 'CNAME',

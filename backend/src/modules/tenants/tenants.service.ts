@@ -536,6 +536,40 @@ export class TenantsService {
     };
   }
 
+  async getPublicTenantBranding(rawDomain: string) {
+    const domain = (rawDomain || '')
+      .toLowerCase()
+      .trim()
+      .replace(/^https?:\/\//, '')
+      .replace(/\/.*$/, '')
+      .replace(/:\d+$/, '');
+    if (!domain) return null;
+
+    const mapping = await this.prisma.domainMapping.findFirst({
+      where: {
+        domain,
+        status: 'VERIFIED',
+        isVerified: true,
+        tenant: { status: TenantStatus.ACTIVE },
+      },
+      select: {
+        domain: true,
+        tenant: {
+          select: { id: true, name: true, logoUrl: true, faviconUrl: true, primaryColor: true },
+        },
+      },
+    });
+    if (!mapping) return null;
+    return {
+      domain: mapping.domain,
+      tenantId: mapping.tenant.id,
+      brandName: mapping.tenant.name,
+      logoUrl: mapping.tenant.logoUrl,
+      faviconUrl: mapping.tenant.faviconUrl,
+      primaryColor: mapping.tenant.primaryColor,
+    };
+  }
+
   // ==========================================
   // HIERARCHICAL WHITE-LABEL CLIENT PROVISIONING
   // ==========================================
