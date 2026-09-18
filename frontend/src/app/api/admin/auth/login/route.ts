@@ -26,12 +26,14 @@ export async function POST(request: NextRequest) {
     // http://localhost:4000/api/v1/auth/login
     const backendUrl = `${config.api.baseUrl}/auth/login`;
 
+    const requestHost = request.headers.get("x-forwarded-host") || request.headers.get("host") || "";
     let backendRes: Response;
     try {
       backendRes = await fetch(backendUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "x-forwarded-host": requestHost,
         },
         body: JSON.stringify(payload),
       });
@@ -41,6 +43,7 @@ export async function POST(request: NextRequest) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "x-forwarded-host": requestHost,
         },
         body: JSON.stringify(payload),
       });
@@ -77,9 +80,9 @@ export async function POST(request: NextRequest) {
       message: "Admin authenticated successfully",
     });
 
-    // Set secure HttpOnly cookies for admin session
+    // Set secure HttpOnly cookies for admin session (Host-only, no cross-panel bleed)
     const isProd = process.env.NODE_ENV === "production";
-    const cookieDomain = isProd ? ".appnix.co.in" : undefined;
+    const cookieDomain = undefined;
     if (accessToken) {
       response.cookies.set("appnix_admin_token", accessToken, {
         httpOnly: true,

@@ -62,7 +62,7 @@ export class UsersService {
     });
   }
 
-  // creates the tenant AND the first admin user together, atomically
+  // creates the tenant AND the first user together, atomically
   async createTenantWithAdmin(
     tenantName: string,
     email: string,
@@ -71,6 +71,7 @@ export class UsersService {
     options?: {
       parentId?: string;
       tier?: TenantTier;
+      role?: Role;
     },
   ) {
     const slug = this.generateSlug(tenantName);
@@ -83,7 +84,7 @@ export class UsersService {
         let path = `root.t_${cleanId}`;
         let depth = 1;
         const parentId = options?.parentId || null;
-        let tier = options?.tier || TenantTier.PRIMARY_RESELLER;
+        let tier = options?.tier || TenantTier.END_CLIENT;
 
         if (parentId) {
           const parent = await tx.tenant.findUnique({ where: { id: parentId } });
@@ -106,12 +107,18 @@ export class UsersService {
           },
         });
 
+        const assignedRole =
+          options?.role ||
+          (tier === TenantTier.PRIMARY_RESELLER || tier === TenantTier.SUB_RESELLER
+            ? Role.RESELLER_ADMIN
+            : Role.CLIENT_USER);
+
         const user = await tx.user.create({
           data: {
             email,
             passwordHash,
             name,
-            role: tier === TenantTier.PRIMARY_RESELLER || tier === TenantTier.SUB_RESELLER ? Role.RESELLER_ADMIN : Role.TENANT_ADMIN,
+            role: assignedRole,
             tenantId: tenant.id,
           },
         });

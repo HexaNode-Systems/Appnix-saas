@@ -204,6 +204,25 @@ sequenceDiagram
 - **Google OAuth 2.0 Flow**: Users can sign in via Google One-Tap or OAuth redirect. The backend exchanges the Google profile or ID token, provisions the tenant workspace if new, links `googleId`, and issues session tokens.
 - **Token Refresh Cycle**: When the 15-minute access token expires, the Axios response interceptor intercepts `401 Unauthorized`, automatically invokes `POST /api/v1/auth/refresh` using the secure refresh cookie, renews credentials, and seamlessly retries the original request without user interruption.
 - **Two-Factor Authentication (2FA)**: Account settings allow toggling 2FA for enhanced login protection.
+- **Domain-Scoped Authentication & Role Isolation Boundaries**:
+  - **Host Topologies**: The platform enforces strict boundaries across subdomains:
+    - `app.appnix.co.in` / `app.localhost`: Direct Client Workspace.
+    - `partners.appnix.co.in` / `partners.localhost`: Reseller Partner Portal.
+    - `admin.appnix.co.in` / `admin.localhost`: Internal Staff Platform Operations.
+    - `superadmin.appnix.co.in` / `superadmin.localhost`: Super Admin Console.
+    - Verified Custom Domains: Downstream Reseller Whitelabel Portals.
+  - **Strict Signup Governance**:
+    - Registrations originating from `app.appnix.co.in` or `app.localhost` force `CLIENT_USER` role under direct operations tenant `APPNIX_DIRECT` (`parentId: null`), strictly prohibiting reseller provisioning or partner config creation, with default redirection to `/dashboard`.
+    - Registrations on `partners.appnix.co.in` or `partners.localhost` are reserved strictly for Reseller onboarding, creating `RESELLER_ADMIN` accounts, `PRIMARY_RESELLER` tier tenants, and initial `partnerConfig`.
+    - Public self-registration is strictly disabled on `admin.appnix.co.in` and `superadmin.appnix.co.in` (403 Forbidden).
+    - Registrations on verified custom domains provision child client accounts strictly under that verified partner's tenant hierarchy.
+  - **Cross-Panel Login Bleed Elimination**:
+    - Direct Client Portal (`app.appnix.co.in`) strictly rejects `RESELLER_ADMIN`, `APP_ADMIN`, and downstream partner child client accounts (`tenant.parentId != null`) with 403 Forbidden.
+    - Reseller Portal (`partners.appnix.co.in`) strictly rejects direct client accounts and platform staff with `403 Forbidden: Client accounts cannot access partner console`.
+    - Admin Portals restrict access strictly to authorized `APP_ADMIN` and `SUPER_ADMIN` roles.
+  - **Host-Only Cookie Isolation**:
+    - Session cookies omit wildcard domain attributes (`domain: undefined`), converting them to **Host-Only** cookies that browsers strictly quarantine to the originating subdomain, preventing session bleed between client and partner consoles.
+    - `appnix_admin_token` cookies are strictly omitted for direct client users (`CLIENT_USER` and `TENANT_ADMIN`).
 
 ---
 

@@ -11,7 +11,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
-import { Role } from '@prisma/client';
+import { Role, TenantStatus, TenantTier, DomainVerificationStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
@@ -204,30 +204,224 @@ export class AuthService {
     }
   }
 
+  parseDomainTopology(rawHost?: string): {
+    normalizedHost: string;
+    isAppDomain: boolean;
+    isPartnersDomain: boolean;
+    isAdminDomain: boolean;
+    isSuperAdminDomain: boolean;
+    isMarketingDomain: boolean;
+    isCustomDomain: boolean;
+  } {
+    const host = (rawHost || '').split(':')[0].toLowerCase().trim();
+    const isAppDomain =
+      host === 'app.appnix.co.in' ||
+      host === 'app.localhost' ||
+      host.startsWith('app.localhost') ||
+      host === 'app.local';
+
+    const isPartnersDomain =
+      host === 'partners.appnix.co.in' ||
+      host === 'partners.localhost' ||
+      host.startsWith('partners.localhost') ||
+      host === 'partners.local';
+
+    const isAdminDomain =
+      host === 'admin.appnix.co.in' ||
+      host === 'admin.localhost' ||
+      host.startsWith('admin.localhost') ||
+      host === 'admin.local';
+
+    const isSuperAdminDomain =
+      host === 'superadmin.appnix.co.in' ||
+      host === 'superadmin.localhost' ||
+      host.startsWith('superadmin.localhost') ||
+      host === 'superadmin.local';
+
+    const isMarketingDomain =
+      host === 'www.appnix.co.in' ||
+      host === 'appnix.co.in' ||
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      !host;
+
+    const isCustomDomain =
+      !isAppDomain &&
+      !isPartnersDomain &&
+      !isAdminDomain &&
+      !isSuperAdminDomain &&
+      !isMarketingDomain;
+
+    return {
+      normalizedHost: host,
+      isAppDomain,
+      isPartnersDomain,
+      isAdminDomain,
+      isSuperAdminDomain,
+      isMarketingDomain,
+      isCustomDomain,
+    };
+  }
+
   async signup(
     tenantOrWorkspaceName: string,
     email: string,
     password: string,
     name?: string,
     recaptchaToken?: string,
+    host?: string,
   ) {
     if (recaptchaToken) {
       await this.recaptchaService.verifyToken(recaptchaToken, 'signup');
     }
 
-    const existing = await this.usersService.findByEmail(email);
+    const cleanEmail = email ? email.toLowerCase().trim() : '';
+    const existing = await this.usersService.findByEmail(cleanEmail);
     if (existing) throw new ConflictException('Email already in use');
 
-    const passwordHash = await bcrypt.hash(password, 12);
-    const { tenant, user } = await this.usersService.createTenantWithAdmin(
-      tenantOrWorkspaceName,
-      email,
-      passwordHash,
-      name,
-    );
+    const domainTopology = this.parseDomainTopology(host);
 
-    // Direct Operations: provision 7-day free trial if root direct tenant trialEnabled is active
-    await this.provisionDirectTrialIfEnabled(tenant.id);
+    // 1. On admin.appnix.co.in or admin.localhost:
+    // Public self-registration must be disabled. Only invited staff (APP_ADMIN) can access.
+    if (domainTopology.isAdminDomain) {
+      throw new ForbiddenException('Public self-registration is disabled on the administrative portal. Only invited staff can access.');
+    }
+
+    if (domainTopology.isSuperAdminDomain) {
+      throw new ForbiddenException('Public self-registration is disabled on the platform super-admin portal.');
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    let user: any;
+    let tenant: any;
+    let redirectUrl = '/dashboard';
+
+    // 2. On partners.appnix.co.in (or partners.localhost):
+    // Only allows Reseller Partner onboarding (creating a child reseller tenant).
+    if (domainTopology.isPartnersDomain) {
+      const result = await this.usersService.createTenantWithAdmin(
+        tenantOrWorkspaceName,
+        cleanEmail,
+        passwordHash,
+        name,
+        {
+          tier: TenantTier.PRIMARY_RESELLER,
+          role: Role.RESELLER_ADMIN,
+        },
+      );
+      tenant = result.tenant;
+      user = result.user;
+
+      await this.prisma.partnerConfig.create({
+        data: {
+          tenantId: tenant.id,
+          setupFee: 0,
+          setupFeePaid: true,
+          perClientRate: 499,
+          clientLimit: 20,
+          trialEnabled: false,
+        },
+      }).catch((err: any) => this.logger.warn(`Failed to create partnerConfig: ${err.message}`));
+
+      redirectUrl = '/admin/dashboard';
+    }
+
+    // 3. On Custom Domains (xyz.com):
+    // Register client strictly under that verified partner's tenant hierarchy.
+    else if (domainTopology.isCustomDomain) {
+      const domainMapping = await this.prisma.domainMapping.findFirst({
+        where: {
+          domain: domainTopology.normalizedHost,
+          OR: [
+            { status: DomainVerificationStatus.VERIFIED },
+            { status: 'VERIFIED' as any },
+            { isVerified: true },
+          ],
+        },
+        include: { tenant: true },
+      });
+
+      if (!domainMapping || !domainMapping.tenant || domainMapping.tenant.status !== TenantStatus.ACTIVE) {
+        throw new BadRequestException('Registration not allowed: Domain is not a verified partner portal.');
+      }
+
+      const partnerTenant = domainMapping.tenant;
+      const result = await this.usersService.createTenantWithAdmin(
+        tenantOrWorkspaceName,
+        cleanEmail,
+        passwordHash,
+        name,
+        {
+          parentId: partnerTenant.id,
+          tier: TenantTier.END_CLIENT,
+          role: Role.CLIENT_USER,
+        },
+      );
+      tenant = result.tenant;
+      user = result.user;
+      redirectUrl = '/dashboard';
+    }
+
+    // 4. On app.appnix.co.in (or app.localhost, or direct marketing fallback):
+    // - Force role to CLIENT_USER.
+    // - Force tenant to root direct tenant (id: 'APPNIX_DIRECT' or tenant.parentId: null).
+    // - STRICTLY PREVENT setting role to RESELLER_ADMIN or attaching reseller config.
+    else {
+      let directTenant = await this.prisma.tenant.findFirst({
+        where: { OR: [{ id: 'APPNIX_DIRECT' }, { slug: 'appnix-direct' }] },
+      });
+
+      if (!directTenant) {
+        directTenant = await this.prisma.tenant.create({
+          data: {
+            id: 'APPNIX_DIRECT',
+            name: 'Appnix Direct Operations',
+            slug: 'appnix-direct',
+            tier: TenantTier.END_CLIENT,
+            status: TenantStatus.ACTIVE,
+            path: 'root.appnix_direct',
+            depth: 1,
+            parentId: null,
+          },
+        });
+      }
+
+      // Ensure active subscription exists for direct tenant
+      const activeSub = await this.prisma.subscription.findFirst({
+        where: { tenantId: directTenant.id, status: 'ACTIVE' },
+      });
+      if (!activeSub) {
+        await this.prisma.subscription.create({
+          data: {
+            tenantId: directTenant.id,
+            planId: 'pro',
+            planName: 'Professional Tier',
+            price: '₹2,999/mo',
+            status: 'ACTIVE',
+            totalDays: 365,
+            remainingDays: 365,
+            currentPeriodStart: new Date(),
+            currentPeriodEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+            maxMessages: 25000,
+            maxBots: 5,
+            maxTeamSeats: 10,
+          },
+        }).catch(() => {});
+      }
+
+      user = await this.prisma.user.create({
+        data: {
+          email: cleanEmail,
+          passwordHash,
+          name,
+          role: Role.CLIENT_USER,
+          tenantId: directTenant.id,
+        },
+        include: { tenant: true },
+      });
+      tenant = directTenant;
+      redirectUrl = '/dashboard';
+    }
 
     const orgPath = tenant.path || 'root';
     const tier = tenant.tier || 'END_CLIENT';
@@ -242,6 +436,7 @@ export class AuthService {
     return {
       ...tokens,
       user: formattedUser,
+      redirectUrl,
     };
   }
 
@@ -305,6 +500,7 @@ export class AuthService {
     orgSlug?: string,
     mfaCode?: string,
     ip?: string,
+    host?: string,
   ) {
     if (recaptchaToken) {
       await this.recaptchaService.verifyToken(recaptchaToken, 'login');
@@ -359,6 +555,57 @@ export class AuthService {
       }
     }
 
+    // ================= STRICT DOMAIN-SCOPED LOGIN VALIDATION =================
+    const domainTopology = this.parseDomainTopology(host);
+
+    if (domainTopology.isAppDomain) {
+      // 1. Reject reseller accounts
+      if (user.role === Role.RESELLER_ADMIN || (user as any).role === 'RESELLER_ADMIN') {
+        throw new ForbiddenException('Reseller accounts cannot log in to the direct client portal');
+      }
+      // 2. Reject staff accounts
+      if (user.role === Role.APP_ADMIN || (user as any).role === 'APP_ADMIN') {
+        throw new ForbiddenException('Staff accounts cannot log in to the direct client portal');
+      }
+      // 3. Reject partner workspace accounts (downstream clients of resellers)
+      if (!isSuper && user.tenant?.parentId != null && user.tenantId !== 'APPNIX_DIRECT') {
+        throw new ForbiddenException('Partner workspace accounts cannot log in to the direct client portal');
+      }
+    } else if (domainTopology.isPartnersDomain) {
+      // Reject direct client users or APP_ADMIN staff with 403 Forbidden: Client accounts cannot access partner console
+      if (
+        user.role === Role.CLIENT_USER ||
+        user.role === Role.APP_ADMIN ||
+        user.role === Role.MEMBER ||
+        (user.role === Role.TENANT_ADMIN && (!user.tenant?.parentId || user.tenantId === 'APPNIX_DIRECT'))
+      ) {
+        throw new ForbiddenException('Client accounts cannot access partner console');
+      }
+      // Allow only RESELLER_ADMIN (and SUPER_ADMIN)
+      if (
+        user.role !== Role.RESELLER_ADMIN &&
+        user.role !== Role.SUPER_ADMIN &&
+        (user as any).role !== 'RESELLER_ADMIN' &&
+        (user as any).role !== 'SUPER_ADMIN'
+      ) {
+        throw new ForbiddenException('Client accounts cannot access partner console');
+      }
+    } else if (domainTopology.isAdminDomain) {
+      // Allow only APP_ADMIN or SUPER_ADMIN
+      if (
+        user.role !== Role.APP_ADMIN &&
+        user.role !== Role.SUPER_ADMIN &&
+        (user as any).role !== 'APP_ADMIN' &&
+        (user as any).role !== 'SUPER_ADMIN'
+      ) {
+        throw new ForbiddenException('Access denied: Only platform staff and administrators can access this portal');
+      }
+    } else if (domainTopology.isSuperAdminDomain) {
+      if (!isSuper) {
+        throw new ForbiddenException('Access denied: Only Super Administrators can log in to this portal');
+      }
+    }
+
     const isReseller = user.role === Role.RESELLER_ADMIN;
     const orgPath = isSuper ? 'root' : (user.tenant?.path || 'root');
     const tier = isSuper
@@ -367,6 +614,17 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user.id, user.email, user.tenantId, user.role, orgPath, tier);
     const formattedUser = this.formatUser(user);
+
+    let redirectUrl = '/dashboard';
+    if (domainTopology.isAppDomain) {
+      redirectUrl = '/dashboard';
+    } else if (domainTopology.isPartnersDomain || isReseller) {
+      redirectUrl = '/admin/dashboard';
+    } else if (domainTopology.isAdminDomain || user.role === Role.APP_ADMIN) {
+      redirectUrl = '/admin/dashboard';
+    } else if (domainTopology.isSuperAdminDomain || isSuper) {
+      redirectUrl = '/super-admin/dashboard';
+    }
 
     if (isSuper) {
       try {
@@ -390,6 +648,7 @@ export class AuthService {
     return {
       ...tokens,
       user: formattedUser,
+      redirectUrl,
     };
   }
 
@@ -400,8 +659,9 @@ export class AuthService {
     orgSlug?: string,
     mfaCode?: string,
     ip?: string,
+    host?: string,
   ) {
-    const result = await this.login(email, password, recaptchaToken, orgSlug, mfaCode, ip);
+    const result = await this.login(email, password, recaptchaToken, orgSlug, mfaCode, ip, host);
     const role = (result.user as any)?.role;
     const rawRole = (result.user as any)?.rawRole;
     if (

@@ -175,8 +175,10 @@ frontend/
   2. Form validates client-side using Zod and submits to `POST /api/proxy/auth/login`.
   3. Backend returns JWT tokens and sets an HttpOnly, SameSite=Lax cookie (`appnix_access_token`).
   4. `AuthContext` mirrors the token in memory and navigates to `/dashboard`.
-  5. **Google OAuth**: Clicking "Sign in with Google" invokes Google One-Tap or redirects to `/api/v1/auth/google`. Upon Google callback, tokens are set, and the browser redirects to `/dashboard`.
-  6. **Token Auto-Refresh**: If an API call fails with `401 Unauthorized`, Axios interceptors catch the failure, request a new access token via `/api/proxy/auth/refresh`, and replay the failed request seamlessly.
+  5. **Host-Only Session Cookies**: Session tokens omit the wildcard `Domain=.appnix.co.in` attribute (`domain: undefined`), ensuring cookies are host-only. This prevents authentication tokens from bleeding across panels (e.g., between `app.appnix.co.in` and `partners.appnix.co.in`).
+  6. **Google OAuth**: Clicking "Sign in with Google" invokes Google One-Tap or redirects to `/api/v1/auth/google`. Upon Google callback, tokens are set, and the browser redirects to `/dashboard`.
+  7. **Token Auto-Refresh**: If an API call fails with `401 Unauthorized`, Axios interceptors catch the failure, request a new access token via `/api/proxy/auth/refresh`, and replay the failed request seamlessly.
+  8. **Panel Isolation**: Direct Client Workspace (`app.appnix.co.in`) strictly routes authentication and registration flows to the local `/dashboard` without bouncing to partner domains. Reseller Admin credentials attempting to log in on the direct client workspace are blocked with an explicit boundary error.
 
 ---
 
@@ -319,16 +321,21 @@ Navigation protection and route gatekeeping is handled in `src/proxy.ts`:
 1. **Path Normalization & Aliases**:
    - `/app` or `/app/*` -> Redirects to `/dashboard` or `/dashboard/*`
    - `/super-admin` or `/super-admin/*` -> Redirects to `/admin` or `/admin/*`
-   - `/login` -> Redirects to `/signin`
-2. **Cookie-Based Token Decoding**:
+   - `/login` and `/auth/login` -> Rewrites/redirects to `/signin`
+   - `/register` and `/auth/register` -> Rewrites/redirects to `/signup`
+2. **Domain-Aware Routing (`isAppSubdomain`)**:
+   - On `app.appnix.co.in` (and `app.localhost`), root `/` rewrites directly to `/dashboard`.
+   - Dedicated signin and signup routes preserve the app panel context and eliminate cross-domain bounces to `partners.appnix.co.in`.
+   - Access attempts to `/admin` on the app portal redirect cleanly to `/dashboard` with no partner portal leakage.
+3. **Cookie-Based Token Decoding**:
    - Extracts `appnix_access_token` from cookies.
    - Decodes JWT payload to inspect `sub`, `role`, and `tenantId`.
-3. **Admin Gatekeeping (`/admin/*`)**:
+4. **Admin Gatekeeping (`/admin/*`)**:
    - Unauthenticated visitors are redirected to `/admin/login?returnUrl=...`.
    - Authenticated non-admin users are redirected to `/dashboard`.
-4. **Client Dashboard Gatekeeping (`/dashboard/*`, `/crm/*`, `/campaigns/*`, etc.)**:
+5. **Client Dashboard Gatekeeping (`/dashboard/*`, `/crm/*`, `/campaigns/*`, etc.)**:
    - Unauthenticated visitors are redirected to `/signin?returnUrl=...`.
-5. **Auth Route Bypassing (`/signin`, `/signup`)**:
+6. **Auth Route Bypassing (`/signin`, `/signup`)**:
    - Already authenticated users are forwarded directly to their respective workspaces (`/admin/dashboard` or `/dashboard`).
 
 ---

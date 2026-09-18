@@ -95,10 +95,11 @@ export async function proxy(request: NextRequest) {
       host.includes("127.0.0.1") ||
       host.endsWith(".local"));
 
-  // 1. Skip remaining global auth/static paths.
+  // 1. Skip remaining static and specific callback paths.
   if (
     pathname.startsWith("/static") ||
-    pathname.startsWith("/auth")
+    pathname === "/auth/callback" ||
+    pathname === "/auth/guest-login"
   ) {
     return NextResponse.next();
   }
@@ -474,7 +475,7 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(new URL(getSubdomainUrl("admin", pathWithSearch, request)));
     }
     if (pathname.startsWith("/admin")) {
-      return NextResponse.redirect(new URL(getSubdomainUrl("partners", pathWithSearch, request)));
+      return NextResponse.redirect(new URL(`/dashboard${search}`, request.url));
     }
 
     const clientToken =
@@ -486,9 +487,14 @@ export async function proxy(request: NextRequest) {
 
     // Resellers are strictly isolated from Direct Appnix client portal
     if (clientDecoded?.role === "RESELLER_ADMIN") {
-      return NextResponse.redirect(
-        new URL(getSubdomainUrl("partners", "/admin/dashboard", request))
+      const redirectRes = NextResponse.redirect(
+        new URL("/signin?error=reseller_isolated", request.url)
       );
+      [AUTH_COOKIE, "appnix_auth_token", "appnix_access_token", ADMIN_COOKIE, "appnix_admin_token"].forEach((c) => {
+        redirectRes.cookies.delete(c);
+        redirectRes.cookies.set(c, "", { path: "/", maxAge: 0 });
+      });
+      return redirectRes;
     }
 
     // Check if client belongs to a reseller workspace (reseller isolation rule)
@@ -509,8 +515,11 @@ export async function proxy(request: NextRequest) {
     if (pathname === "/") {
       return NextResponse.rewrite(new URL(`/dashboard${search}`, request.url));
     }
-    if (pathname === "/login") {
+    if (pathname === "/login" || pathname === "/auth/login") {
       return NextResponse.redirect(new URL(`/signin${search}`, request.url));
+    }
+    if (pathname === "/register" || pathname === "/auth/register") {
+      return NextResponse.redirect(new URL(`/signup${search}`, request.url));
     }
   }
 
@@ -547,11 +556,13 @@ export async function proxy(request: NextRequest) {
           clientDecoded.role === "SUPER_ADMIN" || clientDecoded.role === "owner"
             ? "/super-admin/dashboard"
             : clientDecoded.role === "RESELLER_ADMIN"
-            ? "/admin/dashboard"
+            ? (isAppSubdomain ? "/signin?error=reseller_isolated" : "/admin/dashboard")
             : clientDecoded.role === "APP_ADMIN"
             ? "/direct-admin/dashboard"
             : "/dashboard";
-        return NextResponse.redirect(new URL(redirectPath, request.url));
+        if (redirectPath !== "/signin?error=reseller_isolated") {
+          return NextResponse.redirect(new URL(redirectPath, request.url));
+        }
       }
     }
     return NextResponse.next();

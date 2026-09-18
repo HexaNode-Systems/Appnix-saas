@@ -114,8 +114,9 @@ function SignUpContent() {
         description: "Welcome aboard. Let's get you started.",
         variant: "success",
       });
-      // New users have no active subscription: redirect to choose plan page
-      router.push("/subscription");
+      // Direct client portal registration lands on /dashboard
+      const destination = callbackUrl && callbackUrl !== "/subscription" ? callbackUrl : "/dashboard";
+      router.push(destination);
       router.refresh();
     } catch (error) {
       const message =

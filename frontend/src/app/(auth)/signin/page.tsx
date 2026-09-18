@@ -123,6 +123,18 @@ function SignInContent() {
         return;
       }
 
+      const isAppPortal =
+        typeof window !== "undefined" &&
+        (window.location.hostname === "app.appnix.co.in" ||
+          window.location.hostname === "app.localhost" ||
+          window.location.hostname.startsWith("app.localhost") ||
+          window.location.hostname === "app.local");
+
+      if (isAppPortal) {
+        router.replace("/dashboard");
+        return;
+      }
+
       const isReseller =
         (user as any).role === "RESELLER_ADMIN" ||
         (user as any).rawRole === "RESELLER_ADMIN" ||
@@ -173,7 +185,16 @@ function SignInContent() {
         parsedUser = storedUser ? JSON.parse(storedUser) : null;
       } catch {}
 
-      if (
+      const isAppPortal =
+        typeof window !== "undefined" &&
+        (window.location.hostname === "app.appnix.co.in" ||
+          window.location.hostname === "app.localhost" ||
+          window.location.hostname.startsWith("app.localhost") ||
+          window.location.hostname === "app.local");
+
+      if (isAppPortal) {
+        router.push("/dashboard");
+      } else if (
         parsedUser?.role === "owner" ||
         parsedUser?.role === "SUPER_ADMIN" ||
         parsedUser?.rawRole === "SUPER_ADMIN"

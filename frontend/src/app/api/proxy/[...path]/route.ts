@@ -87,11 +87,35 @@ async function handleProxyRequest(
 
   // If authorization header is missing, extract token from cookies and inject into upstream request
   if (!headers.has("authorization")) {
-    const token =
-      request.cookies.get("appnix_admin_token")?.value ||
-      request.cookies.get("appnix_superadmin_token")?.value ||
-      request.cookies.get("appnix_access_token")?.value ||
-      request.cookies.get("appnix_auth_token")?.value;
+    const host = (request.headers.get("host") || "").toLowerCase();
+    const isApp = host.startsWith("app.") || host.includes("app.localhost");
+    const isSuperAdmin = host.startsWith("superadmin.") || host.includes("superadmin.localhost");
+    const isAdminOrPartner =
+      host.startsWith("admin.") ||
+      host.startsWith("partners.") ||
+      host.includes("partners.localhost") ||
+      host.includes("admin.localhost");
+
+    let token: string | undefined;
+    if (isSuperAdmin) {
+      token =
+        request.cookies.get("appnix_superadmin_token")?.value ||
+        request.cookies.get("appnix_access_token")?.value;
+    } else if (isAdminOrPartner) {
+      token =
+        request.cookies.get("appnix_admin_token")?.value ||
+        request.cookies.get("appnix_access_token")?.value;
+    } else if (isApp) {
+      token =
+        request.cookies.get("appnix_access_token")?.value ||
+        request.cookies.get("appnix_auth_token")?.value;
+    } else {
+      token =
+        request.cookies.get("appnix_access_token")?.value ||
+        request.cookies.get("appnix_auth_token")?.value ||
+        request.cookies.get("appnix_admin_token")?.value;
+    }
+
     if (token) {
       headers.set("authorization", `Bearer ${token}`);
     }

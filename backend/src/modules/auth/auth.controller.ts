@@ -148,14 +148,45 @@ export class AuthController {
     return { success: true, data: result };
   }
 
+  private extractRequestHost(req: Request): string {
+    const xfHost = (req.headers['x-forwarded-host'] as string) || '';
+    if (xfHost) {
+      const first = xfHost.split(',')[0].trim().split(':')[0].toLowerCase();
+      if (first) return first;
+    }
+    const hostHdr = req.headers.host || '';
+    if (hostHdr) {
+      const first = hostHdr.split(',')[0].trim().split(':')[0].toLowerCase();
+      if (first && first !== 'localhost' && first !== '127.0.0.1' && first !== 'api.appnix.co.in') {
+        return first;
+      }
+    }
+    const origin = (req.headers['origin'] || req.headers['referer']) as string | undefined;
+    if (origin) {
+      try {
+        const parsed = new URL(origin);
+        const h = parsed.hostname.toLowerCase();
+        if (h) return h;
+      } catch {}
+    }
+    if (hostHdr) {
+      return hostHdr.split(',')[0].trim().split(':')[0].toLowerCase();
+    }
+    return '';
+  }
+
   private setAuthCookies(
     res: Response,
     accessToken: string,
     refreshToken: string,
     role?: string,
+    host?: string,
   ) {
     const isProd = process.env.NODE_ENV === 'production';
-    const cookieDomain = isProd ? '.appnix.co.in' : undefined;
+    // Strict Domain Isolation:
+    // When cookie domain is undefined, browsers enforce Host-Only cookies.
+    // Host-only cookies do NOT bleed across subdomains (e.g. app.appnix.co.in vs partners.appnix.co.in).
+    const cookieDomain = undefined;
 
     res.cookie('appnix_access_token', accessToken, {
       httpOnly: false,
@@ -182,7 +213,8 @@ export class AuthController {
       path: '/',
     });
 
-    // Mirror tokens for portal-specific cookie readers
+    // Mirror tokens ONLY for platform/reseller administrative roles on admin/superadmin portals
+    // NEVER set appnix_admin_token for CLIENT_USER or TENANT_ADMIN on direct client portal!
     if (role === Role.SUPER_ADMIN || role === 'SUPER_ADMIN') {
       res.cookie('appnix_superadmin_token', accessToken, {
         httpOnly: true,
@@ -204,9 +236,7 @@ export class AuthController {
       role === Role.RESELLER_ADMIN ||
       role === 'RESELLER_ADMIN' ||
       role === Role.APP_ADMIN ||
-      role === 'APP_ADMIN' ||
-      role === Role.TENANT_ADMIN ||
-      role === 'TENANT_ADMIN'
+      role === 'APP_ADMIN'
     ) {
       res.cookie('appnix_admin_token', accessToken, {
         httpOnly: true,
@@ -294,14 +324,27 @@ export class AuthController {
   }
 
   @Post('signup')
-  @ApiOperation({ summary: 'Create a tenant workspace and first admin user' })
+  @Post('register')
+  @ApiOperation({ summary: 'Create a tenant workspace and user with strict domain scoping' })
   @ApiBody({ type: SignupDto })
-  @ApiResponse({ status: 201, description: 'Tenant and admin created successfully.' })
+  @ApiResponse({ status: 201, description: 'Tenant and user created successfully.' })
   @ApiResponse({ status: 409, description: 'Email already in use.' })
-  async signup(@Body() dto: SignupDto, @Res({ passthrough: true }) res: Response) {
+  async signup(
+    @Body() dto: SignupDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const workspaceName = dto.workspaceName || dto.tenantName || 'My Workspace';
-    const result = await this.authService.signup(workspaceName, dto.email, dto.password, dto.name, dto.recaptchaToken);
-    this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.rawRole || result.user?.role);
+    const host = this.extractRequestHost(req);
+    const result = await this.authService.signup(
+      workspaceName,
+      dto.email,
+      dto.password,
+      dto.name,
+      dto.recaptchaToken,
+      host,
+    );
+    this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.rawRole || result.user?.role, host);
     return { success: true, data: result };
   }
 
@@ -317,6 +360,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    const host = this.extractRequestHost(req);
     const result = await this.authService.login(
       dto.email,
       dto.password,
@@ -324,8 +368,9 @@ export class AuthController {
       dto.orgSlug,
       dto.mfaCode,
       ip,
+      host,
     );
-    this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.rawRole || result.user?.role);
+    this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.rawRole || result.user?.role, host);
     return { success: true, data: result };
   }
 
@@ -341,6 +386,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    const host = this.extractRequestHost(req);
     const result = await this.authService.adminLogin(
       dto.email,
       dto.password,
@@ -348,8 +394,9 @@ export class AuthController {
       dto.orgSlug,
       dto.mfaCode,
       ip,
+      host,
     );
-    this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.rawRole || result.user?.role);
+    this.setAuthCookies(res, result.accessToken, result.refreshToken, result.user?.rawRole || result.user?.role, host);
     return { success: true, data: result };
   }
 
