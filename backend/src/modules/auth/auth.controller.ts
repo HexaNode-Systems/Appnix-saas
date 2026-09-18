@@ -13,7 +13,7 @@ import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nes
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Role } from '@prisma/client';
-import { AuthService } from './auth.service';
+import { AuthService, sanitizeHost } from './auth.service';
 import {
   SignupDto,
   LoginDto,
@@ -149,30 +149,59 @@ export class AuthController {
   }
 
   private extractRequestHost(req: Request): string {
-    const xfHost = (req.headers['x-forwarded-host'] as string) || '';
-    if (xfHost) {
-      const first = xfHost.split(',')[0].trim().split(':')[0].toLowerCase();
-      if (first) return first;
-    }
-    const hostHdr = req.headers.host || '';
-    if (hostHdr) {
-      const first = hostHdr.split(',')[0].trim().split(':')[0].toLowerCase();
-      if (first && first !== 'localhost' && first !== '127.0.0.1' && first !== 'api.appnix.co.in') {
-        return first;
+    // 1. Inspect x-forwarded-host
+    const rawXf = (req.headers['x-forwarded-host'] as string) || '';
+    if (rawXf) {
+      const sanitized = sanitizeHost(rawXf);
+      if (
+        sanitized &&
+        sanitized !== 'api.appnix.co.in' &&
+        sanitized !== 'localhost' &&
+        sanitized !== '127.0.0.1'
+      ) {
+        return sanitized;
       }
     }
-    const origin = (req.headers['origin'] || req.headers['referer']) as string | undefined;
+
+    // 2. Inspect origin header
+    const origin = (req.headers['origin'] || req.headers['Origin']) as string | undefined;
     if (origin) {
-      try {
-        const parsed = new URL(origin);
-        const h = parsed.hostname.toLowerCase();
-        if (h) return h;
-      } catch {}
+      const sanitized = sanitizeHost(origin);
+      if (sanitized && sanitized !== 'api.appnix.co.in') {
+        return sanitized;
+      }
     }
+
+    // 3. Inspect referer header
+    const referer = (req.headers['referer'] || req.headers['Referer']) as string | undefined;
+    if (referer) {
+      const sanitized = sanitizeHost(referer);
+      if (sanitized && sanitized !== 'api.appnix.co.in') {
+        return sanitized;
+      }
+    }
+
+    // 4. Inspect host header
+    const hostHdr = req.headers.host || '';
     if (hostHdr) {
-      return hostHdr.split(',')[0].trim().split(':')[0].toLowerCase();
+      const sanitized = sanitizeHost(hostHdr);
+      if (
+        sanitized &&
+        sanitized !== 'api.appnix.co.in' &&
+        sanitized !== 'localhost' &&
+        sanitized !== '127.0.0.1'
+      ) {
+        return sanitized;
+      }
     }
-    return '';
+
+    // 5. Fallback: if rawXf was provided even if localhost
+    if (rawXf) {
+      const sanitized = sanitizeHost(rawXf);
+      if (sanitized && sanitized !== 'api.appnix.co.in') return sanitized;
+    }
+
+    return 'app.appnix.co.in';
   }
 
   private setAuthCookies(
@@ -336,11 +365,12 @@ export class AuthController {
   ) {
     const workspaceName = dto.workspaceName || dto.tenantName || 'My Workspace';
     const host = this.extractRequestHost(req);
+    const name = dto.name || (dto as any).fullName;
     const result = await this.authService.signup(
       workspaceName,
       dto.email,
       dto.password,
-      dto.name,
+      name,
       dto.recaptchaToken,
       host,
     );

@@ -662,6 +662,48 @@ async function runDomainAuthBoundaryTests() {
     console.error('[FAIL] Test 11 Exception:', err.message);
   }
 
+  // =========================================================================
+  // TEST 12: Direct Client Signup via api.appnix.co.in with Origin header
+  // =========================================================================
+  total++;
+  try {
+    const mockRes = createMockResponse();
+    // Simulate reverse proxy where x-forwarded-host was overwritten to api.appnix.co.in,
+    // but browser Origin header is https://app.appnix.co.in
+    const proxyReq = {
+      headers: {
+        host: 'api.appnix.co.in:443',
+        'x-forwarded-host': 'api.appnix.co.in',
+        origin: 'https://app.appnix.co.in',
+      },
+      socket: { remoteAddress: '127.0.0.1' },
+    };
+
+    const regResult = await authController.signup(
+      {
+        email: 'api-origin-test@appnix.co.in',
+        password: 'Password@123',
+        fullName: 'API Origin Tester',
+        workspaceName: 'Direct API Workspace',
+      },
+      proxyReq,
+      mockRes,
+    );
+
+    const isClientRole = regResult.data.user.rawRole === Role.CLIENT_USER;
+    const isDirectTenant = regResult.data.user.tenantId === 'APPNIX_DIRECT';
+    const isDashboardRedirect = regResult.data.redirectUrl === '/dashboard';
+
+    if (isClientRole && isDirectTenant && isDashboardRedirect) {
+      console.log('[PASS] Test 12: Direct client signup via api.appnix.co.in correctly extracts Origin app.appnix.co.in and provisions CLIENT_USER under APPNIX_DIRECT without 400 Bad Request.');
+      passed++;
+    } else {
+      console.error('[FAIL] Test 12 failed:', regResult);
+    }
+  } catch (err) {
+    console.error('[FAIL] Test 12 Exception:', err.message);
+  }
+
   console.log('\n================================================================');
   console.log(`Results: ${passed}/${total} tests passed successfully.`);
   console.log('================================================================');

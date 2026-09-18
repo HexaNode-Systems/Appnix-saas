@@ -24,6 +24,10 @@ const createAxiosInstance = (): AxiosInstance => {
           requestConfig.headers.Authorization = `Bearer ${token}`;
         }
 
+        if (requestConfig.headers && !requestConfig.headers["x-forwarded-host"]) {
+          requestConfig.headers["x-forwarded-host"] = window.location.host;
+        }
+
         const url = requestConfig.url || "";
         const isAuthOrImpersonateEndpoint =
           url.includes("/guest-login") ||

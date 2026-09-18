@@ -48,6 +48,17 @@ export interface UserResponse {
   updatedAt: string;
 }
 
+export function sanitizeHost(rawHost: string | undefined): string {
+  if (!rawHost) return '';
+  return rawHost
+    .split(',')[0]
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/:\d+$/, '')
+    .replace(/\/.*$/, '');
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -213,34 +224,40 @@ export class AuthService {
     isMarketingDomain: boolean;
     isCustomDomain: boolean;
   } {
-    const host = (rawHost || '').split(':')[0].toLowerCase().trim();
+    const host = sanitizeHost(rawHost);
+
     const isAppDomain =
       host === 'app.appnix.co.in' ||
       host === 'app.localhost' ||
       host.startsWith('app.localhost') ||
+      host === 'app.appnix.local' ||
       host === 'app.local';
 
     const isPartnersDomain =
       host === 'partners.appnix.co.in' ||
       host === 'partners.localhost' ||
       host.startsWith('partners.localhost') ||
+      host === 'partners.appnix.local' ||
       host === 'partners.local';
 
     const isAdminDomain =
       host === 'admin.appnix.co.in' ||
       host === 'admin.localhost' ||
       host.startsWith('admin.localhost') ||
+      host === 'admin.appnix.local' ||
       host === 'admin.local';
 
     const isSuperAdminDomain =
       host === 'superadmin.appnix.co.in' ||
       host === 'superadmin.localhost' ||
       host.startsWith('superadmin.localhost') ||
+      host === 'superadmin.appnix.local' ||
       host === 'superadmin.local';
 
     const isMarketingDomain =
       host === 'www.appnix.co.in' ||
       host === 'appnix.co.in' ||
+      host === 'api.appnix.co.in' ||
       host === 'localhost' ||
       host === '127.0.0.1' ||
       !host;
@@ -326,47 +343,12 @@ export class AuthService {
       redirectUrl = '/admin/dashboard';
     }
 
-    // 3. On Custom Domains (xyz.com):
-    // Register client strictly under that verified partner's tenant hierarchy.
-    else if (domainTopology.isCustomDomain) {
-      const domainMapping = await this.prisma.domainMapping.findFirst({
-        where: {
-          domain: domainTopology.normalizedHost,
-          OR: [
-            { status: DomainVerificationStatus.VERIFIED },
-            { status: 'VERIFIED' as any },
-            { isVerified: true },
-          ],
-        },
-        include: { tenant: true },
-      });
-
-      if (!domainMapping || !domainMapping.tenant || domainMapping.tenant.status !== TenantStatus.ACTIVE) {
-        throw new BadRequestException('Registration not allowed: Domain is not a verified partner portal.');
-      }
-
-      const partnerTenant = domainMapping.tenant;
-      const result = await this.usersService.createTenantWithAdmin(
-        tenantOrWorkspaceName,
-        cleanEmail,
-        passwordHash,
-        name,
-        {
-          parentId: partnerTenant.id,
-          tier: TenantTier.END_CLIENT,
-          role: Role.CLIENT_USER,
-        },
-      );
-      tenant = result.tenant;
-      user = result.user;
-      redirectUrl = '/dashboard';
-    }
-
-    // 4. On app.appnix.co.in (or app.localhost, or direct marketing fallback):
+    // 3. On app.appnix.co.in (or app.localhost, or direct marketing fallback):
+    // - MUST allow direct client registration under APPNIX_DIRECT
     // - Force role to CLIENT_USER.
     // - Force tenant to root direct tenant (id: 'APPNIX_DIRECT' or tenant.parentId: null).
-    // - STRICTLY PREVENT setting role to RESELLER_ADMIN or attaching reseller config.
-    else {
+    // - DO NOT query DomainMapping for app.appnix.co.in or native domains!
+    else if (domainTopology.isAppDomain || domainTopology.isMarketingDomain) {
       let directTenant = await this.prisma.tenant.findFirst({
         where: { OR: [{ id: 'APPNIX_DIRECT' }, { slug: 'appnix-direct' }] },
       });
@@ -420,6 +402,43 @@ export class AuthService {
         include: { tenant: true },
       });
       tenant = directTenant;
+      redirectUrl = '/dashboard';
+    }
+
+    // 4. On Custom Domains (xyz.com):
+    // ONLY execute custom partner domain lookup here
+    // Register client strictly under that verified partner's tenant hierarchy.
+    else {
+      const domainMapping = await this.prisma.domainMapping.findFirst({
+        where: {
+          domain: domainTopology.normalizedHost,
+          OR: [
+            { status: DomainVerificationStatus.VERIFIED },
+            { status: 'VERIFIED' as any },
+            { isVerified: true },
+          ],
+        },
+        include: { tenant: true },
+      });
+
+      if (!domainMapping || !domainMapping.tenant || domainMapping.tenant.status !== TenantStatus.ACTIVE) {
+        throw new BadRequestException('Registration not allowed: Domain is not a verified partner portal.');
+      }
+
+      const partnerTenant = domainMapping.tenant;
+      const result = await this.usersService.createTenantWithAdmin(
+        tenantOrWorkspaceName,
+        cleanEmail,
+        passwordHash,
+        name,
+        {
+          parentId: partnerTenant.id,
+          tier: TenantTier.END_CLIENT,
+          role: Role.CLIENT_USER,
+        },
+      );
+      tenant = result.tenant;
+      user = result.user;
       redirectUrl = '/dashboard';
     }
 

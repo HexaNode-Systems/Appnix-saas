@@ -83,7 +83,8 @@ async function handleProxyRequest(
 
   headers.set("x-forwarded-for", request.headers.get("x-forwarded-for") || "unknown");
   headers.set("x-forwarded-proto", request.headers.get("x-forwarded-proto") || "https");
-  headers.set("x-forwarded-host", request.headers.get("host") || "localhost");
+  const incomingHost = request.headers.get("x-forwarded-host") || request.headers.get("host") || "app.appnix.co.in";
+  headers.set("x-forwarded-host", incomingHost);
 
   // If authorization header is missing, extract token from cookies and inject into upstream request
   if (!headers.has("authorization")) {

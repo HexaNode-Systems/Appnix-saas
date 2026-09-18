@@ -56,7 +56,12 @@ export class TenantContextMiddleware implements NestMiddleware {
         ''
       ).split(',')[0].trim();
 
-      let normalizedHost = rawHostHeader.split(':')[0].toLowerCase().trim();
+      let normalizedHost = rawHostHeader
+        .toLowerCase()
+        .trim()
+        .replace(/^https?:\/\//, '')
+        .replace(/:\d+$/, '')
+        .replace(/\/.*$/, '');
       if (normalizedHost.startsWith('www.')) {
         normalizedHost = normalizedHost.substring(4);
       }
@@ -111,7 +116,12 @@ export class TenantContextMiddleware implements NestMiddleware {
           tenantId: 'marketing',
           domainContext: 'MARKETING',
         });
-      } else if (normalizedHost === 'app.appnix.co.in' || normalizedHost === 'app.localhost') {
+      } else if (
+        normalizedHost === 'app.appnix.co.in' ||
+        normalizedHost === 'app.localhost' ||
+        normalizedHost.startsWith('app.localhost') ||
+        normalizedHost === 'app.appnix.local'
+      ) {
         // If hostname matches app.appnix.co.in -> Context: DIRECT_CLIENT (isDirect: true, tenantId: 'APPNIX_DIRECT')
         domainContext = 'DIRECT_CLIENT';
         resolvedTenant = {

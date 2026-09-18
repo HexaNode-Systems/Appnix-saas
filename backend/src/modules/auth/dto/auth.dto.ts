@@ -68,6 +68,15 @@ export class SignupDto {
   name?: string;
 
   @ApiProperty({
+    description: 'Full name alias for display name',
+    example: 'Alice Smith',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  fullName?: string;
+
+  @ApiProperty({
     description: 'Whether terms were accepted',
     required: false,
   })
