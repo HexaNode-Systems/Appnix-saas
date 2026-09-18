@@ -130,7 +130,7 @@ const protectedClientPrefixes = [
   "/subscription",
 ];
 
-export async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
 
   // CRITICAL: API and static requests must reach their own handlers before
@@ -562,7 +562,7 @@ export async function proxy(request: NextRequest) {
 
     if (!isLocal && isPartnerChildClient) {
       // User belongs to a downstream partner workspace, block on direct app
-      if (pathname.startsWith("/dashboard") || pathname.startsWith("/crm") || pathname.startsWith("/campaigns")) {
+      if (pathname !== "/signin" && pathname !== "/signup") {
         const redirectRes = NextResponse.redirect(
           new URL("/signin?error=partner_workspace_account", request.url)
         );
@@ -686,11 +686,10 @@ export async function proxy(request: NextRequest) {
   return response;
 }
 
-export const middleware = proxy;
-export default proxy;
+export default middleware;
 
 export const config = {
   matcher: [
-    "/((?!api/|_next/static|_next/image|favicon.ico|[\\w-]+\\.\\w+).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

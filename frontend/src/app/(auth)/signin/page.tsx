@@ -106,6 +106,7 @@ function SignInContent() {
           localStorage.removeItem("appnix_auth_token");
           localStorage.removeItem("token");
           localStorage.removeItem("appnix_user");
+          sessionStorage.clear();
         } catch {}
         try {
           logout?.({ silent: true });
