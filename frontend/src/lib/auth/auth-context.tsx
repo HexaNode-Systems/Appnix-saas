@@ -45,7 +45,7 @@ interface AuthContextValue extends AuthState {
   signup: (data: SignupData) => Promise<void>;
   register: (data: SignupData) => Promise<void>;
   loginWithGoogleToken: (idToken: string) => Promise<void>;
-  logout: () => Promise<void>;
+  logout: (options?: { silent?: boolean }) => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
   resetPassword: (
     token: string,
@@ -318,21 +318,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const logout = async () => {
+  const logout = async (options?: { silent?: boolean }) => {
     setState((prev) => ({ ...prev, isLoading: true }));
     try {
-      await fetch("/api/v1/auth/logout", {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          ...(localStorage.getItem(config.auth.tokenKey)
-            ? { Authorization: `Bearer ${localStorage.getItem(config.auth.tokenKey)}` }
-            : {}),
-        },
-      }).catch(() => {});
-      await api.post(apiEndpoints.auth.logout).catch(() => {});
-    } catch {
+      if (!options?.silent) {
+        try {
+          await fetch("/api/v1/auth/logout", {
+            method: "POST",
+            credentials: "include",
+            headers: {
+              "Content-Type": "application/json",
+              ...(localStorage.getItem(config.auth.tokenKey)
+                ? { Authorization: `Bearer ${localStorage.getItem(config.auth.tokenKey)}` }
+                : {}),
+            },
+          }).catch(() => {});
+          await api.post(apiEndpoints.auth.logout).catch(() => {});
+        } catch {}
+      }
     } finally {
       clearAccessToken();
       localStorage.removeItem(config.auth.refreshTokenKey);

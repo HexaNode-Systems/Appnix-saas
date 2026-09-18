@@ -33,8 +33,8 @@ function decodeJwt(token: string | undefined): DecodedToken | null {
 }
 
 // Helper to identify if an account belongs to a reseller partner vs Appnix direct
-export function isDirectClientAccount(tenantPath?: string, tenantParentId?: string | null): boolean {
-  if (!tenantPath) return false;
+export function isDirectClientAccount(tenantPath?: string | null, tenantParentId?: string | null): boolean {
+  if (!tenantPath) return tenantParentId === "APPNIX_DIRECT" || !tenantParentId;
 
   // Direct client paths ALWAYS start with root.appnix_direct
   if (tenantPath.startsWith("root.appnix_direct")) {
@@ -48,6 +48,42 @@ export function isDirectClientAccount(tenantPath?: string, tenantParentId?: stri
 
   return false;
 }
+
+export function evictAllAuthCookies(res: NextResponse, rootDomain = "appnix.co.in") {
+  const cookieNames = [
+    AUTH_COOKIE,
+    ADMIN_COOKIE,
+    SUPERADMIN_COOKIE,
+    "appnix_access_token",
+    "appnix_auth_token",
+    "appnix_refresh_token",
+    "appnix_session",
+    "appnix_admin_token",
+    "appnix_admin_refresh_token",
+    "appnix_superadmin_token",
+    "appnix_superadmin_refresh_token",
+    "appnix_impersonation_token",
+  ];
+
+  const domainOptions = [undefined, `.${rootDomain}`, ".appnix.co.in"];
+
+  cookieNames.forEach((name) => {
+    try {
+      res.cookies.delete(name);
+    } catch {}
+    domainOptions.forEach((domain) => {
+      try {
+        res.cookies.set(name, "", {
+          path: "/",
+          maxAge: 0,
+          expires: new Date(0),
+          domain,
+        });
+      } catch {}
+    });
+  });
+}
+
 
 function getSubdomainUrl(
   subdomain: "app" | "admin" | "partners" | "superadmin",
@@ -438,7 +474,13 @@ export async function proxy(request: NextRequest) {
       partnerRole === "RESELLER_ADMIN" || partnerRole === "SUPER_ADMIN" || partnerRole === "owner";
 
     // Block direct end-clients from partner admin portal
-    if (partnerDecoded?.sub && (partnerRole === "CLIENT_USER" || (partnerRole === "TENANT_ADMIN" && partnerDecoded.orgPath === "root"))) {
+    if (
+      partnerDecoded?.sub &&
+      (partnerRole === "CLIENT_USER" ||
+        (partnerRole === "TENANT_ADMIN" &&
+          (partnerDecoded.orgPath === "root" ||
+            isDirectClientAccount(partnerDecoded.orgPath, (partnerDecoded as any).parentId))))
+    ) {
       return NextResponse.redirect(new URL(getSubdomainUrl("app", "/dashboard", request)));
     }
 
@@ -507,10 +549,7 @@ export async function proxy(request: NextRequest) {
       const redirectRes = NextResponse.redirect(
         new URL("/signin?error=reseller_isolated", request.url)
       );
-      [AUTH_COOKIE, "appnix_auth_token", "appnix_access_token", ADMIN_COOKIE, "appnix_admin_token"].forEach((c) => {
-        redirectRes.cookies.delete(c);
-        redirectRes.cookies.set(c, "", { path: "/", maxAge: 0 });
-      });
+      evictAllAuthCookies(redirectRes, rootDomain);
       return redirectRes;
     }
 
@@ -527,10 +566,7 @@ export async function proxy(request: NextRequest) {
         const redirectRes = NextResponse.redirect(
           new URL("/signin?error=partner_workspace_account", request.url)
         );
-        [AUTH_COOKIE, "appnix_auth_token", "appnix_access_token"].forEach((c) => {
-          redirectRes.cookies.delete(c);
-          redirectRes.cookies.set(c, "", { path: "/", maxAge: 0 });
-        });
+        evictAllAuthCookies(redirectRes, rootDomain);
         return redirectRes;
       }
     }
@@ -569,12 +605,38 @@ export async function proxy(request: NextRequest) {
   // 10. Scoped Client Route Authentication Guards
   if (pathname === "/signin" || pathname === "/signup") {
     const isSwitch = request.nextUrl.searchParams.get("switch") === "true";
+    const hasError = request.nextUrl.searchParams.has("error");
+
+    // If an error is present (e.g. partner_workspace_account, reseller_isolated),
+    // atomically evict all cookies on the response to break any ping-pong loop!
+    if (hasError) {
+      const res = NextResponse.next();
+      evictAllAuthCookies(res, rootDomain);
+      return res;
+    }
+
     if (!isSwitch) {
       const clientToken =
         request.cookies.get(AUTH_COOKIE)?.value ||
         request.cookies.get("appnix_auth_token")?.value;
       const clientDecoded = decodeJwt(clientToken);
       if (clientDecoded?.sub) {
+        // Domain Authorization Check before redirecting:
+        // Do not redirect partner clients to /dashboard on direct app domain!
+        const isPartnerChild =
+          isAppSubdomain &&
+          !!clientDecoded.orgPath &&
+          clientDecoded.orgPath.split(".").length > 2 &&
+          !isDirectClientAccount(clientDecoded.orgPath, (clientDecoded as any).parentId);
+
+        const isResellerBlocked = isAppSubdomain && clientDecoded.role === "RESELLER_ADMIN";
+
+        if (isPartnerChild || isResellerBlocked) {
+          const res = NextResponse.next();
+          evictAllAuthCookies(res, rootDomain);
+          return res;
+        }
+
         const redirectPath =
           clientDecoded.role === "SUPER_ADMIN" || clientDecoded.role === "owner"
             ? "/super-admin/dashboard"
@@ -625,6 +687,7 @@ export async function proxy(request: NextRequest) {
 }
 
 export const middleware = proxy;
+export default proxy;
 
 export const config = {
   matcher: [

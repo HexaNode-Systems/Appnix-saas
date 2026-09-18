@@ -12,6 +12,7 @@ import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useAuth } from "@/lib/auth/auth-context";
+import { isDirectClientAccount, isPartnerChildAccount } from "@/lib/auth/domain-auth";
 import { verifySubscriptionStatus, hasActiveSubscription } from "@/lib/subscription";
 import { useTranslation } from "@/lib/i18n";
 import { LanguageSelector } from "@/components/landing/language-selector";
@@ -66,7 +67,7 @@ function GoogleIcon() {
 function SignInContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login, user, isAuthenticated, isLoading: isAuthLoading } = useAuth();
+  const { login, logout, user, isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const { toast } = useToast();
   const { t } = useTranslation();
 
@@ -97,16 +98,23 @@ function SignInContent() {
 
     const errorParam = searchParams.get("error");
     if (errorParam) {
-      if (errorParam === "partner_workspace_account") {
+      if (errorParam === "partner_workspace_account" || errorParam === "reseller_isolated") {
         try {
           localStorage.removeItem(config.auth.tokenKey);
           localStorage.removeItem(config.auth.userKey);
           localStorage.removeItem("appnix_access_token");
           localStorage.removeItem("appnix_auth_token");
+          localStorage.removeItem("token");
+          localStorage.removeItem("appnix_user");
+        } catch {}
+        try {
+          logout?.({ silent: true });
         } catch {}
         toast({
-          title: "Partner Workspace Account",
-          description: "This account belongs to a partner workspace. Please sign in through your partner's portal.",
+          title: errorParam === "reseller_isolated" ? "Reseller Access Restricted" : "Partner Workspace Account",
+          description: errorParam === "reseller_isolated"
+            ? "Reseller accounts cannot access the direct client portal. Please sign in via the partner portal."
+            : "This account belongs to a partner workspace. Please sign in through your partner's portal.",
           variant: "destructive",
         });
       }
@@ -131,7 +139,44 @@ function SignInContent() {
           window.location.hostname === "app.local");
 
       if (isAppPortal) {
-        router.replace("/dashboard");
+        // Domain authorization verification:
+        const userOrgPath = (user as any).orgPath || (user as any).tenant?.path;
+        const userParentId = (user as any).parentId || (user as any).tenant?.parentId;
+        const isPartnerChild = isPartnerChildAccount(userOrgPath, userParentId);
+        const isResellerRole =
+          (user as any).role === "RESELLER_ADMIN" ||
+          (user as any).rawRole === "RESELLER_ADMIN" ||
+          (user as any).systemRole === "RESELLER_ADMIN";
+
+        if (isPartnerChild || isResellerRole) {
+          try {
+            localStorage.removeItem(config.auth.tokenKey);
+            localStorage.removeItem(config.auth.userKey);
+            localStorage.removeItem("appnix_access_token");
+            localStorage.removeItem("appnix_auth_token");
+            localStorage.removeItem("token");
+            localStorage.removeItem("appnix_user");
+          } catch {}
+          try {
+            logout?.({ silent: true });
+          } catch {}
+          toast({
+            title: isResellerRole ? "Reseller Access Restricted" : "Partner Workspace Account",
+            description: isResellerRole
+              ? "Reseller accounts cannot access the direct client portal. Please sign in via the partner portal."
+              : "This account belongs to a partner workspace. Please sign in through your partner's portal.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        hasActiveSubscription(user.workspaceId).then((active) => {
+          if (active) {
+            router.replace(callbackUrl);
+          } else {
+            router.replace("/subscription");
+          }
+        });
         return;
       }
 
@@ -193,7 +238,52 @@ function SignInContent() {
           window.location.hostname === "app.local");
 
       if (isAppPortal) {
-        router.push("/dashboard");
+        const isResellerRole =
+          parsedUser?.role === "RESELLER_ADMIN" ||
+          parsedUser?.rawRole === "RESELLER_ADMIN" ||
+          parsedUser?.systemRole === "RESELLER_ADMIN" ||
+          parsedUser?.tier === "PRIMARY_RESELLER" ||
+          parsedUser?.tier === "SUB_RESELLER";
+
+        const isPartnerChild = isPartnerChildAccount(
+          parsedUser?.orgPath || parsedUser?.path || parsedUser?.tenantPath || parsedUser?.tenant?.path,
+          parsedUser?.parentId || parsedUser?.tenantParentId || parsedUser?.tenant?.parentId
+        );
+
+        if (isPartnerChild || isResellerRole) {
+          try {
+            localStorage.removeItem(config.auth.tokenKey);
+            localStorage.removeItem(config.auth.userKey);
+            localStorage.removeItem("appnix_access_token");
+            localStorage.removeItem("appnix_auth_token");
+            localStorage.removeItem("token");
+            localStorage.removeItem("appnix_user");
+          } catch {}
+          try {
+            logout?.({ silent: true });
+          } catch {}
+          toast({
+            title: isResellerRole ? "Reseller Access Restricted" : "Partner Workspace Account",
+            description: isResellerRole
+              ? "Reseller accounts cannot access the direct client portal. Please sign in via the partner portal."
+              : "This account belongs to a partner workspace. Please sign in through your partner's portal.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const workspaceId = parsedUser?.workspaceId || parsedUser?.tenantId;
+        const token =
+          typeof window !== "undefined"
+            ? localStorage.getItem("appnix_auth_token") || localStorage.getItem("token") || undefined
+            : undefined;
+
+        const active = await hasActiveSubscription(workspaceId, token);
+        if (active) {
+          router.push(callbackUrl);
+        } else {
+          router.push("/subscription");
+        }
       } else if (
         parsedUser?.role === "owner" ||
         parsedUser?.role === "SUPER_ADMIN" ||
