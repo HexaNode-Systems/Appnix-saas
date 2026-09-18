@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { Role } from '@prisma/client';
+import { AuthUser } from '../auth/decorators/current-user.decorator';
 import { CreateTicketDto, TicketPriority } from './dto/create-ticket.dto';
 import { UpdateTicketDto, TicketStatus } from './dto/update-ticket.dto';
 import { ReplyTicketDto } from './dto/reply-ticket.dto';
@@ -261,9 +263,74 @@ export class SupportService {
     };
   }
 
-  async findAll(tenantId: string) {
+  /**
+   * Scopes support tickets strictly by caller role and tenancy hierarchy:
+   * - SUPER_ADMIN: Global visibility across all tickets ({})
+   * - APP_ADMIN: Direct staff operations on admin.appnix.co.in. Can view and manage
+   *   all tickets originating from direct client organizations (root.appnix_direct.* or APPNIX_DIRECT)
+   * - RESELLER_ADMIN: Reseller portal on partners.appnix.co.in. Scoped strictly to
+   *   child clients under their orgPath hierarchy. Strictly isolated from direct clients.
+   * - CLIENT_USER / TENANT_ADMIN / MEMBER: Scoped strictly to their own workspace tenantId.
+   */
+  private buildTicketScope(user?: AuthUser): any {
+    if (!user) {
+      return { tenantId: 'tenant_default' };
+    }
+
+    const role = (user.role || '').toString();
+
+    // 1. SUPER_ADMIN: Global access across all tenants
+    if (role === Role.SUPER_ADMIN || role === 'SUPER_ADMIN') {
+      return {};
+    }
+
+    // 2. APP_ADMIN: Direct platform staff on admin.appnix.co.in
+    if (role === Role.APP_ADMIN || role === 'APP_ADMIN') {
+      return {
+        OR: [
+          { tenantId: 'APPNIX_DIRECT' },
+          { tenant: { path: { startsWith: 'root.appnix_direct' } } },
+        ],
+      };
+    }
+
+    // 3. RESELLER_ADMIN: Reseller partner scoped strictly to own branch
+    if (role === Role.RESELLER_ADMIN || role === 'RESELLER_ADMIN') {
+      const orgPath = user.orgPath;
+      if (orgPath && orgPath !== 'root') {
+        return {
+          tenant: {
+            path: { startsWith: `${orgPath}.` },
+          },
+        };
+      }
+      return { tenantId: user.tenantId };
+    }
+
+    // 4. Default: Direct workspace user isolated to own tenantId
+    const tenantId = user.tenantId || 'tenant_default';
+    return { tenantId };
+  }
+
+  async findAll(userOrTenantId?: AuthUser | string) {
+    const scope =
+      typeof userOrTenantId === 'object' && userOrTenantId !== null
+        ? this.buildTicketScope(userOrTenantId)
+        : { tenantId: typeof userOrTenantId === 'string' ? userOrTenantId : 'tenant_default' };
+
     const tickets = await this.prisma.supportTicket.findMany({
-      where: { tenantId },
+      where: scope,
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            tier: true,
+            path: true,
+          },
+        },
+      },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -272,6 +339,9 @@ export class SupportService {
       ticketNumber: t.ticketNumber,
       ticketId: t.ticketNumber,
       tenantId: t.tenantId,
+      clientId: t.tenantId,
+      clientName: t.tenant?.name || 'Client Workspace',
+      clientTier: t.tenant?.tier || 'Professional Tier',
       subject: t.subject,
       category: t.category,
       priority: t.priority,
@@ -285,11 +355,27 @@ export class SupportService {
     }));
   }
 
-  async findOne(tenantId: string, id: string) {
+  async findOne(userOrTenantId: AuthUser | string, id: string) {
+    const scope =
+      typeof userOrTenantId === 'object' && userOrTenantId !== null
+        ? this.buildTicketScope(userOrTenantId)
+        : { tenantId: typeof userOrTenantId === 'string' ? userOrTenantId : 'tenant_default' };
+
     const ticket = await this.prisma.supportTicket.findFirst({
       where: {
-        tenantId,
+        ...scope,
         OR: [{ id }, { ticketNumber: id }],
+      },
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            tier: true,
+            path: true,
+          },
+        },
       },
     });
 
@@ -300,6 +386,9 @@ export class SupportService {
       ticketNumber: ticket.ticketNumber,
       ticketId: ticket.ticketNumber,
       tenantId: ticket.tenantId,
+      clientId: ticket.tenantId,
+      clientName: ticket.tenant?.name || 'Client Workspace',
+      clientTier: ticket.tenant?.tier || 'Professional Tier',
       subject: ticket.subject,
       category: ticket.category,
       priority: ticket.priority,
@@ -314,24 +403,57 @@ export class SupportService {
   }
 
   async reply(
-    tenantId: string,
+    userOrTenantId: AuthUser | string,
     id: string,
-    userId: string,
-    userEmail: string,
-    role: string,
-    dto: ReplyTicketDto,
+    userIdOrDto: string | ReplyTicketDto,
+    userEmail?: string,
+    role?: string,
+    dtoParam?: ReplyTicketDto,
     authUser?: any,
   ) {
+    let user: AuthUser | undefined;
+    let dto: ReplyTicketDto;
+    let userId = '';
+    let email = '';
+    let userRole = '';
+
+    if (typeof userOrTenantId === 'object' && userOrTenantId !== null) {
+      user = userOrTenantId;
+      dto = (typeof userIdOrDto === 'object' ? userIdOrDto : dtoParam) as ReplyTicketDto;
+      userId = user.userId || user.id || '';
+      email = user.email || '';
+      userRole = (user.role || '').toString();
+    } else {
+      userId = typeof userIdOrDto === 'string' ? userIdOrDto : '';
+      email = userEmail || '';
+      userRole = role || '';
+      dto = dtoParam as ReplyTicketDto;
+      user = authUser || ({ userId, email, role: userRole, tenantId: userOrTenantId } as any);
+    }
+
+    const scope = this.buildTicketScope(user);
+
     const ticket = await this.prisma.supportTicket.findFirst({
       where: {
-        tenantId,
+        ...scope,
         OR: [{ id }, { ticketNumber: id }],
+      },
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            tier: true,
+            path: true,
+          },
+        },
       },
     });
 
     if (!ticket) throw new NotFoundException('Support Ticket not found');
 
-    let senderName = userEmail || 'Customer';
+    let senderName = email || 'User';
     try {
       if (userId) {
         const u = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -341,22 +463,41 @@ export class SupportService {
       // fallback
     }
 
-    const isSupportStaff = role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN' || role === 'SUPPORT_AGENT';
+    const isSupportStaff =
+      userRole === Role.APP_ADMIN ||
+      userRole === 'APP_ADMIN' ||
+      userRole === Role.SUPER_ADMIN ||
+      userRole === 'SUPER_ADMIN' ||
+      userRole === 'SUPPORT_AGENT' ||
+      userRole === 'DIRECT_ADMIN' ||
+      userRole === 'TENANT_ADMIN';
+
     const existingReplies = (Array.isArray(ticket.replies) ? ticket.replies : []) as any[];
+    const isInternalNote = !!dto.isInternalNote;
 
     const newReply = {
       id: `r-${Date.now()}`,
       sender: isSupportStaff ? 'agent' : 'customer',
       senderId: userId,
       senderName,
-      senderRole: role ? String(role).replace(/_/g, ' ') : 'Workspace User',
+      senderRole: isInternalNote
+        ? 'Internal Staff Note'
+        : userRole
+        ? String(userRole).replace(/_/g, ' ')
+        : 'Workspace User',
       message: dto.message,
       attachments: dto.attachments || [],
+      isInternalNote,
       createdAt: new Date().toISOString(),
       timestamp: new Date().toISOString(),
     };
 
-    const nextStatus = isSupportStaff ? 'Waiting for Customer' : 'In Progress';
+    // Internal notes preserve current ticket status; public replies update status
+    const nextStatus = isInternalNote
+      ? ticket.status
+      : isSupportStaff
+      ? 'Waiting for Customer'
+      : 'In Progress';
 
     const updated = await this.prisma.supportTicket.update({
       where: { id: ticket.id },
@@ -378,10 +519,19 @@ export class SupportService {
     };
   }
 
-  async updateStatus(tenantId: string, id: string, dto: UpdateTicketDto) {
+  async updateStatus(
+    userOrTenantId: AuthUser | string,
+    id: string,
+    dto: UpdateTicketDto,
+  ) {
+    const scope =
+      typeof userOrTenantId === 'object' && userOrTenantId !== null
+        ? this.buildTicketScope(userOrTenantId)
+        : { tenantId: typeof userOrTenantId === 'string' ? userOrTenantId : 'tenant_default' };
+
     const ticket = await this.prisma.supportTicket.findFirst({
       where: {
-        tenantId,
+        ...scope,
         OR: [{ id }, { ticketNumber: id }],
       },
     });
@@ -412,6 +562,9 @@ export class SupportService {
       data: {
         ...(normalizedStatus && { status: normalizedStatus }),
         ...(normalizedPriority && { priority: normalizedPriority }),
+        ...(dto.assignedTo && {
+          assignedAgent: { name: dto.assignedTo, email: 'support@appnix.io' },
+        }),
       },
     });
 
@@ -422,7 +575,9 @@ export class SupportService {
       ticketId: updated.ticketNumber,
       status: updated.status,
       priority: updated.priority,
+      assignedAgent: updated.assignedAgent,
       updatedAt: updated.updatedAt,
     };
   }
 }
+

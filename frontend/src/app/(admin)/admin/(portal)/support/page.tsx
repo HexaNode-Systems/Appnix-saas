@@ -31,7 +31,8 @@ import {
 
 export default function SuperAdminSupportPage() {
   const [tickets, setTickets] = useState<AdminTicket[]>([]);
-  const [selectedTicketId, setSelectedTicketId] = useState<string>("TKT-8902");
+  const [selectedTicketId, setSelectedTicketId] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(true);
   const [activeTabFilter, setActiveTabFilter] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [replyText, setReplyText] = useState("");
@@ -40,19 +41,30 @@ export default function SuperAdminSupportPage() {
   const [isAddingTag, setIsAddingTag] = useState(false);
 
   const fetchTickets = () => {
-    supportService.getAllTickets().then((tList) => {
-      setTickets(tList);
-      if (tList.length > 0 && !selectedTicketId) {
-        setSelectedTicketId(tList[0].id);
-      }
-    });
+    setLoading(true);
+    supportService
+      .getAllTickets()
+      .then((tList) => {
+        setTickets(tList);
+        if (tList.length > 0) {
+          setSelectedTicketId((prev) =>
+            prev && tList.some((t) => t.id === prev) ? prev : tList[0].id
+          );
+        } else {
+          setSelectedTicketId("");
+        }
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   };
 
   useEffect(() => {
     fetchTickets();
   }, []);
 
-  const activeTicket = tickets.find((t) => t.id === selectedTicketId) || tickets[0];
+  const activeTicket = tickets.find((t) => t.id === selectedTicketId) || (tickets.length > 0 ? tickets[0] : null);
+
 
   const handleSendReply = (e: React.FormEvent) => {
     e.preventDefault();
@@ -170,51 +182,64 @@ export default function SuperAdminSupportPage() {
 
           {/* Ticket List Stream */}
           <div className="flex-1 overflow-y-auto divide-y divide-border/60">
-            {filteredTickets.map((t) => {
-              const isSelected = activeTicket?.id === t.id;
-              return (
-                <div
-                  key={t.id}
-                  onClick={() => setSelectedTicketId(t.id)}
-                  className={cn(
-                    "p-3.5 transition-all cursor-pointer space-y-1.5",
-                    isSelected
-                      ? "bg-indigo-50/70 dark:bg-indigo-950/40 border-l-4 border-emerald-600 pl-3"
-                      : "hover:bg-muted/40"
-                  )}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                      #{t.id}
-                    </span>
-                    <Badge
-                      className={cn(
-                        "text-[9px] font-extrabold px-1.5 py-0 uppercase",
-                        t.priority === "Urgent" && "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
-                        t.priority === "High" && "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-                        t.priority === "Medium" && "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
-                        t.priority === "Low" && "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
-                      )}
-                    >
-                      {t.priority}
-                    </Badge>
-                  </div>
+            {loading ? (
+              <div className="p-8 text-center text-xs text-muted-foreground space-y-2">
+                <LifeBuoy className="h-6 w-6 animate-spin mx-auto text-emerald-600" />
+                <p>Loading live tickets...</p>
+              </div>
+            ) : filteredTickets.length === 0 ? (
+              <div className="p-8 text-center text-xs text-muted-foreground space-y-1">
+                <p className="font-semibold text-foreground">No tickets found</p>
+                <p>No tickets match the selected filter or search criteria.</p>
+              </div>
+            ) : (
+              filteredTickets.map((t) => {
+                const isSelected = activeTicket?.id === t.id;
+                return (
+                  <div
+                    key={t.id}
+                    onClick={() => setSelectedTicketId(t.id)}
+                    className={cn(
+                      "p-3.5 transition-all cursor-pointer space-y-1.5",
+                      isSelected
+                        ? "bg-indigo-50/70 dark:bg-indigo-950/40 border-l-4 border-emerald-600 pl-3"
+                        : "hover:bg-muted/40"
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                        #{t.id}
+                      </span>
+                      <Badge
+                        className={cn(
+                          "text-[9px] font-extrabold px-1.5 py-0 uppercase",
+                          t.priority === "Urgent" && "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
+                          t.priority === "High" && "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+                          t.priority === "Medium" && "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
+                          t.priority === "Low" && "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                        )}
+                      >
+                        {t.priority}
+                      </Badge>
+                    </div>
 
-                  <p className="font-bold text-xs text-foreground line-clamp-1">
-                    {t.subject}
-                  </p>
+                    <p className="font-bold text-xs text-foreground line-clamp-1">
+                      {t.subject}
+                    </p>
 
-                  <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-0.5">
-                    <span className="font-semibold text-foreground truncate max-w-[140px]">
-                      {t.clientName}
-                    </span>
-                    <span>{t.createdAt}</span>
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-0.5">
+                      <span className="font-semibold text-foreground truncate max-w-[140px]">
+                        {t.clientName}
+                      </span>
+                      <span>{t.createdAt}</span>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
+
 
         {/* ================= COLUMN 2: CONVERSATION PANEL (5 cols) ================= */}
         <div className="lg:col-span-5 rounded-2xl border bg-card flex flex-col overflow-hidden shadow-xs">
@@ -480,8 +505,13 @@ export default function SuperAdminSupportPage() {
                 </div>
               </div>
             </>
-          ) : null}
+          ) : (
+            <div className="flex-1 flex items-center justify-center p-8 text-xs text-muted-foreground">
+              Select a ticket to view properties.
+            </div>
+          )}
         </div>
+
       </div>
     </div>
   );

@@ -37,17 +37,15 @@ export class SupportController {
   }
 
   @Get()
-  @ApiOperation({ summary: "Get all tickets for current tenant/user" })
+  @ApiOperation({ summary: "Get all tickets scoped to caller role and tenancy hierarchy" })
   findAll(@CurrentUser() user: AuthUser) {
-    const tenantId = user?.tenantId || 'tenant_default';
-    return this.supportService.findAll(tenantId);
+    return this.supportService.findAll(user);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get support ticket details and conversation thread' })
   findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    const tenantId = user?.tenantId || 'tenant_default';
-    return this.supportService.findOne(tenantId, id);
+    return this.supportService.findOne(user, id);
   }
 
   @Post(':id/reply')
@@ -57,17 +55,7 @@ export class SupportController {
     @Param('id') id: string,
     @Body() dto: ReplyTicketDto
   ) {
-    const tenantId = user?.tenantId || 'tenant_default';
-    const userId = user?.userId || user?.id || '';
-    return this.supportService.reply(
-      tenantId,
-      id,
-      userId,
-      user?.email || 'admin@appnix.io',
-      user?.role || 'TENANT_ADMIN',
-      dto,
-      user
-    );
+    return this.supportService.reply(user, id, dto);
   }
 
   @Patch(':id/status')
@@ -77,7 +65,7 @@ export class SupportController {
     @Param('id') id: string,
     @Body() dto: UpdateTicketDto
   ) {
-    const tenantId = user?.tenantId || 'tenant_default';
-    return this.supportService.updateStatus(tenantId, id, dto);
+    return this.supportService.updateStatus(user, id, dto);
   }
 }
+

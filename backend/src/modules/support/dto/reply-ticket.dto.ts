@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, IsBoolean } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class ReplyTicketDto {
@@ -11,4 +11,10 @@ export class ReplyTicketDto {
   @IsArray()
   @IsOptional()
   attachments?: string[];
+
+  @ApiPropertyOptional({ example: false })
+  @IsBoolean()
+  @IsOptional()
+  isInternalNote?: boolean;
 }
+

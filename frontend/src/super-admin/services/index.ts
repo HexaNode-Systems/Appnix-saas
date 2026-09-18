@@ -12,6 +12,7 @@ import {
   Client,
   PlanTier,
   AdminTicket,
+  TicketMessage,
   StaffMember,
   AuditLogEntry,
   FeatureFlag,
@@ -413,55 +414,166 @@ export const billingService = {
   },
 };
 
+function mapBackendTicketToAdminTicket(t: any): AdminTicket {
+  const replies = Array.isArray(t.replies) ? t.replies : [];
+  const firstCustomerReply = replies.find((r: any) => r.sender === "customer") || replies[0];
+  const openedBy =
+    firstCustomerReply?.senderName ||
+    firstCustomerReply?.senderEmail ||
+    t.clientName ||
+    "Client User";
+
+  const messages: TicketMessage[] =
+    replies.length > 0
+      ? replies.map((r: any) => ({
+          id: r.id || `m-${Math.random()}`,
+          sender: r.sender === "agent" || r.sender === "support" ? "support" : "customer",
+          senderName: r.senderName || (r.sender === "customer" ? "Customer" : "Support Specialist"),
+          senderRole: r.isInternalNote
+            ? "Internal Staff Note"
+            : r.senderRole || (r.sender === "customer" ? "Client User" : "Support Specialist"),
+          avatarUrl: r.avatarUrl,
+          message: r.message || "",
+          timestamp:
+            r.timestamp || r.createdAt
+              ? new Date(r.timestamp || r.createdAt).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : "Just now",
+          isInternalNote: !!r.isInternalNote,
+          attachments: Array.isArray(r.attachments) ? r.attachments : [],
+        }))
+      : [
+          {
+            id: `m-init-${t.id}`,
+            sender: "customer",
+            senderName: openedBy,
+            senderRole: "Client User",
+            message: t.description || t.subject || "No description provided.",
+            timestamp: t.createdAt
+              ? new Date(t.createdAt).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : "Just now",
+            isInternalNote: false,
+            attachments: Array.isArray(t.attachments) ? t.attachments : [],
+          },
+        ];
+
+  const formattedCreated = t.createdAt
+    ? new Date(t.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    : "Today";
+
+  const formattedUpdated = t.updatedAt
+    ? new Date(t.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "Just now";
+
+  return {
+    id: t.ticketNumber || t.ticketId || t.id,
+    subject: t.subject || "Support Inquiry",
+    priority: (t.priority || "Medium") as TicketPriority,
+    status: (t.status || "Open") as AdminTicketStatus,
+    clientId: t.clientId || t.tenantId || "",
+    clientName: t.clientName || t.tenant?.name || "Direct Client Workspace",
+    clientTier: t.clientTier || t.tenant?.tier || "Professional Tier",
+    clientMrr: t.clientMrr || 2999,
+    clientSuccessScore: t.clientSuccessScore || 98,
+    clientTotalTickets: t.clientTotalTickets || 1,
+    clientOpenTickets: t.status === "Open" || t.status === "In Progress" ? 1 : 0,
+    openedBy,
+    assigneeName: t.assignedAgent?.name || "Support Routing Engine",
+    assigneeAvatar: t.assignedAgent?.avatar,
+    tags: Array.isArray(t.tags) && t.tags.length > 0 ? t.tags : [t.category || "Technical Support"],
+    createdAt: formattedCreated,
+    updatedAt: formattedUpdated,
+    messages,
+  };
+}
+
 export const supportService = {
   getAllTickets: async (): Promise<AdminTicket[]> => {
-    return [...mockTickets];
+    try {
+      const res = await api.get("/support/tickets");
+      const payload = res.data?.data || res.data;
+      if (Array.isArray(payload)) {
+        return payload.map(mapBackendTicketToAdminTicket);
+      }
+      return [];
+    } catch (err) {
+      console.error("Failed to fetch support tickets from backend:", err);
+      return [];
+    }
   },
+
   getTicketById: async (id: string): Promise<AdminTicket | undefined> => {
-    return mockTickets.find((t) => t.id === id);
-  },
-  updateTicketStatus: async (id: string, status: AdminTicketStatus): Promise<AdminTicket | undefined> => {
-    const ticket = mockTickets.find((t) => t.id === id);
-    if (ticket) {
-      ticket.status = status;
-      ticket.updatedAt = "Just now";
+    try {
+      const res = await api.get(`/support/tickets/${id}`);
+      const payload = res.data?.data || res.data;
+      if (payload) {
+        return mapBackendTicketToAdminTicket(payload);
+      }
+      return undefined;
+    } catch (err) {
+      console.error(`Failed to fetch ticket ${id}:`, err);
+      return undefined;
     }
-    return ticket;
   },
-  updateTicketPriority: async (id: string, priority: TicketPriority): Promise<AdminTicket | undefined> => {
-    const ticket = mockTickets.find((t) => t.id === id);
-    if (ticket) {
-      ticket.priority = priority;
-      ticket.updatedAt = "Just now";
+
+  updateTicketStatus: async (
+    id: string,
+    status: AdminTicketStatus
+  ): Promise<AdminTicket | undefined> => {
+    try {
+      const res = await api.patch(`/support/tickets/${id}/status`, { status });
+      const payload = res.data?.data || res.data;
+      if (payload) {
+        return mapBackendTicketToAdminTicket(payload);
+      }
+      return undefined;
+    } catch (err) {
+      console.error(`Failed to update ticket status ${id}:`, err);
+      return undefined;
     }
-    return ticket;
   },
+
+  updateTicketPriority: async (
+    id: string,
+    priority: TicketPriority
+  ): Promise<AdminTicket | undefined> => {
+    try {
+      const res = await api.patch(`/support/tickets/${id}/status`, { priority });
+      const payload = res.data?.data || res.data;
+      if (payload) {
+        return mapBackendTicketToAdminTicket(payload);
+      }
+      return undefined;
+    } catch (err) {
+      console.error(`Failed to update ticket priority ${id}:`, err);
+      return undefined;
+    }
+  },
+
   addReply: async (
     ticketId: string,
     message: string,
     isInternalNote = false,
-    author = "Super Admin"
-  ): Promise<AdminTicket | undefined> => {
-    const ticket = mockTickets.find((t) => t.id === ticketId);
-    if (ticket) {
-      ticket.messages.push({
-        id: `m-${Date.now()}`,
-        sender: "support",
-        senderName: author,
-        senderRole: isInternalNote ? "Internal Staff Note" : "Super Admin",
-        avatarUrl: "https://i.pravatar.cc/56?img=47",
+    author = "Support Staff"
+  ): Promise<any> => {
+    try {
+      const res = await api.post(`/support/tickets/${ticketId}/reply`, {
         message,
-        timestamp: "Just now",
         isInternalNote,
       });
-      ticket.updatedAt = "Just now";
-      if (!isInternalNote && ticket.status === "Waiting for Customer") {
-        ticket.status = "In Progress";
-      }
+      return res.data?.data || res.data;
+    } catch (err) {
+      console.error(`Failed to send reply to ticket ${ticketId}:`, err);
+      return undefined;
     }
-    return ticket;
   },
 };
+
 
 export const staffService = {
   getAll: async (): Promise<StaffMember[]> => {
