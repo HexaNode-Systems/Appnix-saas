@@ -1,35 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth/auth-context";
+import { useToast } from "@/hooks/use-toast";
+import { api } from "@/lib/api/axios";
 import {
   ChevronRight,
   ArrowLeft,
   Headset,
   Plus,
   Search,
-  Filter,
   Ticket,
-  MessageSquare,
   Clock,
   CircleDot,
   RefreshCw,
   CheckCircle2,
   Archive,
-  AlertCircle,
   Paperclip,
   Send,
   X,
-  User,
   ShieldCheck,
-  FileText,
-  ArrowUpRight,
-  Sparkles,
-  Download,
+  Loader2,
 } from "lucide-react";
 
 // ---------- Types ----------
@@ -44,24 +40,28 @@ export type TicketPriority = "Low" | "Medium" | "High" | "Urgent";
 
 export interface TicketReply {
   id: string;
-  sender: "customer" | "agent";
-  senderName: string;
-  senderRole: string;
+  sender?: "customer" | "agent" | string;
+  senderName?: string;
+  senderRole?: string;
   message: string;
-  timestamp: string;
+  timestamp?: string;
+  createdAt?: string;
   attachments?: string[];
 }
 
 export interface SupportTicket {
-  id: string; // e.g. SUP-10245
+  id: string;
+  ticketNumber?: string;
+  ticketId?: string;
   subject: string;
   category: string;
   priority: TicketPriority;
   status: TicketStatus;
   description: string;
   assignedAgent?: {
-    name: string;
-    role: string;
+    name?: string;
+    role?: string;
+    email?: string;
     avatarUrl?: string;
   };
   attachments: string[];
@@ -70,148 +70,7 @@ export interface SupportTicket {
   replies: TicketReply[];
 }
 
-// ---------- Initial Mock Tickets ----------
-const initialTickets: SupportTicket[] = [
-  {
-    id: "SUP-10245",
-    subject: "WhatsApp Green Badge Official Verification Request",
-    category: "Channel Verification",
-    priority: "High",
-    status: "In Progress",
-    description:
-      "We have submitted our Meta Business Manager verification documents and need assistance syncing the official Green Checkmark badge to our active WhatsApp Business Account.",
-    assignedAgent: {
-      name: "Sarah Jenkins",
-      role: "Tier 2 Channel Specialist",
-      avatarUrl: "https://i.pravatar.cc/56?img=47",
-    },
-    attachments: ["meta_business_cert.pdf", "number_utility_bill.png"],
-    createdAt: "24 Feb 2026, 10:15 AM",
-    updatedAt: "24 Feb 2026, 11:30 AM",
-    replies: [
-      {
-        id: "r1",
-        sender: "customer",
-        senderName: "Video Panel (You)",
-        senderRole: "Workspace Admin",
-        message:
-          "Hi Appnix Support, we submitted all KYC documents on Meta Business Suite yesterday. Could you review our tier limit and badge status?",
-        timestamp: "24 Feb 2026, 10:15 AM",
-        attachments: ["meta_business_cert.pdf"],
-      },
-      {
-        id: "r2",
-        sender: "agent",
-        senderName: "Sarah Jenkins",
-        senderRole: "Tier 2 Channel Specialist",
-        message:
-          "Hello! Thanks for reaching out. I have reviewed your Meta Business Account. The documents look valid. We have forwarded the direct verification request to WhatsApp Cloud API telecom escalations. Expect approval within 24-48 hours.",
-        timestamp: "24 Feb 2026, 11:30 AM",
-      },
-    ],
-  },
-  {
-    id: "SUP-10246",
-    subject: "Webhook timeout on high volume broadcast automation",
-    category: "Technical Support",
-    priority: "Urgent",
-    status: "Open",
-    description:
-      "During our 50k broadcast dispatch, the external CRM webhook trigger experienced intermittent 504 Gateway Timeouts. Need advice on setting up queue concurrency.",
-    assignedAgent: {
-      name: "David K.",
-      role: "Senior Infrastructure Engineer",
-      avatarUrl: "https://i.pravatar.cc/56?img=12",
-    },
-    attachments: ["error_logs_dump.txt"],
-    createdAt: "24 Feb 2026, 09:00 AM",
-    updatedAt: "24 Feb 2026, 09:00 AM",
-    replies: [
-      {
-        id: "r21",
-        sender: "customer",
-        senderName: "Video Panel (You)",
-        senderRole: "Workspace Admin",
-        message:
-          "Hi team, attached are the logs from our server endpoint during the peak load.",
-        timestamp: "24 Feb 2026, 09:00 AM",
-        attachments: ["error_logs_dump.txt"],
-      },
-    ],
-  },
-  {
-    id: "SUP-10247",
-    subject: "Clarification on RCS Rich Card template pricing tiers",
-    category: "Billing & Invoices",
-    priority: "Medium",
-    status: "Waiting for Customer",
-    description:
-      "Need detailed breakdown on whether interactive carousel cards in RCS incur standard single SMS rates or rich media conversational pricing.",
-    assignedAgent: {
-      name: "Elena Rostova",
-      role: "Billing Support Representative",
-    },
-    attachments: [],
-    createdAt: "22 Feb 2026, 03:30 PM",
-    updatedAt: "23 Feb 2026, 10:00 AM",
-    replies: [
-      {
-        id: "r31",
-        sender: "customer",
-        senderName: "Video Panel (You)",
-        senderRole: "Workspace Admin",
-        message:
-          "Hello, can you send the rate card for RCS interactive carousels for Indian telecom operators (Jio & Airtel)?",
-        timestamp: "22 Feb 2026, 03:30 PM",
-      },
-      {
-        id: "r32",
-        sender: "agent",
-        senderName: "Elena Rostova",
-        senderRole: "Billing Representative",
-        message:
-          "Hi there! RCS Single messages and Rich Carousels are billed at a flat ₹0.22 per delivered session. Let us know if you need our enterprise high-volume discount sheet!",
-        timestamp: "23 Feb 2026, 10:00 AM",
-      },
-    ],
-  },
-  {
-    id: "SUP-10248",
-    subject: "Tax Invoice GSTIN update on monthly Professional subscription",
-    category: "Billing & Invoices",
-    priority: "Low",
-    status: "Resolved",
-    description:
-      "Updated our company GST number in billing settings. Need the previous invoice regenerated with GST credit details.",
-    assignedAgent: {
-      name: "Elena Rostova",
-      role: "Billing Support Representative",
-    },
-    attachments: ["gstin_certificate.pdf"],
-    createdAt: "18 Feb 2026, 02:00 PM",
-    updatedAt: "19 Feb 2026, 11:20 AM",
-    replies: [
-      {
-        id: "r41",
-        sender: "customer",
-        senderName: "Video Panel (You)",
-        senderRole: "Workspace Admin",
-        message: "Invoice INV-2026-003 needs to reflect GSTIN: 27AABCU9603R1ZM.",
-        timestamp: "18 Feb 2026, 02:00 PM",
-      },
-      {
-        id: "r42",
-        sender: "agent",
-        senderName: "Elena Rostova",
-        senderRole: "Billing Representative",
-        message:
-          "Done! The updated invoice is now available in your Workspace -> Billing -> Invoices table.",
-        timestamp: "19 Feb 2026, 11:20 AM",
-      },
-    ],
-  },
-];
-
+// ---------- Style Maps ----------
 const priorityStyles: Record<TicketPriority, { badge: string; dot: string }> = {
   Low: {
     badge: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200",
@@ -254,8 +113,54 @@ const statusStyles: Record<TicketStatus, { badge: string; icon: React.ElementTyp
   },
 };
 
+// ---------- Normalization Helpers ----------
+function normalizeStatus(status?: string): TicketStatus {
+  if (!status) return "Open";
+  const s = status.toLowerCase();
+  if (s.includes("progress")) return "In Progress";
+  if (s.includes("waiting")) return "Waiting for Customer";
+  if (s.includes("resolved")) return "Resolved";
+  if (s.includes("closed")) return "Closed";
+  return "Open";
+}
+
+function normalizePriority(priority?: string): TicketPriority {
+  if (!priority) return "Medium";
+  const p = priority.toLowerCase();
+  if (p === "urgent") return "Urgent";
+  if (p === "high") return "High";
+  if (p === "low") return "Low";
+  return "Medium";
+}
+
+function formatDate(dateStr?: string): string {
+  if (!dateStr) return "Just now";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const day = d.getDate();
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const month = months[d.getMonth()];
+    const year = d.getFullYear();
+    let hours = d.getHours();
+    const minutes = d.getMinutes().toString().padStart(2, "0");
+    const ampm = hours >= 12 ? "PM" : "AM";
+    hours = hours % 12 || 12;
+    return `${day} ${month} ${year}, ${hours}:${minutes} ${ampm}`;
+  } catch {
+    return dateStr;
+  }
+}
+
 export default function SupportTicketsPage() {
-  const [tickets, setTickets] = useState<SupportTicket[]>(initialTickets);
+  const { user } = useAuth();
+  const { toast } = useToast();
+
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isReplying, setIsReplying] = useState(false);
+
   const [selectedStatus, setSelectedStatus] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTicket, setActiveTicket] = useState<SupportTicket | null>(null);
@@ -269,95 +174,217 @@ export default function SupportTicketsPage() {
   const [newDescription, setNewDescription] = useState("");
   const [newAttachmentName, setNewAttachmentName] = useState("");
 
+  // Fetch tickets from live backend API
+  const loadTickets = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const res = await api.get("/support/tickets");
+      const data = Array.isArray(res.data) ? res.data : res.data?.data || [];
+
+      const mappedTickets: SupportTicket[] = data.map((t: any) => ({
+        id: t.id,
+        ticketNumber: t.ticketNumber || t.ticketId || `SUP-${t.id?.slice(0, 5)}`,
+        ticketId: t.ticketNumber || t.ticketId || `SUP-${t.id?.slice(0, 5)}`,
+        subject: t.subject,
+        category: t.category || "Technical Support",
+        priority: normalizePriority(t.priority),
+        status: normalizeStatus(t.status),
+        description: t.description,
+        assignedAgent: t.assignedAgent || {
+          name: "Tier 1 Specialist",
+          role: "Support Engineer",
+        },
+        attachments: Array.isArray(t.attachments) ? t.attachments : [],
+        createdAt: t.createdAt,
+        updatedAt: t.updatedAt,
+        replies: Array.isArray(t.replies) ? t.replies : [],
+      }));
+
+      setTickets(mappedTickets);
+
+      if (activeTicket) {
+        const found = mappedTickets.find(
+          (t) => t.id === activeTicket.id || t.ticketNumber === activeTicket.ticketNumber
+        );
+        if (found) setActiveTicket(found);
+      }
+    } catch (err: any) {
+      console.error("Failed to load tickets:", err);
+      toast({
+        title: "Error",
+        description: err?.response?.data?.message || "Failed to load support tickets",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeTicket, toast]);
+
+  useEffect(() => {
+    loadTickets();
+  }, []);
+
+  // Filter tickets
   const filteredTickets = tickets.filter((t) => {
     const matchesStatus =
       selectedStatus === "All" || t.status === selectedStatus;
+    const ticketNum = t.ticketNumber || t.id;
     const matchesSearch =
-      t.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      ticketNum.toLowerCase().includes(searchQuery.toLowerCase()) ||
       t.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
       t.category.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesStatus && matchesSearch;
   });
 
-  const handleRaiseTicket = (e: React.FormEvent) => {
+  // Handle raise ticket via live API
+  const handleRaiseTicket = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSubject.trim() || !newDescription.trim()) return;
 
-    const generatedId = `SUP-${Math.floor(10200 + Math.random() * 89000)}`;
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        subject: newSubject.trim(),
+        category: newCategory,
+        priority: newPriority,
+        description: newDescription.trim(),
+        attachments: newAttachmentName.trim() ? [newAttachmentName.trim()] : [],
+      };
 
-    const created: SupportTicket = {
-      id: generatedId,
-      subject: newSubject.trim(),
-      category: newCategory,
-      priority: newPriority,
-      status: "Open",
-      description: newDescription.trim(),
-      assignedAgent: {
-        name: "Support Assignment Bot",
-        role: "Auto-Routing to Available Specialist",
-      },
-      attachments: newAttachmentName.trim() ? [newAttachmentName.trim()] : [],
-      createdAt: "Just now",
-      updatedAt: "Just now",
-      replies: [
-        {
-          id: `r-${Date.now()}`,
-          sender: "customer",
-          senderName: "Video Panel (You)",
-          senderRole: "Workspace Admin",
-          message: newDescription.trim(),
-          timestamp: "Just now",
-          attachments: newAttachmentName.trim() ? [newAttachmentName.trim()] : [],
-        },
-      ],
-    };
+      const res = await api.post("/support/tickets", payload);
+      const created = res.data?.data || res.data;
 
-    setTickets([created, ...tickets]);
-    setIsRaiseModalOpen(false);
-    setNewSubject("");
-    setNewDescription("");
-    setNewAttachmentName("");
-    setActiveTicket(created);
+      const newTicketNumber = created?.ticketNumber || created?.ticketId || "SUP";
+      toast({
+        title: "Ticket Created Successfully",
+        description: `Ticket #${newTicketNumber} received. Confirmation email sent!`,
+      });
+
+      setIsRaiseModalOpen(false);
+      setNewSubject("");
+      setNewDescription("");
+      setNewAttachmentName("");
+
+      await loadTickets();
+      if (created) {
+        setActiveTicket({
+          id: created.id,
+          ticketNumber: newTicketNumber,
+          ticketId: newTicketNumber,
+          subject: created.subject,
+          category: created.category || newCategory,
+          priority: normalizePriority(created.priority),
+          status: normalizeStatus(created.status),
+          description: created.description,
+          assignedAgent: created.assignedAgent || {
+            name: "Support Routing Engine",
+            role: "Assigned Specialist",
+          },
+          attachments: created.attachments || [],
+          createdAt: created.createdAt || new Date().toISOString(),
+          updatedAt: created.updatedAt || new Date().toISOString(),
+          replies: created.replies || [],
+        });
+      }
+    } catch (err: any) {
+      toast({
+        title: "Failed to Create Ticket",
+        description: err?.response?.data?.message || "An error occurred while creating ticket.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleSendReply = (e: React.FormEvent) => {
+  // Handle send reply via live API
+  const handleSendReply = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!replyInput.trim() || !activeTicket) return;
 
-    const newReply: TicketReply = {
-      id: `r-${Date.now()}`,
-      sender: "customer",
-      senderName: "Video Panel (You)",
-      senderRole: "Workspace Admin",
-      message: replyInput.trim(),
-      timestamp: "Just now",
-    };
+    setIsReplying(true);
+    try {
+      const targetId = activeTicket.id || activeTicket.ticketNumber;
+      await api.post(`/support/tickets/${targetId}/reply`, {
+        message: replyInput.trim(),
+      });
 
-    const updated = {
-      ...activeTicket,
-      updatedAt: "Just now",
-      status: "In Progress" as TicketStatus,
-      replies: [...activeTicket.replies, newReply],
-    };
+      setReplyInput("");
+      toast({
+        title: "Reply Sent",
+        description: "Your response has been added to the ticket thread.",
+      });
 
-    setActiveTicket(updated);
-    setTickets((prev) =>
-      prev.map((t) => (t.id === activeTicket.id ? updated : t))
-    );
-    setReplyInput("");
+      // Reload single ticket thread
+      try {
+        const refreshed = await api.get(`/support/tickets/${targetId}`);
+        const data = refreshed.data?.data || refreshed.data;
+        if (data) {
+          const updatedTicket: SupportTicket = {
+            id: data.id,
+            ticketNumber: data.ticketNumber || data.ticketId || activeTicket.ticketNumber,
+            ticketId: data.ticketNumber || data.ticketId || activeTicket.ticketNumber,
+            subject: data.subject,
+            category: data.category,
+            priority: normalizePriority(data.priority),
+            status: normalizeStatus(data.status),
+            description: data.description,
+            assignedAgent: data.assignedAgent || activeTicket.assignedAgent,
+            attachments: data.attachments || [],
+            createdAt: data.createdAt,
+            updatedAt: data.updatedAt,
+            replies: Array.isArray(data.replies) ? data.replies : [],
+          };
+          setActiveTicket(updatedTicket);
+          setTickets((prev) =>
+            prev.map((t) => (t.id === updatedTicket.id ? updatedTicket : t))
+          );
+        } else {
+          await loadTickets();
+        }
+      } catch {
+        await loadTickets();
+      }
+    } catch (err: any) {
+      toast({
+        title: "Failed to Send Reply",
+        description: err?.response?.data?.message || "Could not dispatch reply.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsReplying(false);
+    }
   };
 
-  const handleUpdateStatus = (newStatus: TicketStatus) => {
+  // Handle status update via live API
+  const handleUpdateStatus = async (newStatus: TicketStatus) => {
     if (!activeTicket) return;
-    const updated = {
-      ...activeTicket,
-      status: newStatus,
-      updatedAt: "Just now",
-    };
-    setActiveTicket(updated);
-    setTickets((prev) =>
-      prev.map((t) => (t.id === activeTicket.id ? updated : t))
-    );
+    const targetId = activeTicket.id || activeTicket.ticketNumber;
+    try {
+      await api.patch(`/support/tickets/${targetId}/status`, {
+        status: newStatus,
+      });
+
+      toast({
+        title: "Status Updated",
+        description: `Ticket status set to ${newStatus}.`,
+      });
+
+      setActiveTicket((prev) => (prev ? { ...prev, status: newStatus } : null));
+      setTickets((prev) =>
+        prev.map((t) =>
+          t.id === targetId || t.ticketNumber === targetId
+            ? { ...t, status: newStatus }
+            : t
+        )
+      );
+    } catch (err: any) {
+      toast({
+        title: "Status Update Failed",
+        description: err?.response?.data?.message || "Could not update status.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -389,7 +416,7 @@ export default function SupportTicketsPage() {
 
         <Button
           onClick={() => setIsRaiseModalOpen(true)}
-          className="bg-primary text-primary-foreground gap-1.5 shadow-sm"
+          className="bg-primary text-primary-foreground gap-1.5 shadow-sm cursor-pointer"
         >
           <Plus className="h-4 w-4" />
           Raise New Ticket
@@ -397,50 +424,49 @@ export default function SupportTicketsPage() {
       </div>
 
       {/* Ticket Metric Cards */}
-   {/* Ticket Metric Cards */}
-<div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-  <div className="rounded-xl border bg-card p-4 shadow-xs">
-    <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center mb-3">
-      <Ticket className="h-4.5 w-4.5 text-primary" />
-    </div>
-    <p className="text-xs text-muted-foreground">Total Tickets Raised</p>
-    <p className="text-2xl font-bold mt-0.5 text-foreground">{tickets.length}</p>
-    <p className="text-xs text-muted-foreground mt-1">All time history</p>
-  </div>
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border bg-card p-4 shadow-xs">
+          <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center mb-3">
+            <Ticket className="h-4.5 w-4.5 text-primary" />
+          </div>
+          <p className="text-xs text-muted-foreground">Total Tickets Raised</p>
+          <p className="text-2xl font-bold mt-0.5 text-foreground">{tickets.length}</p>
+          <p className="text-xs text-muted-foreground mt-1">All time history</p>
+        </div>
 
-  <div className="rounded-xl border bg-card p-4 shadow-xs">
-    <div className="h-9 w-9 rounded-lg bg-amber-100 dark:bg-amber-950 flex items-center justify-center mb-3">
-      <RefreshCw className="h-4.5 w-4.5 text-amber-600 dark:text-amber-400" />
-    </div>
-    <p className="text-xs text-muted-foreground">In Progress & Open</p>
-    <p className="text-2xl font-bold mt-0.5 text-foreground">
-      {tickets.filter((t) => t.status === "Open" || t.status === "In Progress").length}
-    </p>
-    <p className="text-xs text-amber-600 font-medium mt-1">Active priority queue</p>
-  </div>
+        <div className="rounded-xl border bg-card p-4 shadow-xs">
+          <div className="h-9 w-9 rounded-lg bg-amber-100 dark:bg-amber-950 flex items-center justify-center mb-3">
+            <RefreshCw className="h-4.5 w-4.5 text-amber-600 dark:text-amber-400" />
+          </div>
+          <p className="text-xs text-muted-foreground">In Progress & Open</p>
+          <p className="text-2xl font-bold mt-0.5 text-foreground">
+            {tickets.filter((t) => t.status === "Open" || t.status === "In Progress").length}
+          </p>
+          <p className="text-xs text-amber-600 font-medium mt-1">Active priority queue</p>
+        </div>
 
-  <div className="rounded-xl border bg-card p-4 shadow-xs">
-    <div className="h-9 w-9 rounded-lg bg-purple-100 dark:bg-purple-950 flex items-center justify-center mb-3">
-      <Clock className="h-4.5 w-4.5 text-purple-600 dark:text-purple-400" />
-    </div>
-    <p className="text-xs text-muted-foreground">Waiting for You</p>
-    <p className="text-2xl font-bold mt-0.5 text-foreground">
-      {tickets.filter((t) => t.status === "Waiting for Customer").length}
-    </p>
-    <p className="text-xs text-purple-600 font-medium mt-1">Response requested</p>
-  </div>
+        <div className="rounded-xl border bg-card p-4 shadow-xs">
+          <div className="h-9 w-9 rounded-lg bg-purple-100 dark:bg-purple-950 flex items-center justify-center mb-3">
+            <Clock className="h-4.5 w-4.5 text-purple-600 dark:text-purple-400" />
+          </div>
+          <p className="text-xs text-muted-foreground">Waiting for You</p>
+          <p className="text-2xl font-bold mt-0.5 text-foreground">
+            {tickets.filter((t) => t.status === "Waiting for Customer").length}
+          </p>
+          <p className="text-xs text-purple-600 font-medium mt-1">Response requested</p>
+        </div>
 
-  <div className="rounded-xl border bg-card p-4 shadow-xs">
-    <div className="h-9 w-9 rounded-lg bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center mb-3">
-      <CheckCircle2 className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
-    </div>
-    <p className="text-xs text-muted-foreground">Resolved Tickets</p>
-    <p className="text-2xl font-bold mt-0.5 text-foreground">
-      {tickets.filter((t) => t.status === "Resolved" || t.status === "Closed").length}
-    </p>
-    <p className="text-xs text-emerald-600 font-medium mt-1">100% SLA compliance</p>
-  </div>
-</div>
+        <div className="rounded-xl border bg-card p-4 shadow-xs">
+          <div className="h-9 w-9 rounded-lg bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center mb-3">
+            <CheckCircle2 className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <p className="text-xs text-muted-foreground">Resolved Tickets</p>
+          <p className="text-2xl font-bold mt-0.5 text-foreground">
+            {tickets.filter((t) => t.status === "Resolved" || t.status === "Closed").length}
+          </p>
+          <p className="text-xs text-emerald-600 font-medium mt-1">100% SLA compliance</p>
+        </div>
+      </div>
 
       {/* Filter Tabs & Search */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border rounded-xl bg-card p-3 shadow-xs">
@@ -509,10 +535,27 @@ export default function SupportTicketsPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredTickets.length === 0 ? (
+              {isLoading ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-muted-foreground">
-                    No tickets found matching your criteria.
+                  <td colSpan={8} className="p-12 text-center text-muted-foreground">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                      <p className="text-xs">Loading support tickets...</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredTickets.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="p-12 text-center text-muted-foreground">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <Headset className="h-8 w-8 text-muted-foreground/50" />
+                      <p className="font-semibold text-foreground text-sm">No support tickets found</p>
+                      <p className="text-xs text-muted-foreground max-w-sm">
+                        {searchQuery
+                          ? "No tickets match your search filters."
+                          : "You have not raised any support inquiries yet. Click 'Raise New Ticket' to get started."}
+                      </p>
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -520,6 +563,7 @@ export default function SupportTicketsPage() {
                   const pStyle = priorityStyles[ticket.priority];
                   const sStyle = statusStyles[ticket.status];
                   const StatusIcon = sStyle.icon;
+                  const displayTicketId = ticket.ticketNumber || ticket.ticketId || ticket.id;
 
                   return (
                     <tr
@@ -528,7 +572,7 @@ export default function SupportTicketsPage() {
                       className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
                     >
                       <td className="p-3.5 font-mono text-xs font-bold text-primary whitespace-nowrap">
-                        #{ticket.id}
+                        #{displayTicketId}
                       </td>
                       <td className="p-3.5">
                         <p className="font-semibold text-foreground text-xs line-clamp-1 hover:text-primary">
@@ -559,10 +603,10 @@ export default function SupportTicketsPage() {
                         </Badge>
                       </td>
                       <td className="p-3.5 text-xs text-muted-foreground whitespace-nowrap">
-                        {ticket.createdAt}
+                        {formatDate(ticket.createdAt)}
                       </td>
                       <td className="p-3.5 text-xs text-muted-foreground whitespace-nowrap">
-                        {ticket.updatedAt}
+                        {formatDate(ticket.updatedAt)}
                       </td>
                       <td className="p-3.5 text-right whitespace-nowrap">
                         <Button
@@ -572,7 +616,7 @@ export default function SupportTicketsPage() {
                             e.stopPropagation();
                             setActiveTicket(ticket);
                           }}
-                          className="h-7 text-xs text-primary font-semibold hover:bg-primary/10"
+                          className="h-7 text-xs text-primary font-semibold hover:bg-primary/10 cursor-pointer"
                         >
                           View & Reply
                         </Button>
@@ -595,7 +639,7 @@ export default function SupportTicketsPage() {
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-sm font-extrabold text-primary">
-                    #{activeTicket.id}
+                    #{activeTicket.ticketNumber || activeTicket.ticketId || activeTicket.id}
                   </span>
                   <Badge
                     variant="outline"
@@ -622,7 +666,7 @@ export default function SupportTicketsPage() {
 
               <button
                 onClick={() => setActiveTicket(null)}
-                className="text-muted-foreground hover:text-foreground p-1"
+                className="text-muted-foreground hover:text-foreground p-1 cursor-pointer"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -638,17 +682,17 @@ export default function SupportTicketsPage() {
               </div>
               <div>
                 <p className="text-muted-foreground text-[10px] uppercase font-semibold">
-                  Assigned Agent
+                  Assigned Specialist
                 </p>
                 <p className="font-medium text-foreground">
-                  {activeTicket.assignedAgent?.name || "Tier 1 Specialist"}
+                  {activeTicket.assignedAgent?.name || "Support Team"}
                 </p>
               </div>
               <div>
                 <p className="text-muted-foreground text-[10px] uppercase font-semibold">
                   Created Date
                 </p>
-                <p className="font-medium text-foreground">{activeTicket.createdAt}</p>
+                <p className="font-medium text-foreground">{formatDate(activeTicket.createdAt)}</p>
               </div>
               <div>
                 <p className="text-muted-foreground text-[10px] uppercase font-semibold">
@@ -657,7 +701,7 @@ export default function SupportTicketsPage() {
                 <select
                   value={activeTicket.status}
                   onChange={(e) => handleUpdateStatus(e.target.value as TicketStatus)}
-                  className="mt-0.5 rounded border border-input bg-background px-2 py-0.5 text-xs font-semibold text-primary"
+                  className="mt-0.5 rounded border border-input bg-background px-2 py-0.5 text-xs font-semibold text-primary cursor-pointer"
                 >
                   <option value="Open">Open</option>
                   <option value="In Progress">In Progress</option>
@@ -669,7 +713,7 @@ export default function SupportTicketsPage() {
             </div>
 
             {/* Attachments Section if present */}
-            {activeTicket.attachments.length > 0 && (
+            {activeTicket.attachments && activeTicket.attachments.length > 0 && (
               <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground shrink-0 border-b">
                 <Paperclip className="h-3.5 w-3.5 text-primary" />
                 <span className="font-medium">Attached files:</span>
@@ -687,11 +731,22 @@ export default function SupportTicketsPage() {
             {/* Conversation Replies Stream */}
             <div className="flex-1 overflow-y-auto space-y-3 py-3 pr-1">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Conversation Thread ({activeTicket.replies.length})
+                Conversation Thread ({activeTicket.replies?.length || 0})
               </p>
 
-              {activeTicket.replies.map((reply) => {
-                const isCustomer = reply.sender === "customer";
+              {activeTicket.replies?.map((reply) => {
+                const isCustomer =
+                  reply.sender === "customer" ||
+                  (reply.senderRole && !reply.senderRole.toLowerCase().includes("support") && !reply.senderRole.toLowerCase().includes("agent"));
+
+                const senderName =
+                  reply.senderName ||
+                  (isCustomer ? user?.name || user?.email || "You" : "Support Specialist");
+
+                const senderRole =
+                  reply.senderRole ||
+                  (isCustomer ? (user?.role || "Workspace Admin") : "Tier 2 Specialist");
+
                 return (
                   <div
                     key={reply.id}
@@ -710,17 +765,17 @@ export default function SupportTicketsPage() {
                               : "bg-emerald-600 text-white"
                           )}
                         >
-                          {reply.senderName.charAt(0)}
+                          {senderName.charAt(0).toUpperCase()}
                         </div>
                         <span className="font-semibold text-foreground">
-                          {reply.senderName}
+                          {senderName}
                         </span>
                         <span className="text-[10px] text-muted-foreground">
-                          ({reply.senderRole})
+                          ({senderRole})
                         </span>
                       </div>
                       <span className="text-[10px] text-muted-foreground">
-                        {reply.timestamp}
+                        {formatDate(reply.timestamp || reply.createdAt)}
                       </span>
                     </div>
 
@@ -746,15 +801,16 @@ export default function SupportTicketsPage() {
                   placeholder="Type your response to the support team..."
                   value={replyInput}
                   onChange={(e) => setReplyInput(e.target.value)}
+                  disabled={isReplying}
                   className="text-xs h-9"
                 />
                 <Button
                   type="submit"
-                  disabled={!replyInput.trim()}
-                  className="bg-primary text-primary-foreground text-xs gap-1.5 shrink-0"
+                  disabled={!replyInput.trim() || isReplying}
+                  className="bg-primary text-primary-foreground text-xs gap-1.5 shrink-0 cursor-pointer"
                 >
-                  <Send className="h-3.5 w-3.5" />
-                  Send Reply
+                  {isReplying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  {isReplying ? "Sending..." : "Send Reply"}
                 </Button>
               </div>
             </form>
@@ -775,7 +831,7 @@ export default function SupportTicketsPage() {
               </div>
               <button
                 onClick={() => setIsRaiseModalOpen(false)}
-                className="text-muted-foreground hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground cursor-pointer"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -791,6 +847,7 @@ export default function SupportTicketsPage() {
                   placeholder="e.g. Need assistance with WhatsApp Webhook 504 error"
                   value={newSubject}
                   onChange={(e) => setNewSubject(e.target.value)}
+                  disabled={isSubmitting}
                   className="h-9 text-xs"
                 />
               </div>
@@ -801,9 +858,10 @@ export default function SupportTicketsPage() {
                     Category *
                   </label>
                   <select
-                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
                     value={newCategory}
                     onChange={(e) => setNewCategory(e.target.value)}
+                    disabled={isSubmitting}
                   >
                     <option value="Technical Support">Technical Support</option>
                     <option value="Channel Verification">Channel Verification</option>
@@ -819,9 +877,10 @@ export default function SupportTicketsPage() {
                     Priority Level *
                   </label>
                   <select
-                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
                     value={newPriority}
                     onChange={(e) => setNewPriority(e.target.value as TicketPriority)}
+                    disabled={isSubmitting}
                   >
                     <option value="Low">Low (General guidance)</option>
                     <option value="Medium">Medium (Standard request)</option>
@@ -841,6 +900,7 @@ export default function SupportTicketsPage() {
                   placeholder="Explain what happened, steps to reproduce, or details of your request..."
                   value={newDescription}
                   onChange={(e) => setNewDescription(e.target.value)}
+                  disabled={isSubmitting}
                   className="w-full rounded-md border border-input bg-background p-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 />
               </div>
@@ -855,6 +915,7 @@ export default function SupportTicketsPage() {
                     placeholder="e.g. error_screenshot.png or payload_dump.json"
                     value={newAttachmentName}
                     onChange={(e) => setNewAttachmentName(e.target.value)}
+                    disabled={isSubmitting}
                     className="pl-8.5 h-9 text-xs"
                   />
                 </div>
@@ -863,10 +924,10 @@ export default function SupportTicketsPage() {
               <div className="p-3 rounded-lg bg-muted/40 text-xs text-muted-foreground space-y-1">
                 <p className="font-semibold text-foreground flex items-center gap-1">
                   <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-                  Tier-Based SLA Protection
+                  Tier-Based SLA Protection & Email Alerts
                 </p>
                 <p>
-                  Your ticket will automatically be assigned a unique Ticket ID and routed to our dedicated engineering on-call support.
+                  Your ticket will automatically generate a confirmation email to your account and alert our on-call support team.
                 </p>
               </div>
 
@@ -876,15 +937,19 @@ export default function SupportTicketsPage() {
                   variant="outline"
                   size="sm"
                   onClick={() => setIsRaiseModalOpen(false)}
+                  disabled={isSubmitting}
+                  className="cursor-pointer"
                 >
                   Cancel
                 </Button>
                 <Button
                   type="submit"
                   size="sm"
-                  className="bg-primary text-primary-foreground"
+                  disabled={isSubmitting}
+                  className="bg-primary text-primary-foreground gap-1.5 cursor-pointer"
                 >
-                  Submit Ticket
+                  {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  {isSubmitting ? "Submitting..." : "Submit Ticket"}
                 </Button>
               </div>
             </form>

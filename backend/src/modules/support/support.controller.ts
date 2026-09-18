@@ -31,7 +31,8 @@ export class SupportController {
       tenantId,
       userId,
       user?.email || 'admin@appnix.io',
-      dto
+      dto,
+      user
     );
   }
 
@@ -64,7 +65,8 @@ export class SupportController {
       userId,
       user?.email || 'admin@appnix.io',
       user?.role || 'TENANT_ADMIN',
-      dto
+      dto,
+      user
     );
   }
 
