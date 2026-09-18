@@ -14,12 +14,16 @@ export class PostgresService implements OnModuleInit, OnModuleDestroy {
       'postgresql://postgres@localhost:5432/appnix_saas';
 
     const isSsl =
-      connectionString.includes('sslmode=require') ||
+      connectionString.includes('sslmode=') ||
       connectionString.includes('rds.amazonaws.com') ||
       connectionString.includes('render.com');
 
+    const cleanConnectionString = isSsl
+      ? connectionString.replace(/([?&])sslmode=[^&]+(&|$)/g, '$1').replace(/[?&]$/, '')
+      : connectionString;
+
     this.pool = new Pool({
-      connectionString,
+      connectionString: cleanConnectionString,
       ssl: isSsl ? { rejectUnauthorized: false } : undefined,
       max: 20,
       idleTimeoutMillis: 30000,
