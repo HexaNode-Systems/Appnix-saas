@@ -31,7 +31,13 @@ export class DashboardService {
       }),
       this.prisma.crmContact.count({ where: { tenantId } }),
       this.prisma.subscription.findFirst({
-        where: { tenantId, status: 'ACTIVE' },
+        where: {
+          tenantId,
+          status: { in: ['ACTIVE', 'TRIALING'] },
+        },
+        include: {
+          plan: true,
+        },
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.campaign.findMany({
@@ -71,6 +77,38 @@ export class DashboardService {
       };
     });
 
+    let subscriptionPayload = null;
+    if (subscription) {
+      const periodStart = new Date(subscription.currentPeriodStart || subscription.createdAt);
+      const periodEnd = new Date(subscription.currentPeriodEnd || (subscription as any).trialEndsAt || now);
+
+      // Calculate total duration in days
+      const diffTotalMs = periodEnd.getTime() - periodStart.getTime();
+      const totalDays = Math.max(1, Math.round(diffTotalMs / (1000 * 60 * 60 * 24)));
+
+      // Calculate remaining days
+      const diffRemainingMs = periodEnd.getTime() - now.getTime();
+      const remainingDays = Math.max(0, Math.ceil(diffRemainingMs / (1000 * 60 * 60 * 24)));
+
+      const isTrial = subscription.status === 'TRIALING' || Boolean(subscription.isTrial);
+      const planName = subscription.plan?.name || subscription.planName || (isTrial ? '7-Day Free Trial' : 'Active Plan');
+
+      subscriptionPayload = {
+        plan: planName,
+        status: subscription.status,
+        isTrial,
+        totalDays,
+        remainingDays,
+        usedDays: Math.max(0, totalDays - remainingDays),
+        usedMessages: subscription.usedMessages ?? 0,
+        maxMessages: subscription.maxMessages ?? subscription.plan?.maxMessages ?? 10000,
+        usedBots: subscription.usedBots ?? bots.length,
+        maxBots: subscription.maxBots ?? subscription.plan?.maxBots ?? 5,
+        usedTeamSeats: teamMembersCount || subscription.usedTeamSeats || 1,
+        maxTeamSeats: subscription.maxTeamSeats ?? (subscription.plan as any)?.maxTeamSeats ?? subscription.plan?.teamSeats ?? 10,
+      };
+    }
+
     return {
       success: true,
       data: {
@@ -106,21 +144,7 @@ export class DashboardService {
           time: a.createdAt ? a.createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently',
           status: a.status === 'Success' ? 'sent' : 'completed',
         })),
-        subscription: subscription
-          ? {
-              plan: subscription.planName,
-              status: subscription.status,
-              totalDays: subscription.totalDays,
-              remainingDays: subscription.remainingDays,
-              usedDays: Math.max(0, subscription.totalDays - subscription.remainingDays),
-              maxMessages: subscription.maxMessages,
-              usedMessages: subscription.usedMessages,
-              maxBots: subscription.maxBots,
-              usedBots: bots.length,
-              maxTeamSeats: subscription.maxTeamSeats,
-              usedTeamSeats: teamMembersCount || 1,
-            }
-          : null,
+        subscription: subscriptionPayload,
       },
     };
   }

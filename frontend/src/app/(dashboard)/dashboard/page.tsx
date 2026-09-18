@@ -73,8 +73,11 @@ interface DashboardData {
   }>;
   subscription: {
     plan: string;
+    status?: string;
+    isTrial?: boolean;
     totalDays: number;
     remainingDays: number;
+    usedDays?: number;
     usedMessages?: number;
     maxMessages?: number;
     usedBots?: number;
@@ -103,9 +106,9 @@ export default function DashboardPage() {
     recentCampaigns: [],
     recentActivity: [],
     subscription: {
-      plan: "Professional Tier",
-      totalDays: 90,
-      remainingDays: 90,
+      plan: "Loading Plan...",
+      totalDays: 7,
+      remainingDays: 7,
       usedMessages: 0,
       maxMessages: 10000,
       usedBots: 0,
@@ -119,6 +122,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let isMounted = true;
+
     async function fetchStats() {
       try {
         const res = await api.get("/dashboard/stats");
@@ -152,11 +156,11 @@ export default function DashboardPage() {
     }
 
     fetchStats();
+
     return () => {
       isMounted = false;
     };
-  }, [router]);
-
+  }, [router, user]);
   const stats = useMemo(
     () => [
       {
@@ -248,8 +252,8 @@ export default function DashboardPage() {
   const usedTeamSeats = data.subscription.usedTeamSeats ?? 1;
   const maxTeamSeats = data.subscription.maxTeamSeats ?? 10;
 
-  const totalDays = data.subscription.totalDays || 90;
-  const remainingDays = Math.min(data.subscription.remainingDays ?? 90, totalDays);
+  const totalDays = data.subscription.totalDays || 7;
+  const remainingDays = Math.min(data.subscription.remainingDays ?? 7, totalDays);
 
   return (
     <div className="space-y-5 sm:space-y-7 px-3 sm:px-0 pb-4">
@@ -588,24 +592,26 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
                   <p className="text-3xl font-bold tracking-tight">
-                    {totalDays}
+                    {data.subscription.totalDays}
                   </p>
-                  <p className="text-xs text-muted-foreground">Total Plan Days</p>
+                  <p className="text-xs text-muted-foreground">
+                    {data.subscription.isTrial ? "Trial Duration (Days)" : "Total Plan Days"}
+                  </p>
                 </div>
                 <Badge className="bg-emerald-600 hover:bg-emerald-600 shadow-sm">
-                  {remainingDays} Days Remaining
+                  {data.subscription.remainingDays} Days Remaining
                 </Badge>
               </div>
               <div className="h-2.5 bg-muted rounded-full overflow-hidden">
                 <div
                   className="h-full bg-emerald-600 rounded-full"
                   style={{
-                    width: `${Math.min(100, Math.max(0, (remainingDays / totalDays) * 100))}%`,
+                    width: `${Math.min(100, Math.max(0, (data.subscription.remainingDays / (data.subscription.totalDays || 1)) * 100))}%`,
                   }}
                 />
               </div>
               <p className="text-xs text-muted-foreground text-right">
-                {Math.max(0, totalDays - remainingDays)} Days Used
+                {data.subscription.usedDays ?? Math.max(0, data.subscription.totalDays - data.subscription.remainingDays)} Days Used
               </p>
             </CardContent>
           </Card>
