@@ -32,6 +32,23 @@ function decodeJwt(token: string | undefined): DecodedToken | null {
   }
 }
 
+// Helper to identify if an account belongs to a reseller partner vs Appnix direct
+export function isDirectClientAccount(tenantPath?: string, tenantParentId?: string | null): boolean {
+  if (!tenantPath) return false;
+
+  // Direct client paths ALWAYS start with root.appnix_direct
+  if (tenantPath.startsWith("root.appnix_direct")) {
+    return true;
+  }
+
+  // Or if parentId is APPNIX_DIRECT or null
+  if (tenantParentId === "APPNIX_DIRECT" || !tenantParentId) {
+    return true;
+  }
+
+  return false;
+}
+
 function getSubdomainUrl(
   subdomain: "app" | "admin" | "partners" | "superadmin",
   pathWithSearch: string,
@@ -498,7 +515,13 @@ export async function proxy(request: NextRequest) {
     }
 
     // Check if client belongs to a reseller workspace (reseller isolation rule)
-    if (!isLocal && clientDecoded?.orgPath && clientDecoded.orgPath.split(".").length > 2) {
+    // ONLY block if it is a real partner child client, NOT an appnix direct client
+    const isPartnerChildClient =
+      !!clientDecoded?.orgPath &&
+      clientDecoded.orgPath.split(".").length > 2 &&
+      !isDirectClientAccount(clientDecoded.orgPath, (clientDecoded as any).parentId);
+
+    if (!isLocal && isPartnerChildClient) {
       // User belongs to a downstream partner workspace, block on direct app
       if (pathname.startsWith("/dashboard") || pathname.startsWith("/crm") || pathname.startsWith("/campaigns")) {
         const redirectRes = NextResponse.redirect(

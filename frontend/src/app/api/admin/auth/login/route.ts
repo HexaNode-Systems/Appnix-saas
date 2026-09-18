@@ -26,25 +26,26 @@ export async function POST(request: NextRequest) {
     // http://localhost:4000/api/v1/auth/login
     const backendUrl = `${config.api.baseUrl}/auth/login`;
 
-    const requestHost = request.headers.get("x-forwarded-host") || request.headers.get("host") || "";
+    const requestHost = request.headers.get("x-forwarded-host") || request.headers.get("host") || "admin.appnix.co.in";
+    const proxyHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      "x-forwarded-host": requestHost,
+      "x-original-host": requestHost,
+      "x-appnix-host": requestHost,
+      origin: `https://${requestHost}`,
+    };
     let backendRes: Response;
     try {
       backendRes = await fetch(backendUrl, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-forwarded-host": requestHost,
-        },
+        headers: proxyHeaders,
         body: JSON.stringify(payload),
       });
     } catch (networkError: any) {
       console.warn("[Admin Auth Proxy] Primary login unreachable, trying admin route alias:", networkError.message);
       backendRes = await fetch(`${config.api.baseUrl}/auth/admin/login`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-forwarded-host": requestHost,
-        },
+        headers: proxyHeaders,
         body: JSON.stringify(payload),
       });
     }

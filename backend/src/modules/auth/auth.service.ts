@@ -567,16 +567,26 @@ export class AuthService {
         throw new ForbiddenException('Staff accounts cannot log in to the direct client portal');
       }
       // 3. Reject partner workspace accounts (downstream clients of resellers)
-      if (!isSuper && user.tenant?.parentId != null && user.tenantId !== 'APPNIX_DIRECT') {
+      const isDirectClient =
+        user.tenantId === 'APPNIX_DIRECT' ||
+        user.tenant?.parentId === 'APPNIX_DIRECT' ||
+        (user.tenant?.path ? user.tenant.path.startsWith('root.appnix_direct') : false);
+
+      if (!isSuper && user.tenant?.parentId != null && !isDirectClient) {
         throw new ForbiddenException('Partner workspace accounts cannot log in to the direct client portal');
       }
     } else if (domainTopology.isPartnersDomain) {
       // Reject direct client users or APP_ADMIN staff with 403 Forbidden: Client accounts cannot access partner console
+      const isDirectClient =
+        user.tenantId === 'APPNIX_DIRECT' ||
+        user.tenant?.parentId === 'APPNIX_DIRECT' ||
+        (user.tenant?.path ? user.tenant.path.startsWith('root.appnix_direct') : false);
+
       if (
         user.role === Role.CLIENT_USER ||
         user.role === Role.APP_ADMIN ||
         user.role === Role.MEMBER ||
-        (user.role === Role.TENANT_ADMIN && (!user.tenant?.parentId || user.tenantId === 'APPNIX_DIRECT'))
+        (user.role === Role.TENANT_ADMIN && (!user.tenant?.parentId || isDirectClient))
       ) {
         throw new ForbiddenException('Client accounts cannot access partner console');
       }

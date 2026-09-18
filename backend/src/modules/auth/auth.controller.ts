@@ -149,6 +149,13 @@ export class AuthController {
   }
 
   private extractRequestHost(req: Request): string {
+    // 0. Inspect explicit custom host headers
+    const customHost = (req.headers['x-appnix-host'] || req.headers['x-original-host']) as string | undefined;
+    if (customHost) {
+      const sanitized = sanitizeHost(customHost);
+      if (sanitized && sanitized !== 'api.appnix.co.in') return sanitized;
+    }
+
     // 1. Inspect x-forwarded-host
     const rawXf = (req.headers['x-forwarded-host'] as string) || '';
     if (rawXf) {
@@ -195,7 +202,12 @@ export class AuthController {
       }
     }
 
-    // 5. Fallback: if rawXf was provided even if localhost
+    // 5. Dedicated admin routes default to admin domain
+    if (req.originalUrl?.includes('/admin') || req.url?.includes('/admin')) {
+      return 'admin.appnix.co.in';
+    }
+
+    // 6. Fallback: if rawXf was provided even if localhost
     if (rawXf) {
       const sanitized = sanitizeHost(rawXf);
       if (sanitized && sanitized !== 'api.appnix.co.in') return sanitized;
