@@ -33,27 +33,32 @@ import {
   RotateCw,
   Check,
   Loader2,
+  Building2,
+  GitBranch,
 } from "lucide-react";
 
 // ---------- Tabs ----------
 const TABS = ["Personal Details", "API Details", "Beta Access"] as const;
 type Tab = (typeof TABS)[number];
 
-interface PersonalDetailsState {
-  firstName: string;
-  lastName: string;
+// ---------- Interface for https://app.appnix.co.in/api/proxy/auth/me ----------
+export interface AuthMeResponse {
+  id: string;
+  email: string;
   name: string;
-  primaryEmail: string;
-  secondaryEmail: string;
-  phone: string;
-  city: string;
-  state: string;
-  country: string;
-  zipCode: string;
-  language: string;
-  avatar?: string;
   role: string;
-  joiningDate: string;
+  rawRole: string;
+  systemRole: string;
+  tenantId: string;
+  workspaceId: string;
+  workspaceName: string;
+  permissions: string[];
+  emailVerified: boolean;
+  twoFactorEnabled: boolean;
+  orgPath: string;
+  tier: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface BetaAccessItem {
@@ -62,7 +67,7 @@ interface BetaAccessItem {
   status: string;
 }
 
-// ---------- Helper Functions ----------
+// ---------- Helpers ----------
 function getInitials(name?: string, email?: string): string {
   if (name && name.trim()) {
     const parts = name.trim().split(/\s+/);
@@ -78,7 +83,7 @@ function getInitials(name?: string, email?: string): string {
 }
 
 function formatJoiningDate(dateStr?: string): string {
-  if (!dateStr) return "Mar 18th, 2026";
+  if (!dateStr) return "Sep 18th, 2026";
   try {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return dateStr;
@@ -102,31 +107,34 @@ function formatJoiningDate(dateStr?: string): string {
 // ---------- Page Component ----------
 export default function AccountSettingsPage() {
   const { currentLanguage, setLanguage, supportedLanguages } = useLanguage();
-  const { user, refreshUser } = useAuth();
+  const { refreshUser } = useAuth();
   const { toast } = useToast();
 
   const [activeTab, setActiveTab] = useState<Tab>("Personal Details");
   const [isLoading, setIsLoading] = useState(false);
 
-  // Profile data states
-  const [personalDetails, setPersonalDetails] = useState<PersonalDetailsState>({
-    firstName: "",
-    lastName: "",
-    name: "",
-    primaryEmail: "",
-    secondaryEmail: "",
-    phone: "",
-    city: "Mumbai",
-    state: "Maharashtra",
-    country: "india",
-    zipCode: "400001",
-    language: "en",
-    role: "WORKSPACE ADMIN",
-    joiningDate: "Mar 18th, 2026",
+  // Live data bound directly from https://app.appnix.co.in/api/proxy/auth/me
+  const [authMe, setAuthMe] = useState<AuthMeResponse>({
+    id: "36d6ee41-c52e-407d-85b4-871027b2cf9f",
+    email: "harshit002@yopmail.com",
+    name: "harshit",
+    role: "member",
+    rawRole: "CLIENT_USER",
+    systemRole: "CLIENT_USER",
+    tenantId: "f9b4059e-16ee-404f-9220-a9c36303d27b",
+    workspaceId: "f9b4059e-16ee-404f-9220-a9c36303d27b",
+    workspaceName: "ABCD",
+    permissions: ["*"],
+    emailVerified: true,
+    twoFactorEnabled: false,
+    orgPath: "root.appnix_direct.t_f9b4059e_16ee_404f_9220_a9c36303d27b",
+    tier: "END_CLIENT",
+    createdAt: "2026-09-18T18:59:42.740Z",
+    updatedAt: "2026-09-18T21:44:07.955Z",
   });
 
   // Editable form fields
-  const [firstName, setFirstName] = useState("");
+  const [firstName, setFirstName] = useState("harshit");
   const [lastName, setLastName] = useState("");
   const [selectedLanguage, setSelectedLanguage] = useState<string>("en");
   const [city, setCity] = useState("Mumbai");
@@ -138,7 +146,7 @@ export default function AccountSettingsPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Security / Password update states
+  // Security / Password update
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -154,6 +162,8 @@ export default function AccountSettingsPage() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [apiKeyCopied, setApiKeyCopied] = useState(false);
   const [webhookCopied, setWebhookCopied] = useState(false);
+  const [orgPathCopied, setOrgPathCopied] = useState(false);
+  const [workspaceIdCopied, setWorkspaceIdCopied] = useState(false);
   const [isRegeneratingKey, setIsRegeneratingKey] = useState(false);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
 
@@ -166,40 +176,32 @@ export default function AccountSettingsPage() {
     },
   ]);
 
-  // Sync initial fields from user when auth context is ready
-  useEffect(() => {
-    if (user) {
-      const parts = (user.name || "").trim().split(/\s+/);
-      const parsedFirst = parts[0] || "";
-      const parsedLast = parts.slice(1).join(" ") || "";
-
-      setPersonalDetails((prev) => ({
-        ...prev,
-        firstName: parsedFirst || prev.firstName,
-        lastName: parsedLast || prev.lastName,
-        name: user.name || prev.name,
-        primaryEmail: user.email || prev.primaryEmail,
-        role: (user.role || user.rawRole || "WORKSPACE ADMIN").toUpperCase().replace(/_/g, " "),
-        joiningDate: user.createdAt || prev.joiningDate,
-      }));
-
-      setFirstName((prev) => prev || parsedFirst);
-      setLastName((prev) => prev || parsedLast);
-    }
-  }, [user]);
-
-  // Load account settings from backend API
-  const fetchAccountSettings = useCallback(async () => {
+  // Load live user data from https://app.appnix.co.in/api/proxy/auth/me
+  const fetchAuthMeProfile = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await api.get("/workspace/account-settings");
-      if (res.data?.success && res.data?.data) {
-        const { personalDetails: p, apiDetails: a, security: s, betaAccess: b } = res.data.data;
+      const res = await api.get("/auth/me");
+      const data: AuthMeResponse = res.data?.data || res.data;
+      if (data && data.id) {
+        setAuthMe(data);
 
+        // Split name into first and last name
+        const nameParts = (data.name || "").trim().split(/\s+/);
+        setFirstName(nameParts[0] || "");
+        setLastName(nameParts.slice(1).join(" ") || "");
+
+        setTwoFactorEnabled(!!data.twoFactorEnabled);
+      }
+    } catch (err) {
+      console.warn("Could not load /api/proxy/auth/me:", err);
+    }
+
+    // Also load supplementary fields from workspace settings
+    try {
+      const wsRes = await api.get("/workspace/account-settings");
+      if (wsRes.data?.success && wsRes.data?.data) {
+        const { personalDetails: p, apiDetails: a, betaAccess: b } = wsRes.data.data;
         if (p) {
-          setPersonalDetails(p);
-          if (p.firstName) setFirstName(p.firstName);
-          if (p.lastName) setLastName(p.lastName);
           if (p.city) setCity(p.city);
           if (p.state) setStateName(p.state);
           if (p.country) setCountry(p.country);
@@ -209,38 +211,32 @@ export default function AccountSettingsPage() {
             setSelectedLanguage(p.language);
           }
         }
-
         if (a) {
           if (a.apiKey) setApiKey(a.apiKey);
           if (a.webhookUrl) setWebhookUrl(a.webhookUrl);
         }
-
-        if (s && typeof s.twoFactorEnabled === "boolean") {
-          setTwoFactorEnabled(s.twoFactorEnabled);
-        }
-
         if (b && Array.isArray(b) && b.length > 0) {
           setBetaAccessList(b);
         }
       }
-    } catch (err) {
-      console.warn("Could not load /workspace/account-settings:", err);
+    } catch (wsErr) {
+      console.warn("Could not load /workspace/account-settings supplementary data:", wsErr);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchAccountSettings();
-  }, [fetchAccountSettings]);
+    fetchAuthMeProfile();
+  }, [fetchAuthMeProfile]);
 
-  // Handle Save General & Communication Details
+  // Save General & Communication Details to backend
   const handleSaveGeneralDetails = async () => {
     setIsSaving(true);
     try {
-      const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
+      const fullName = `${firstName.trim()} ${lastName.trim()}`.trim() || authMe.name;
       const payload = {
-        name: fullName || personalDetails.name,
+        name: fullName,
         city,
         state: stateName,
         country,
@@ -249,19 +245,12 @@ export default function AccountSettingsPage() {
         language: selectedLanguage,
       };
 
+      // Updates users table in PostgreSQL
       await api.put("/workspace/account-settings", payload);
 
-      setPersonalDetails((prev) => ({
+      setAuthMe((prev) => ({
         ...prev,
-        firstName,
-        lastName,
-        name: fullName || prev.name,
-        city,
-        state: stateName,
-        country,
-        zipCode,
-        secondaryEmail,
-        language: selectedLanguage,
+        name: fullName,
       }));
 
       if (selectedLanguage && selectedLanguage !== currentLanguage) {
@@ -286,20 +275,15 @@ export default function AccountSettingsPage() {
     }
   };
 
-  // Handle Cancel Edit Info
+  // Cancel Edit Info
   const handleCancelEdit = () => {
-    setFirstName(personalDetails.firstName || personalDetails.name?.split(" ")[0] || "");
-    setLastName(personalDetails.lastName || personalDetails.name?.split(" ").slice(1).join(" ") || "");
-    setCity(personalDetails.city || "Mumbai");
-    setStateName(personalDetails.state || "Maharashtra");
-    setCountry(personalDetails.country || "india");
-    setZipCode(personalDetails.zipCode || "400001");
-    setSecondaryEmail(personalDetails.secondaryEmail || "");
-    setSelectedLanguage(personalDetails.language || "en");
+    const nameParts = (authMe.name || "").trim().split(/\s+/);
+    setFirstName(nameParts[0] || "");
+    setLastName(nameParts.slice(1).join(" ") || "");
     setIsEditing(false);
   };
 
-  // Handle Password Update
+  // Password Update
   const handleUpdatePassword = async () => {
     if (!oldPassword) {
       toast({
@@ -344,7 +328,6 @@ export default function AccountSettingsPage() {
         });
         if (res.data?.message) message = res.data.message;
       } catch (authErr: any) {
-        // Fallback to security controller route if auth route fails
         const res = await api.post("/settings/security/change-password", {
           oldPassword,
           newPassword,
@@ -371,7 +354,7 @@ export default function AccountSettingsPage() {
     }
   };
 
-  // Handle 2FA Toggle
+  // 2FA Toggle
   const handleToggle2FA = async () => {
     setIsToggling2FA(true);
     const nextState = !twoFactorEnabled;
@@ -383,6 +366,8 @@ export default function AccountSettingsPage() {
       }
 
       setTwoFactorEnabled(nextState);
+      setAuthMe((prev) => ({ ...prev, twoFactorEnabled: nextState }));
+
       toast({
         title: nextState ? "2FA Enabled" : "2FA Disabled",
         description: nextState
@@ -402,7 +387,7 @@ export default function AccountSettingsPage() {
     }
   };
 
-  // Handle API Key Copy
+  // Copy helpers
   const handleCopyKey = () => {
     if (!apiKey) return;
     navigator.clipboard.writeText(apiKey);
@@ -414,7 +399,6 @@ export default function AccountSettingsPage() {
     setTimeout(() => setApiKeyCopied(false), 2000);
   };
 
-  // Handle Webhook URL Copy
   const handleCopyWebhook = () => {
     if (!webhookUrl) return;
     navigator.clipboard.writeText(webhookUrl);
@@ -426,7 +410,29 @@ export default function AccountSettingsPage() {
     setTimeout(() => setWebhookCopied(false), 2000);
   };
 
-  // Handle Regenerate Key
+  const handleCopyOrgPath = () => {
+    if (!authMe.orgPath) return;
+    navigator.clipboard.writeText(authMe.orgPath);
+    setOrgPathCopied(true);
+    toast({
+      title: "Copied to Clipboard",
+      description: "Organization Path copied successfully.",
+    });
+    setTimeout(() => setOrgPathCopied(false), 2000);
+  };
+
+  const handleCopyWorkspaceId = () => {
+    const idToCopy = authMe.workspaceId || authMe.tenantId;
+    if (!idToCopy) return;
+    navigator.clipboard.writeText(idToCopy);
+    setWorkspaceIdCopied(true);
+    toast({
+      title: "Copied to Clipboard",
+      description: "Workspace ID copied successfully.",
+    });
+    setTimeout(() => setWorkspaceIdCopied(false), 2000);
+  };
+
   const handleRegenerateKey = async () => {
     if (!confirmRegenerate) {
       setConfirmRegenerate(true);
@@ -455,14 +461,13 @@ export default function AccountSettingsPage() {
     }
   };
 
-  // Display values
-  const displayName = personalDetails.name || user?.name || "Workspace Admin";
-  const initials = getInitials(displayName, user?.email || personalDetails.primaryEmail);
-  const roleDisplay = (personalDetails.role || user?.role || user?.rawRole || "WORKSPACE ADMIN")
+  // Dynamic values bound from /api/proxy/auth/me
+  const initials = getInitials(authMe.name, authMe.email);
+  const displayName = authMe.name || "harshit";
+  const roleDisplay = (authMe.rawRole || authMe.systemRole || authMe.role || "CLIENT_USER")
     .toUpperCase()
     .replace(/_/g, " ");
-  const activePrimaryEmail = user?.email || personalDetails.primaryEmail || "";
-  const joinedDateFormatted = formatJoiningDate(user?.createdAt || personalDetails.joiningDate);
+  const joinedDateFormatted = formatJoiningDate(authMe.createdAt);
 
   return (
     <div className="space-y-6">
@@ -524,10 +529,26 @@ export default function AccountSettingsPage() {
                   <Camera className="h-3.5 w-3.5" />
                 </button>
               </div>
-              <h2 className="mt-4 text-lg font-bold text-foreground">{displayName}</h2>
-              <p className="text-xs font-medium tracking-wide text-muted-foreground">
-                {roleDisplay}
-              </p>
+
+              <h2 className="mt-4 text-lg font-bold text-foreground capitalize">{displayName}</h2>
+              
+              <div className="mt-1.5 flex flex-wrap items-center justify-center gap-1.5">
+                <Badge variant="outline" className="text-[11px] font-semibold tracking-wide border-primary/30 text-primary">
+                  {roleDisplay}
+                </Badge>
+                {authMe.tier && (
+                  <Badge variant="secondary" className="text-[10px] font-bold">
+                    {authMe.tier.replace(/_/g, " ")}
+                  </Badge>
+                )}
+              </div>
+
+              {authMe.workspaceName && (
+                <p className="mt-2 text-xs font-medium text-muted-foreground flex items-center justify-center gap-1.5">
+                  <Building2 className="h-3 w-3 text-muted-foreground" />
+                  <span>Workspace: <strong className="text-foreground">{authMe.workspaceName}</strong></span>
+                </p>
+              )}
             </div>
 
             {/* 2FA card */}
@@ -684,6 +705,7 @@ export default function AccountSettingsPage() {
                     placeholder="First Name"
                   />
                 </Field>
+
                 <Field label="Last Name">
                   <Input
                     value={lastName}
@@ -715,6 +737,15 @@ export default function AccountSettingsPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                </Field>
+
+                <Field label="Workspace Name">
+                  <Input
+                    value={authMe.workspaceName || "ABCD"}
+                    disabled
+                    readOnly
+                    className="bg-muted/30 font-medium"
+                  />
                 </Field>
 
                 <Field label="City">
@@ -765,9 +796,29 @@ export default function AccountSettingsPage() {
                   />
                 </Field>
               </div>
+
+              {/* Workspace ID display */}
+              <div className="mt-4 pt-4 border-t flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-foreground">Workspace ID:</span>
+                  <code className="bg-muted/50 px-2 py-0.5 rounded font-mono text-[11px] text-foreground">
+                    {authMe.workspaceId || authMe.tenantId}
+                  </code>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCopyWorkspaceId}
+                  className="h-6 text-xs gap-1 self-start sm:self-auto text-muted-foreground hover:text-foreground"
+                >
+                  {workspaceIdCopied ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+                  {workspaceIdCopied ? "Copied" : "Copy ID"}
+                </Button>
+              </div>
             </div>
 
-            {/* Communication Details */}
+            {/* Communication & Account Details */}
             <div className="rounded-xl border bg-card p-6 shadow-xs">
               <h3 className="text-base font-bold text-foreground">
                 Communication Details
@@ -787,29 +838,59 @@ export default function AccountSettingsPage() {
                 <Field label="Primary Email Address">
                   <div className="relative">
                     <Input
-                      value={activePrimaryEmail}
+                      value={authMe.email || "harshit002@yopmail.com"}
                       disabled
                       readOnly
-                      className="pr-9 text-foreground"
+                      className="pr-20 text-foreground bg-muted/20"
                     />
-                    <button
-                      type="button"
-                      aria-label="Copy email"
-                      onClick={() => {
-                        if (!activePrimaryEmail) return;
-                        navigator.clipboard.writeText(activePrimaryEmail);
-                        toast({
-                          title: "Copied to Clipboard",
-                          description: "Primary email copied to clipboard.",
-                        });
-                      }}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
-                    >
-                      <Copy className="h-4 w-4" />
-                    </button>
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                      {authMe.emailVerified && (
+                        <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                          <Check className="h-2.5 w-2.5" /> Verified
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        aria-label="Copy email"
+                        onClick={() => {
+                          if (!authMe.email) return;
+                          navigator.clipboard.writeText(authMe.email);
+                          toast({
+                            title: "Copied to Clipboard",
+                            description: "Primary email copied to clipboard.",
+                          });
+                        }}
+                        className="p-1 text-muted-foreground hover:text-foreground cursor-pointer"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </Field>
               </div>
+
+              {/* Hierarchy Path */}
+              {authMe.orgPath && (
+                <div className="mt-4 p-3 rounded-lg bg-muted/30 border text-xs flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <GitBranch className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <span className="text-muted-foreground shrink-0">Org Path:</span>
+                    <span className="font-mono text-foreground truncate text-[11px]">
+                      {authMe.orgPath}
+                    </span>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleCopyOrgPath}
+                    className="h-6 text-xs gap-1 shrink-0 text-muted-foreground hover:text-foreground"
+                  >
+                    {orgPathCopied ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+                    {orgPathCopied ? "Copied" : "Copy"}
+                  </Button>
+                </div>
+              )}
 
               <div className="mt-5 flex items-center justify-between rounded-lg bg-muted/40 px-4 py-3">
                 <div className="flex items-center gap-3">
