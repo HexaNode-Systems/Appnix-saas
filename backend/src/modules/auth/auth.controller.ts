@@ -24,6 +24,7 @@ import {
   VerifyOtpDto,
   ResendOtpDto,
   GoogleAuthDto,
+  AuthChangePasswordDto,
 } from './dto/auth.dto';
 import { JwtRefreshGuard } from './guards/jwt-refresh.guard';
 import { JwtAccessGuard } from './guards/jwt-access.guard';
@@ -550,6 +551,22 @@ export class AuthController {
       authUser,
     );
     return { success: true, data: user };
+  }
+
+  @UseGuards(JwtAccessGuard)
+  @Post('change-password')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Change authenticated user password' })
+  @ApiResponse({ status: 200, description: 'Password changed successfully.' })
+  @ApiResponse({ status: 400, description: 'Incorrect current password or validation error.' })
+  async changePassword(
+    @Req() req: Request,
+    @Body() dto: AuthChangePasswordDto,
+  ) {
+    const authUser = req.user as any;
+    const userId = authUser?.userId || authUser?.id || '';
+    const tenantId = authUser?.tenantId || authUser?.workspaceId || '';
+    return this.authService.changePassword(userId, tenantId, dto.oldPassword, dto.newPassword);
   }
 
   @Post('logout')

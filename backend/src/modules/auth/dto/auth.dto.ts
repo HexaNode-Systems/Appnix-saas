@@ -344,4 +344,23 @@ export class GoogleAuthDto {
   })
   @IsString()
   idToken: string;
-}
+}
+
+export class AuthChangePasswordDto {
+  @ApiProperty({
+    description: 'Current account password',
+    example: 'OldPass123!',
+  })
+  @IsString()
+  oldPassword: string;
+
+  @ApiProperty({
+    description: 'New account password. Minimum 6 characters.',
+    example: 'NewPass456!',
+    minLength: 6,
+  })
+  @IsString()
+  @MinLength(6)
+  newPassword: string;
+}
+

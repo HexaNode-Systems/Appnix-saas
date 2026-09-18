@@ -1334,5 +1334,41 @@ export class AuthService {
 
     return this.formatUser(user);
   }
+
+  async changePassword(userId: string, tenantId: string, oldPassword: string, newPassword: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    if (user.passwordHash) {
+      const isMatch = await bcrypt.compare(oldPassword, user.passwordHash);
+      if (!isMatch) {
+        throw new BadRequestException('Incorrect current password');
+      }
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 12);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: newHash },
+    });
+
+    try {
+      await this.prisma.activityLog.create({
+        data: {
+          tenantId: tenantId || user.tenantId,
+          userId,
+          user: user.name || user.email,
+          action: 'Changed account password',
+          module: 'Settings > Security',
+          status: 'Success',
+        },
+      });
+    } catch {
+      // ignore logging errors
+    }
+
+    return { success: true, message: 'Password updated successfully' };
+  }
 }
+
 
