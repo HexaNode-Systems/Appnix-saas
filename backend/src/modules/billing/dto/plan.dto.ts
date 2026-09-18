@@ -97,6 +97,11 @@ export class CreatePlanDto {
   status?: string;
 
   @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  tenantId?: string;
+
+  @ApiPropertyOptional()
   @IsOptional()
   trialDays?: number;
 }
@@ -199,4 +204,9 @@ export class UpdatePlanDto {
   @IsString()
   @IsOptional()
   status?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  tenantId?: string;
 }

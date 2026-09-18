@@ -134,15 +134,28 @@ export class BillingController {
     return this.billingService.getTrialEligibility(tenantId);
   }
 
+  @Post('activate-trial')
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @ApiOperation({ summary: 'Activate 7-day free trial for direct client workspace' })
+  activateTrial(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { planId?: string; tenantId?: string },
+  ) {
+    const tenantId = body?.tenantId || user?.tenantId;
+    return this.billingService.startTrial(tenantId, body?.planId || 'pro');
+  }
+
   @Post('trial')
   @ApiBearerAuth()
   @UseGuards(JwtAccessGuard)
   @ApiOperation({ summary: 'Redeem an eligible plan free trial for the workspace' })
   startTrial(
     @CurrentUser() user: AuthUser,
-    @Body() body: { planId?: string },
+    @Body() body: { planId?: string; tenantId?: string },
   ) {
-    return this.billingService.startTrial(user.tenantId, body?.planId || 'pro');
+    const tenantId = body?.tenantId || user?.tenantId;
+    return this.billingService.startTrial(tenantId, body?.planId || 'pro');
   }
 
   @Post('activate-payment')

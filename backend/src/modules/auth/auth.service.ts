@@ -359,7 +359,7 @@ export class AuthService {
             id: 'APPNIX_DIRECT',
             name: 'Appnix Direct Operations',
             slug: 'appnix-direct',
-            tier: TenantTier.END_CLIENT,
+            tier: TenantTier.PLATFORM_ROOT,
             status: TenantStatus.ACTIVE,
             path: 'root.appnix_direct',
             depth: 1,
@@ -368,41 +368,21 @@ export class AuthService {
         });
       }
 
-      // Ensure active subscription exists for direct tenant
-      const activeSub = await this.prisma.subscription.findFirst({
-        where: { tenantId: directTenant.id, status: 'ACTIVE' },
-      });
-      if (!activeSub) {
-        await this.prisma.subscription.create({
-          data: {
-            tenantId: directTenant.id,
-            planId: 'pro',
-            planName: 'Professional Tier',
-            price: '₹2,999/mo',
-            status: 'ACTIVE',
-            totalDays: 365,
-            remainingDays: 365,
-            currentPeriodStart: new Date(),
-            currentPeriodEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-            maxMessages: 25000,
-            maxBots: 5,
-            maxTeamSeats: 10,
-          },
-        }).catch(() => {});
-      }
-
-      user = await this.prisma.user.create({
-        data: {
-          email: cleanEmail,
-          passwordHash,
-          name,
+      // Create an isolated workspace tenant for the direct client under APPNIX_DIRECT
+      const result = await this.usersService.createTenantWithAdmin(
+        tenantOrWorkspaceName,
+        cleanEmail,
+        passwordHash,
+        name,
+        {
+          parentId: directTenant.id,
+          tier: TenantTier.END_CLIENT,
           role: Role.CLIENT_USER,
-          tenantId: directTenant.id,
         },
-        include: { tenant: true },
-      });
-      tenant = directTenant;
-      redirectUrl = '/dashboard';
+      );
+      tenant = result.tenant;
+      user = result.user;
+      redirectUrl = '/subscription';
     }
 
     // 4. On Custom Domains (xyz.com):

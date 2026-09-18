@@ -215,6 +215,18 @@ export default function SubscriptionSelectionPage() {
           if (json.success && Array.isArray(json.data)) {
             setPlans(json.data);
           }
+          if (json.trialConfig) {
+            setTrialEligibility((prev) => {
+              if (prev && prev.eligible !== undefined) return prev;
+              return {
+                eligible: json.trialConfig.eligible !== false && !json.trialConfig.alreadyUsed,
+                trialEnabled: json.trialConfig.enabled,
+                trialDays: json.trialConfig.durationDays || 7,
+                trialMaxUsers: json.trialConfig.maxUsers || 5,
+                partnerName: "Appnix Direct",
+              };
+            });
+          }
         }
       } catch (err) {
         console.warn("[SubscriptionPage] Could not load plans from backend:", err);
@@ -244,7 +256,8 @@ export default function SubscriptionSelectionPage() {
             localStorage.getItem("appnix_token")
           : null;
       const workspaceId = user?.workspaceId || (user as any)?.tenantId;
-      const res = await fetch(`${getBackendUrl()}/billing/trial`, {
+
+      let res = await fetch(`${getBackendUrl()}/billing/activate-trial`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -253,11 +266,22 @@ export default function SubscriptionSelectionPage() {
         body: JSON.stringify({ planId, tenantId: workspaceId }),
       });
 
+      if (!res.ok) {
+        res = await fetch(`${getBackendUrl()}/billing/trial`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ planId, tenantId: workspaceId }),
+        });
+      }
+
       const json = await res.json();
       if (res.ok && json.success) {
         markSubscriptionActive(planId);
         // Trial activated! Redirect directly to dashboard
-        router.replace("/dashboard");
+        router.replace(json.redirectUrl || "/dashboard");
       } else {
         setActionError(json.message || "Could not activate trial for this workspace.");
       }

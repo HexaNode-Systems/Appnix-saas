@@ -1011,6 +1011,11 @@ model Plan {
   prioritySupport      Boolean?       @default(false)
   status               String?        @default("ACTIVE")
   features             Json           @default("[]")
+  tenantId             String?
+  apiLimit             String?
+  storageLimit         String?
+  supportSla           String?
+  advancedAnalytics    Boolean?       @default(true)
   razorpayAnnualPlanId String?
   razorpayMonthlyPlanId String?
   createdAt            DateTime       @default(now())

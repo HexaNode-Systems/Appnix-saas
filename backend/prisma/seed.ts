@@ -309,10 +309,12 @@ async function main() {
           maxMessages: plan.maxMessages,
           features: features,
           status: 'ACTIVE',
+          tenantId: 'APPNIX_DIRECT',
         },
         create: {
           ...planData,
           features: features,
+          tenantId: 'APPNIX_DIRECT',
         },
       });
       console.log(`   ✅ Plan seeded: ${plan.name} (${plan.slug})`);

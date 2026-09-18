@@ -73,12 +73,17 @@ export class BillingService {
   async getPlans(user?: any) {
     try {
       const isSuperAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'owner';
+      const isDirectStaff = user?.role === 'APP_ADMIN' || user?.tenantId === 'APPNIX_DIRECT' || user?.tenantId === 'root';
       const tenantId = user?.tenantId;
 
       let result;
       if (isSuperAdmin) {
         result = await this.postgres.query(
           `SELECT * FROM plans WHERE status != 'DELETED' ORDER BY "monthlyPrice" ASC;`
+        );
+      } else if (isDirectStaff) {
+        result = await this.postgres.query(
+          `SELECT * FROM plans WHERE ("tenantId" = 'APPNIX_DIRECT' OR "tenantId" IS NULL) AND status != 'DELETED' ORDER BY "monthlyPrice" ASC;`
         );
       } else if (user?.role === 'RESELLER_ADMIN' && tenantId) {
         result = await this.postgres.query(
@@ -89,7 +94,7 @@ export class BillingService {
         // Fallback to platform plans if reseller has not created custom plans yet
         if (result.rows.length === 0) {
           result = await this.postgres.query(
-            `SELECT * FROM plans WHERE "tenantId" IS NULL AND status = 'ACTIVE' ORDER BY "monthlyPrice" ASC;`
+            `SELECT * FROM plans WHERE ("tenantId" = 'APPNIX_DIRECT' OR "tenantId" IS NULL) AND status = 'ACTIVE' ORDER BY "monthlyPrice" ASC;`
           );
         }
       } else if (tenantId && tenantId !== 'root' && tenantId !== 'APPNIX_DIRECT') {
@@ -109,19 +114,41 @@ export class BillingService {
 
         if (!result || result.rows.length === 0) {
           result = await this.postgres.query(
-            `SELECT * FROM plans WHERE "tenantId" IS NULL AND status = 'ACTIVE' ORDER BY "monthlyPrice" ASC;`
+            `SELECT * FROM plans WHERE ("tenantId" = 'APPNIX_DIRECT' OR "tenantId" IS NULL) AND status = 'ACTIVE' ORDER BY "monthlyPrice" ASC;`
           );
         }
       } else {
         result = await this.postgres.query(
-          `SELECT * FROM plans WHERE "tenantId" IS NULL AND status = 'ACTIVE' ORDER BY "monthlyPrice" ASC;`
+          `SELECT * FROM plans WHERE ("tenantId" = 'APPNIX_DIRECT' OR "tenantId" IS NULL) AND status = 'ACTIVE' ORDER BY "monthlyPrice" ASC;`
         );
+      }
+
+      let trialConfig = {
+        enabled: true,
+        durationDays: 7,
+        maxUsers: 5,
+        eligible: true,
+        alreadyUsed: false,
+      };
+
+      if (tenantId && tenantId !== 'APPNIX_DIRECT') {
+        try {
+          const tenantCheck = await this.postgres.query(
+            `SELECT "trialUsed" FROM tenants WHERE id = $1 LIMIT 1;`,
+            [tenantId]
+          );
+          if (tenantCheck.rows[0]?.trialUsed) {
+            trialConfig.eligible = false;
+            trialConfig.alreadyUsed = true;
+          }
+        } catch {}
       }
 
       if (result.rows && result.rows.length > 0) {
         return {
           success: true,
           data: result.rows.map(formatPlanRow),
+          trialConfig,
         };
       }
     } catch (err: any) {
@@ -130,12 +157,19 @@ export class BillingService {
 
     try {
       const fallbackResult = await this.postgres.query(
-        `SELECT * FROM plans WHERE "tenantId" IS NULL AND status = 'ACTIVE' ORDER BY "monthlyPrice" ASC;`
+        `SELECT * FROM plans WHERE ("tenantId" = 'APPNIX_DIRECT' OR "tenantId" IS NULL) AND status = 'ACTIVE' ORDER BY "monthlyPrice" ASC;`
       );
       if (fallbackResult.rows && fallbackResult.rows.length > 0) {
         return {
           success: true,
           data: fallbackResult.rows.map(formatPlanRow),
+          trialConfig: {
+            enabled: true,
+            durationDays: 7,
+            maxUsers: 5,
+            eligible: true,
+            alreadyUsed: false,
+          },
         };
       }
     } catch {}
@@ -143,11 +177,18 @@ export class BillingService {
     return {
       success: true,
       data: [],
+      trialConfig: {
+        enabled: true,
+        durationDays: 7,
+        maxUsers: 5,
+        eligible: true,
+        alreadyUsed: false,
+      },
     };
   }
 
   /**
-   * Creates a new plan in PostgreSQL scoped to the authenticated reseller tenant.
+   * Creates a new plan in PostgreSQL scoped to direct platform or authenticated reseller tenant.
    * Parameterized direct PostgreSQL query — no Prisma.
    */
   async createResellerPlan(user: AuthUser, dto: CreatePlanDto) {
@@ -155,11 +196,24 @@ export class BillingService {
       throw new BadRequestException('Plan name is required');
     }
 
-    const isSuperAdmin = user.role === 'SUPER_ADMIN';
-    const tenantId = isSuperAdmin ? (dto as any).tenantId || null : user.tenantId;
+    const isSuperAdmin = (user.role as any) === 'SUPER_ADMIN' || (user.role as any) === 'owner';
+    const isDirectAdmin = (user.role as any) === 'APP_ADMIN';
+    const isResellerAdmin = (user.role as any) === 'RESELLER_ADMIN';
 
-    if (!tenantId && !isSuperAdmin) {
-      throw new ForbiddenException('Tenant context missing from authentication session');
+    if (!isSuperAdmin && !isDirectAdmin && !isResellerAdmin) {
+      throw new ForbiddenException('Insufficient permissions to create plans');
+    }
+
+    let tenantId: string | null = null;
+    if (isSuperAdmin) {
+      tenantId = (dto as any).tenantId || (user.tenantId && user.tenantId !== 'root' ? user.tenantId : 'APPNIX_DIRECT');
+    } else if (isDirectAdmin) {
+      tenantId = 'APPNIX_DIRECT';
+    } else {
+      tenantId = user.tenantId;
+      if (!tenantId) {
+        throw new ForbiddenException('Tenant context missing from authentication session');
+      }
     }
 
     const id = dto.id && dto.id.trim() && !dto.id.startsWith('mock-') && dto.id !== 'new' && dto.id !== 'plan_new'
@@ -180,13 +234,15 @@ export class BillingService {
     const sql = `
       INSERT INTO plans (
         "id", "tenantId", "name", "slug", "description", "price", "monthlyPrice", "yearlyPrice",
-        "currency", "billingCycle", "maxUsers", "apiLimit", "storageLimit", "supportSla", "supportLevel",
+        "currency", "billingCycle", "maxUsers", "teamSeats", "apiLimit", "storageLimit", "supportSla", "supportLevel",
         "customDomain", "sso", "advancedAnalytics", "prioritySupport", "isPopular", "status", "features",
+        "monthlyMessages", "botflows", "maxMessages",
         "createdAt", "updatedAt"
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8,
-        $9, $10, $11, $12, $13, $14, $15,
+        $9, $10, $11, $11, $12, $13, $14, $15,
         $16, $17, $18, $19, $20, $21, $22,
+        $23, $24, $25,
         NOW(), NOW()
       )
       RETURNING *;
@@ -213,8 +269,11 @@ export class BillingService {
       Boolean(dto.advancedAnalytics),
       Boolean(dto.prioritySupport),
       Boolean(dto.isPopular),
-      'ACTIVE',
+      dto.status || 'ACTIVE',
       featuresJson,
+      25000,
+      5,
+      25000,
     ];
 
     const { rows } = await this.postgres.query(sql, params);
@@ -225,13 +284,28 @@ export class BillingService {
    * Updates an existing plan in PostgreSQL after verifying tenant ownership.
    */
   async updateResellerPlan(user: AuthUser, id: string, dto: UpdatePlanDto) {
-    const isSuperAdmin = user.role === 'SUPER_ADMIN';
+    const isSuperAdmin = (user.role as any) === 'SUPER_ADMIN' || (user.role as any) === 'owner';
+    const isDirectAdmin = (user.role as any) === 'APP_ADMIN';
+    const isResellerAdmin = (user.role as any) === 'RESELLER_ADMIN';
 
-    // Verify tenant ownership with parameterized query (check both id and slug)
-    const checkSql = isSuperAdmin
-      ? `SELECT * FROM plans WHERE (id = $1 OR slug = $1) AND status != 'DELETED';`
-      : `SELECT * FROM plans WHERE (id = $1 OR slug = $1) AND "tenantId" = $2 AND status != 'DELETED';`;
-    const checkParams = isSuperAdmin ? [id] : [id, user.tenantId];
+    if (!isSuperAdmin && !isDirectAdmin && !isResellerAdmin) {
+      throw new ForbiddenException('Insufficient permissions to modify plans');
+    }
+
+    let checkSql: string;
+    let checkParams: any[];
+
+    if (isSuperAdmin) {
+      checkSql = `SELECT * FROM plans WHERE (id = $1 OR slug = $1) AND status != 'DELETED';`;
+      checkParams = [id];
+    } else if (isDirectAdmin) {
+      checkSql = `SELECT * FROM plans WHERE (id = $1 OR slug = $1) AND ("tenantId" = 'APPNIX_DIRECT' OR "tenantId" IS NULL) AND status != 'DELETED';`;
+      checkParams = [id];
+    } else {
+      checkSql = `SELECT * FROM plans WHERE (id = $1 OR slug = $1) AND "tenantId" = $2 AND status != 'DELETED';`;
+      checkParams = [id, user.tenantId];
+    }
+
     const existing = await this.postgres.query(checkSql, checkParams);
 
     if (existing.rows.length === 0) {
@@ -326,13 +400,28 @@ export class BillingService {
    * Deletes or safely archives a plan in PostgreSQL after checking foreign key references.
    */
   async deleteResellerPlan(user: AuthUser, id: string) {
-    const isSuperAdmin = user.role === 'SUPER_ADMIN';
+    const isSuperAdmin = (user.role as any) === 'SUPER_ADMIN' || (user.role as any) === 'owner';
+    const isDirectAdmin = (user.role as any) === 'APP_ADMIN';
+    const isResellerAdmin = (user.role as any) === 'RESELLER_ADMIN';
 
-    // Verify tenant ownership with parameterized query
-    const checkSql = isSuperAdmin
-      ? `SELECT * FROM plans WHERE id = $1 AND status != 'DELETED';`
-      : `SELECT * FROM plans WHERE id = $1 AND "tenantId" = $2 AND status != 'DELETED';`;
-    const checkParams = isSuperAdmin ? [id] : [id, user.tenantId];
+    if (!isSuperAdmin && !isDirectAdmin && !isResellerAdmin) {
+      throw new ForbiddenException('Insufficient permissions to delete plans');
+    }
+
+    let checkSql: string;
+    let checkParams: any[];
+
+    if (isSuperAdmin) {
+      checkSql = `SELECT * FROM plans WHERE id = $1 AND status != 'DELETED';`;
+      checkParams = [id];
+    } else if (isDirectAdmin) {
+      checkSql = `SELECT * FROM plans WHERE id = $1 AND ("tenantId" = 'APPNIX_DIRECT' OR "tenantId" IS NULL) AND status != 'DELETED';`;
+      checkParams = [id];
+    } else {
+      checkSql = `SELECT * FROM plans WHERE id = $1 AND "tenantId" = $2 AND status != 'DELETED';`;
+      checkParams = [id, user.tenantId];
+    }
+
     const existing = await this.postgres.query(checkSql, checkParams);
 
     if (existing.rows.length === 0) {
@@ -594,12 +683,16 @@ export class BillingService {
         : tenant.partnerConfig || tenant.parent?.partnerConfig;
 
     // Direct Operations fallback: if tenant has no reseller partner, check direct tenant configuration
-    if (!partnerConfig && (tenant.parentId === null || tenant.parent?.slug === 'appnix-direct' || tenant.parent?.id === 'APPNIX_DIRECT')) {
+    if (!partnerConfig && (tenant.parentId === null || tenant.parentId === 'APPNIX_DIRECT' || tenant.parent?.slug === 'appnix-direct' || tenant.id === 'APPNIX_DIRECT')) {
       const directTenant = await this.prisma.tenant.findFirst({
         where: { OR: [{ id: 'APPNIX_DIRECT' }, { slug: 'appnix-direct' }] },
         include: { partnerConfig: true },
       });
-      partnerConfig = directTenant?.partnerConfig || null;
+      partnerConfig = directTenant?.partnerConfig || {
+        trialEnabled: true,
+        trialDays: 7,
+        trialMaxUsers: 5,
+      } as any;
     }
 
     if (!partnerConfig || !partnerConfig.trialEnabled) {
@@ -611,7 +704,7 @@ export class BillingService {
     }
 
     // Check if workspace has already redeemed a trial
-    if (tenant.trialUsed) {
+    if (tenant.trialUsed && tenant.id !== 'APPNIX_DIRECT') {
       return {
         eligible: false,
         trialEnabled: true,
@@ -622,29 +715,31 @@ export class BillingService {
       };
     }
 
-    const existingTrialOrActive = await this.prisma.subscription.findFirst({
-      where: {
-        tenantId,
-        OR: [
-          { status: 'TRIALING' },
-          { isTrial: true },
-          { status: 'ACTIVE' },
-        ],
-      },
-    });
+    if (tenant.id !== 'APPNIX_DIRECT') {
+      const existingTrialOrActive = await this.prisma.subscription.findFirst({
+        where: {
+          tenantId,
+          OR: [
+            { status: 'TRIALING' },
+            { isTrial: true },
+            { status: 'ACTIVE' },
+          ],
+        },
+      });
 
-    if (existingTrialOrActive) {
-      return {
-        eligible: false,
-        trialEnabled: true,
-        alreadyUsed: true,
-        trialDays: partnerConfig.trialDays || 7,
-        trialMaxUsers: partnerConfig.trialMaxUsers || 5,
-        reason:
-          existingTrialOrActive.status === 'ACTIVE'
-            ? 'Workspace already has an active subscription.'
-            : 'Free trial has already been redeemed for this workspace.',
-      };
+      if (existingTrialOrActive) {
+        return {
+          eligible: false,
+          trialEnabled: true,
+          alreadyUsed: true,
+          trialDays: partnerConfig.trialDays || 7,
+          trialMaxUsers: partnerConfig.trialMaxUsers || 5,
+          reason:
+            existingTrialOrActive.status === 'ACTIVE'
+              ? 'Workspace already has an active subscription.'
+              : 'Free trial has already been redeemed for this workspace.',
+        };
+      }
     }
 
     return {
@@ -672,7 +767,7 @@ export class BillingService {
         'The 7-Day Free Trial is not enabled for your organization. Please select a paid subscription plan.',
       );
     }
-    if (!eligibility.eligible) {
+    if (!eligibility.eligible && eligibility.alreadyUsed) {
       throw new BadRequestException(eligibility.reason || 'Workspace is not eligible for a free trial.');
     }
 
@@ -735,6 +830,7 @@ export class BillingService {
         currentPeriodStart: sub.currentPeriodStart,
         currentPeriodEnd: sub.currentPeriodEnd,
       },
+      redirectUrl: '/dashboard',
       message: `Your 7-Day Free Trial with ${trialMaxUsers} user seats has been activated!`,
     };
   }
