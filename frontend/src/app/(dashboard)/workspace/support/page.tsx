@@ -243,13 +243,22 @@ export default function SupportTicketsPage() {
 
     setIsSubmitting(true);
     try {
-      const payload = {
+      const payload: {
+        subject: string;
+        category: string;
+        priority: string;
+        description: string;
+        attachments?: string[];
+      } = {
         subject: newSubject.trim(),
         category: newCategory,
         priority: newPriority,
         description: newDescription.trim(),
-        attachments: newAttachmentName.trim() ? [newAttachmentName.trim()] : [],
       };
+
+      if (newAttachmentName.trim()) {
+        payload.attachments = [newAttachmentName.trim()];
+      }
 
       const res = await api.post("/support/tickets", payload);
       const created = res.data?.data || res.data;
@@ -287,9 +296,14 @@ export default function SupportTicketsPage() {
         });
       }
     } catch (err: any) {
+      const errMsg = err?.response?.data?.message
+        ? Array.isArray(err.response.data.message)
+          ? err.response.data.message.join(", ")
+          : err.response.data.message
+        : err?.message || "An error occurred while creating ticket.";
       toast({
         title: "Failed to Create Ticket",
-        description: err?.response?.data?.message || "An error occurred while creating ticket.",
+        description: errMsg,
         variant: "destructive",
       });
     } finally {

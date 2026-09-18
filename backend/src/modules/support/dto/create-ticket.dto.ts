@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsEnum, IsArray } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export enum TicketPriority {
@@ -6,6 +6,10 @@ export enum TicketPriority {
   MEDIUM = 'MEDIUM',
   HIGH = 'HIGH',
   URGENT = 'URGENT',
+  Low = 'Low',
+  Medium = 'Medium',
+  High = 'High',
+  Urgent = 'Urgent',
 }
 
 export class CreateTicketDto {
@@ -19,10 +23,10 @@ export class CreateTicketDto {
   @IsNotEmpty()
   category: string;
 
-  @ApiProperty({ enum: TicketPriority, default: TicketPriority.MEDIUM })
-  @IsEnum(TicketPriority)
+  @ApiPropertyOptional({ example: 'Medium', enum: TicketPriority })
+  @IsString()
   @IsOptional()
-  priority?: TicketPriority;
+  priority?: string;
 
   @ApiProperty({ example: 'During high volume broadcast we experienced timeout errors.' })
   @IsString()

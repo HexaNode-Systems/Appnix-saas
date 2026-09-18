@@ -1,6 +1,5 @@
-import { IsString, IsOptional, IsEnum } from 'class-validator';
+import { IsString, IsOptional } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { TicketPriority } from './create-ticket.dto';
 
 export enum TicketStatus {
   OPEN = 'OPEN',
@@ -8,18 +7,23 @@ export enum TicketStatus {
   WAITING_FOR_CUSTOMER = 'WAITING_FOR_CUSTOMER',
   RESOLVED = 'RESOLVED',
   CLOSED = 'CLOSED',
+  Open = 'Open',
+  'In Progress' = 'In Progress',
+  'Waiting for Customer' = 'Waiting for Customer',
+  Resolved = 'Resolved',
+  Closed = 'Closed',
 }
 
 export class UpdateTicketDto {
-  @ApiPropertyOptional({ enum: TicketStatus })
-  @IsEnum(TicketStatus)
+  @ApiPropertyOptional({ example: 'In Progress' })
+  @IsString()
   @IsOptional()
-  status?: TicketStatus;
+  status?: string;
 
-  @ApiPropertyOptional({ enum: TicketPriority })
-  @IsEnum(TicketPriority)
+  @ApiPropertyOptional({ example: 'High' })
+  @IsString()
   @IsOptional()
-  priority?: TicketPriority;
+  priority?: string;
 
   @ApiPropertyOptional({ example: 'Sarah Jenkins' })
   @IsString()

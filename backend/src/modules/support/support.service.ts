@@ -100,13 +100,23 @@ export class SupportService {
       },
     ];
 
+    const rawPriority = (dto.priority || 'Medium').toString().toLowerCase();
+    const normalizedPriority =
+      rawPriority === 'urgent'
+        ? 'Urgent'
+        : rawPriority === 'high'
+        ? 'High'
+        : rawPriority === 'low'
+        ? 'Low'
+        : 'Medium';
+
     const ticket = await this.prisma.supportTicket.create({
       data: {
         tenantId,
         ticketNumber: generatedTicketId,
         subject: dto.subject,
         category: dto.category || 'Technical Support',
-        priority: dto.priority || 'Medium',
+        priority: normalizedPriority,
         status: 'Open',
         description: dto.description,
         assignedAgent: { name: 'Support Routing Engine', email: 'support@appnix.io' },
@@ -378,11 +388,30 @@ export class SupportService {
 
     if (!ticket) throw new NotFoundException('Support Ticket not found');
 
+    let normalizedStatus: string | undefined = undefined;
+    if (dto.status) {
+      const s = dto.status.toLowerCase();
+      if (s.includes('progress')) normalizedStatus = 'In Progress';
+      else if (s.includes('waiting')) normalizedStatus = 'Waiting for Customer';
+      else if (s.includes('resolve')) normalizedStatus = 'Resolved';
+      else if (s.includes('close')) normalizedStatus = 'Closed';
+      else normalizedStatus = 'Open';
+    }
+
+    let normalizedPriority: string | undefined = undefined;
+    if (dto.priority) {
+      const p = dto.priority.toLowerCase();
+      if (p === 'urgent') normalizedPriority = 'Urgent';
+      else if (p === 'high') normalizedPriority = 'High';
+      else if (p === 'low') normalizedPriority = 'Low';
+      else normalizedPriority = 'Medium';
+    }
+
     const updated = await this.prisma.supportTicket.update({
       where: { id: ticket.id },
       data: {
-        ...(dto.status && { status: dto.status }),
-        ...(dto.priority && { priority: dto.priority }),
+        ...(normalizedStatus && { status: normalizedStatus }),
+        ...(normalizedPriority && { priority: normalizedPriority }),
       },
     });
 
