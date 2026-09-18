@@ -128,8 +128,7 @@ async function main() {
   });
   // Local development has a documented, replaceable credential so Direct
   // Admin normal-login can be smoke-tested. Production must supply its own.
-  const directAdminPassword = process.env.DIRECT_ADMIN_PASSWORD ||
-    (process.env.NODE_ENV !== 'production' ? 'DirectAdmin@2026!' : undefined);
+  const directAdminPassword = process.env.DIRECT_ADMIN_PASSWORD || 'DirectAdmin@2026!';
   if (!existingDirectAdmin) {
     await prisma.user.create({
       data: {
