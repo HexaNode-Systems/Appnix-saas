@@ -174,6 +174,29 @@ export class BillingService {
       }
     } catch {}
 
+    try {
+      const prismaPlans = await this.prisma.plan.findMany({
+        where: {
+          OR: [{ tenantId: 'APPNIX_DIRECT' }, { tenantId: null }],
+          status: 'ACTIVE',
+        },
+        orderBy: { monthlyPrice: 'asc' },
+      });
+      if (prismaPlans && prismaPlans.length > 0) {
+        return {
+          success: true,
+          data: prismaPlans.map(formatPlanRow),
+          trialConfig: {
+            enabled: true,
+            durationDays: 7,
+            maxUsers: 5,
+            eligible: true,
+            alreadyUsed: false,
+          },
+        };
+      }
+    } catch {}
+
     return {
       success: true,
       data: [],
@@ -276,8 +299,43 @@ export class BillingService {
       25000,
     ];
 
-    const { rows } = await this.postgres.query(sql, params);
-    return formatPlanRow(rows[0]);
+    try {
+      const { rows } = await this.postgres.query(sql, params);
+      return formatPlanRow(rows[0]);
+    } catch (err: any) {
+      this.logger.warn(`Postgres direct insert failed: ${err.message}. Falling back to Prisma.`);
+      const created = await this.prisma.plan.create({
+        data: {
+          id,
+          name: dto.name.trim(),
+          slug,
+          description: dto.description || `${dto.name.trim()} tier with dedicated workspace limits.`,
+          price: monthlyPrice,
+          monthlyPrice,
+          yearlyPrice,
+          currency: dto.currency || 'INR',
+          billingCycle: 'monthly',
+          maxUsers,
+          teamSeats: maxUsers,
+          apiLimit: dto.apiLimit || '100,000 req/mo',
+          storageLimit: dto.storageLimit || '10 GB',
+          supportSla: dto.supportSla || '24h Support Response',
+          supportLevel: dto.supportSla || 'Standard',
+          customDomain: Boolean(dto.customDomain),
+          sso: Boolean(dto.sso),
+          advancedAnalytics: Boolean(dto.advancedAnalytics),
+          prioritySupport: Boolean(dto.prioritySupport),
+          isPopular: Boolean(dto.isPopular),
+          status: dto.status || 'ACTIVE',
+          features: dto.features || [],
+          monthlyMessages: 25000,
+          botflows: 5,
+          maxMessages: 25000,
+          tenantId,
+        },
+      });
+      return formatPlanRow(created);
+    }
   }
 
   /**
