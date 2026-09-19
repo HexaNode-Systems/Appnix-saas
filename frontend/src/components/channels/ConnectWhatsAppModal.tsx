@@ -431,9 +431,14 @@ export function ConnectWhatsAppModal({
           response_type: "code",
           override_default_response_type: true,
           extras: {
-            setup: {},
-            featureType: "",
+            feature: "whatsapp_embedded_signup",
             sessionInfoVersion: "3",
+            version: "v21.0",
+            setup: {
+              // Enables user to choose between their existing WhatsApp Business App number OR a new number
+              business: {},
+              phone: {},
+            },
           },
         }
       );
@@ -554,7 +559,7 @@ export function ConnectWhatsAppModal({
                       3
                     </div>
                     <span>
-                      Select or register your business phone number and complete real-time OTP verification.
+                      <strong>Hybrid / Coexistence Supported:</strong> Select your existing WhatsApp Business App number (keep chatting on your phone) OR onboard a brand-new number.
                     </span>
                   </div>
                   <div className="flex items-start gap-2.5">

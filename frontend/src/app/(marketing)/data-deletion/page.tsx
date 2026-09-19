@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { DataDeletionView } from "@/components/legal/DataDeletionView";
 
 export const metadata: Metadata = {
   title: "Appnix Technologies Data Deletion",
-  description: "Instructions for requesting deletion of data associated with the Appnix Technologies SaaS platform.",
+  description: "Instructions and status tracking for requesting deletion of data associated with the Appnix Technologies SaaS platform.",
   alternates: {
     canonical: "https://www.appnix.co.in/data-deletion",
   },
@@ -20,7 +21,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "Appnix Technologies Data Deletion",
-    description: "Instructions for requesting deletion of data associated with the Appnix Technologies SaaS platform.",
+    description: "Instructions and status tracking for requesting deletion of data associated with the Appnix Technologies SaaS platform.",
     url: "https://www.appnix.co.in/data-deletion",
     siteName: "Appnix Technologies",
     type: "website",
@@ -29,10 +30,14 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary",
     title: "Appnix Technologies Data Deletion",
-    description: "Instructions for requesting deletion of data associated with the Appnix Technologies SaaS platform.",
+    description: "Instructions and status tracking for requesting deletion of data associated with the Appnix Technologies SaaS platform.",
   },
 };
 
 export default function DataDeletionPage() {
-  return <DataDeletionView />;
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">Loading Data Deletion Portal...</div>}>
+      <DataDeletionView />
+    </Suspense>
+  );
 }

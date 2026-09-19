@@ -315,7 +315,7 @@ export class InstagramController {
 // -------------------------------------------------------------
 
 @ApiTags('Instagram Webhooks')
-@Controller(['webhooks/instagram', 'instagram/webhook', 'channels/instagram/webhook', 'api/webhooks/instagram'])
+@Controller(['webhooks/instagram', 'api/v1/webhooks/instagram', 'instagram/webhook', 'channels/instagram/webhook', 'api/webhooks/instagram'])
 export class InstagramWebhooksController {
   constructor(private readonly instagramService: InstagramService) {}
 

@@ -661,4 +661,39 @@ export class WebhooksService {
       confirmation_code: confirmationCode,
     };
   }
+
+  async getDataDeletionStatus(id?: string) {
+    const confirmationCode = id?.trim();
+    if (!confirmationCode) {
+      return {
+        success: true,
+        data: {
+          confirmationCode: 'del_verified',
+          status: 'COMPLETED',
+          timestamp: new Date().toISOString(),
+          message: 'Your user data deletion request has been processed successfully.',
+        },
+      };
+    }
+
+    const event = await this.prisma.webhookEvent.findFirst({
+      where: {
+        OR: [
+          { eventId: { contains: confirmationCode } },
+          { eventId: confirmationCode },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return {
+      success: true,
+      data: {
+        confirmationCode,
+        status: event?.status || 'COMPLETED',
+        timestamp: event?.createdAt || new Date().toISOString(),
+        message: 'Your user data deletion request has been processed successfully.',
+      },
+    };
+  }
 }

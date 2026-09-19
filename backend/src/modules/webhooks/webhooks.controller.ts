@@ -15,7 +15,7 @@ import { WebhooksService } from './webhooks.service';
 import { Request } from 'express';
 
 @ApiTags('Webhooks')
-@Controller(['webhooks', 'api/webhooks'])
+@Controller(['webhooks', 'api/v1/webhooks', 'api/webhooks'])
 export class WebhooksController {
   constructor(private readonly webhooksService: WebhooksService) {}
 
@@ -61,5 +61,11 @@ export class WebhooksController {
   ) {
     const signedRequest = body?.signed_request || (req as any)?.query?.signed_request;
     return this.webhooksService.handleMetaDataDeletion(signedRequest, body);
+  }
+
+  @Get(['meta/data-deletion-status', 'channels/meta/data-deletion-status'])
+  @ApiOperation({ summary: 'Public Data Deletion Status Lookup (GDPR / Meta Platform Terms)' })
+  async getDataDeletionStatus(@Query('id') id: string) {
+    return this.webhooksService.getDataDeletionStatus(id);
   }
 }

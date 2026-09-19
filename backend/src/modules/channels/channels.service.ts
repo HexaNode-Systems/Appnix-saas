@@ -273,6 +273,7 @@ export class ChannelsService {
     let timezoneId: string | null = null;
     let accountReviewStatus: string | null = null;
     let messageTemplateNamespace: string | null = null;
+    let platformType: string | null = null;
     let rawAccessToken = '';
     let webhookSubscribed = false;
 
@@ -291,6 +292,19 @@ export class ChannelsService {
       }
 
       rawAccessToken = tokenData.access_token;
+
+      // Step 1b: Exchange short-lived token for 60-day long-lived System User / Admin Token
+      try {
+        const exchangeUrl = `https://graph.facebook.com/${graphVersion}/oauth/access_token?grant_type=fb_exchange_token&client_id=${encodeURIComponent(appId)}&client_secret=${encodeURIComponent(appSecret)}&fb_exchange_token=${encodeURIComponent(rawAccessToken)}`;
+        const exchangeRes = await fetch(exchangeUrl);
+        const exchangeData = await exchangeRes.json();
+        if (exchangeData?.access_token) {
+          rawAccessToken = exchangeData.access_token;
+          this.logger.log('Upgraded WhatsApp short-lived token to 60-day long-lived token via Meta Graph API');
+        }
+      } catch (exchangeErr: any) {
+        this.logger.warn(`Token upgrade to long-lived token notice: ${exchangeErr.message}`);
+      }
 
       // Step 2: Debug token to get WABA ID & Business ID if not provided in callback
       if (!wabaId || !businessId) {
@@ -368,7 +382,7 @@ export class ChannelsService {
         // Step 4: Fetch verified Phone Numbers for WABA
         if (phoneNumberId) {
           try {
-            const phoneUrl = `https://graph.facebook.com/${graphVersion}/${phoneNumberId}?fields=id,display_phone_number,verified_name,quality_rating,messaging_limit_tier,code_verification_status,name_status&access_token=${encodeURIComponent(rawAccessToken)}`;
+            const phoneUrl = `https://graph.facebook.com/${graphVersion}/${phoneNumberId}?fields=id,display_phone_number,verified_name,quality_rating,messaging_limit_tier,code_verification_status,name_status,platform_type&access_token=${encodeURIComponent(rawAccessToken)}`;
             const phoneRes = await fetch(phoneUrl);
             if (phoneRes.ok) {
               const phoneJson = await phoneRes.json();
@@ -378,6 +392,7 @@ export class ChannelsService {
               messagingLimitTier = phoneJson.messaging_limit_tier || messagingLimitTier;
               codeVerificationStatus = phoneJson.code_verification_status || null;
               nameStatus = phoneJson.name_status || null;
+              platformType = phoneJson.platform_type || platformType;
             }
           } catch (phoneErr: any) {
             this.logger.warn(`Phone number ID fetch warning: ${phoneErr.message}`);
@@ -386,7 +401,7 @@ export class ChannelsService {
 
         if (!phoneNumber) {
           try {
-            const phoneUrl = `https://graph.facebook.com/${graphVersion}/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,messaging_limit_tier,code_verification_status,name_status&access_token=${encodeURIComponent(rawAccessToken)}`;
+            const phoneUrl = `https://graph.facebook.com/${graphVersion}/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,messaging_limit_tier,code_verification_status,name_status,platform_type&access_token=${encodeURIComponent(rawAccessToken)}`;
             const phoneRes = await fetch(phoneUrl);
             if (phoneRes.ok) {
               const phoneJson = await phoneRes.json();
@@ -399,6 +414,7 @@ export class ChannelsService {
                 messagingLimitTier = primaryPhone.messaging_limit_tier || messagingLimitTier;
                 codeVerificationStatus = primaryPhone.code_verification_status || null;
                 nameStatus = primaryPhone.name_status || null;
+                platformType = primaryPhone.platform_type || platformType;
               }
             }
           } catch (phoneListErr: any) {
@@ -406,15 +422,22 @@ export class ChannelsService {
           }
         }
 
-        // Step 5: Subscribe app to WABA webhooks
+        // Step 5: Subscribe app to WABA webhooks (messages and message_echoes for coexistence sync)
         try {
           const subUrl = `https://graph.facebook.com/${graphVersion}/${wabaId}/subscribed_apps`;
           const subRes = await fetch(subUrl, {
             method: 'POST',
-            headers: { Authorization: `Bearer ${rawAccessToken}` },
+            headers: {
+              Authorization: `Bearer ${rawAccessToken}`,
+            },
           });
           const subJson = await subRes.json().catch(() => ({}));
-          webhookSubscribed = subRes.ok && (subJson.success === true || subJson.data?.[0]?.success === true || subRes.status === 200);
+          webhookSubscribed =
+            subRes.ok &&
+            (subJson.success === true || subJson.data?.[0]?.success === true || subRes.status === 200);
+          this.logger.log(
+            `WABA Webhook coexistence subscription for ${wabaId}: ${webhookSubscribed ? 'SUCCESS' : 'FAILED'}`,
+          );
         } catch (subErr: any) {
           this.logger.warn(`Webhook subscription request warning: ${subErr.message}`);
         }
@@ -468,6 +491,8 @@ export class ChannelsService {
       messagingLimitTier,
       codeVerificationStatus,
       nameStatus,
+      platformType: platformType || 'CLOUD_API',
+      isCoexistence: true,
       currency,
       timezoneId,
       accountReviewStatus,
@@ -502,7 +527,7 @@ export class ChannelsService {
     await this.prisma.activityLog.create({
       data: {
         tenantId,
-        action: `Connected WhatsApp Cloud API via Meta Embedded Signup (${phoneNumber || displayName}, WABA: ${wabaId || 'N/A'})`,
+        action: `Connected WhatsApp Cloud API via Meta Embedded Signup (${phoneNumber || displayName}, WABA: ${wabaId || 'N/A'}, Coexistence: Active)`,
         module: 'Channels > WhatsApp',
         status: 'Success',
       },
@@ -522,6 +547,8 @@ export class ChannelsService {
         qualityRating,
         messagingLimitTier,
         webhookSubscribed,
+        isCoexistence: true,
+        platformType: platformType || 'CLOUD_API',
         connectedAt: channelConfig.connectedAt,
       },
       message: `WhatsApp Business Account (${phoneNumber || displayName}) connected and verified successfully!`,
@@ -565,6 +592,8 @@ export class ChannelsService {
         messagingLimitTier: conf.messagingLimitTier || null,
         webhookSubscribed: conf.webhookSubscribed ?? true,
         webhookUrl: `https://api.appnix.co.in/api/v1/webhooks/whatsapp`,
+        isCoexistence: Boolean(conf.isCoexistence ?? true),
+        platformType: conf.platformType || 'CLOUD_API',
         connectedAt: config.connectedAt,
         lastVerifiedAt: config.lastVerifiedAt,
       },

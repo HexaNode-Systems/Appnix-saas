@@ -1133,11 +1133,14 @@ export class InstagramService {
     const expectedSignature = signatureHeader.substring(7);
     const hmac = crypto.createHmac('sha256', this.metaAppSecret);
     const digest = hmac.update(rawBody).digest('hex');
+    const expectedBuf = Buffer.from(expectedSignature, 'hex');
+    const digestBuf = Buffer.from(digest, 'hex');
 
-    return crypto.timingSafeEqual(
-      Buffer.from(expectedSignature, 'hex'),
-      Buffer.from(digest, 'hex'),
-    );
+    if (expectedBuf.length !== digestBuf.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(expectedBuf, digestBuf);
   }
 
   /**
